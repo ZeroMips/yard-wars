@@ -96,7 +96,7 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
 ## Multiplayer plan (branch `net/world`)
 Server-authoritative, host device = server, LAN first (enet is built into LÖVE 11.5).
 1. DONE: `src/world.lua` refactor (single-player, same gameplay). Headless-tested: world
-   runs with graphics/window modules disabled.
+   runs with graphics/window modules disabled. Confirmed on the phone (2026-09-29).
 2. Host/join by IP, clients send input `{dx, dy, aim, fire, seq}`, server sends snapshots
    (+ events, bullet spawns), clients interpolate others ~100 ms behind.
 3. Own-player prediction/reconciliation, LAN discovery lobby, team mode, disconnects.
