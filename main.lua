@@ -45,7 +45,7 @@ local function uiScale() return math.min(love.graphics.getDimensions()) / 720 en
 local function selectRowdy(i)
     rowdyIndex = ((i - 1) % #Rowdies) + 1
     local def = Rowdies[rowdyIndex]
-    player:setRowdy(Assets.look(def.character, def.weapon), def.stats)
+    player:setRowdy(Assets.look(def.character, def.weapon, def.comic), def.stats)
     Controls.switchLabel = "Rowdy: " .. def.name
 end
 
@@ -66,10 +66,15 @@ local function enemySpawnPoint(i)
     return sx, sy
 end
 
+local function botLook()
+    local bot = Rowdies.bot
+    return Assets.look(bot.character, bot.weapon, bot.comic)
+end
+
 local function spawnBots(count)
     for i = 1, count do
         local x, y = enemySpawnPoint(i)
-        local e = Enemy.new(x, y, Assets.look("robot1", "machine"))
+        local e = Enemy.new(x, y, botLook())
         e:respawn() -- pop-in animation + spawn ring
         enemies[#enemies + 1] = e
     end
@@ -92,7 +97,7 @@ local function newGame(m)
 
     local def = Rowdies[rowdyIndex]
     player = Player.new(Arena.spawn.x, Arena.spawn.y,
-        Assets.look(def.character, def.weapon), def.stats)
+        Assets.look(def.character, def.weapon, def.comic), def.stats)
     selectRowdy(rowdyIndex)
     if mode.waves then startWave() else spawnBots(1) end
     Camera.snap(player.x, player.y, Arena.width, Arena.height)
@@ -350,6 +355,14 @@ function love.keypressed(key)
         return
     end
     if key == "escape" then openMenu() return end
+    if key == "f2" then -- toggle art style: comic <-> Kenney (only the looks change)
+        Assets.style = (Assets.style == "comic") and "kenney" or "comic"
+        local hp, ammo = player.hp, player.ammo
+        selectRowdy(rowdyIndex)
+        player.hp, player.ammo = hp, ammo
+        for _, e in ipairs(enemies) do e.look = botLook() end
+        return
+    end
     local n = tonumber(key)
     if n and Rowdies[n] then selectRowdy(n) end
 end

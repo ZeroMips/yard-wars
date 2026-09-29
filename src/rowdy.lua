@@ -33,6 +33,7 @@ function Rowdy:applyStats(stats)
 end
 
 -- look = { poses = <pose images>, weapon = "gun" | "machine" | "silencer" }
+-- or a single-sprite comic look (see Assets.look)
 function Rowdy:init(x, y, look, stats)
     self.x, self.y = x, y
     self.spawnX, self.spawnY = x, y
@@ -142,7 +143,7 @@ end
 
 -- World position of the gun barrel (bullets spawn here)
 function Rowdy:muzzle()
-    local m = MUZZLE[self.look.weapon] or MUZZLE.gun
+    local m = self.look.muzzle or MUZZLE[self.look.weapon] or MUZZLE.gun
     local c, s = math.cos(self.aim), math.sin(self.aim)
     return self.x + c * m[1] - s * m[2],
            self.y + s * m[1] + c * m[2]
@@ -283,10 +284,6 @@ function Rowdy:draw()
     local px = self.x - math.cos(self.aim) * self.recoil * 5
     local py = self.y - math.sin(self.aim) * self.recoil * 5
 
-    -- Out of ammo: show the reload pose
-    local pose = (self.ammo == 0) and "reload" or self.look.weapon
-    local img = self.look.poses[pose] or self.look.poses.gun
-
     love.graphics.setColor(0, 0, 0, 0.25 * alpha)
     love.graphics.ellipse("fill", self.x, self.y + 6, self.radius * pop, self.radius * 0.8 * pop)
 
@@ -295,7 +292,18 @@ function Rowdy:draw()
     else
         love.graphics.setColor(1, 1, 1, alpha)
     end
-    love.graphics.draw(img, px, py, self.aim + sway, sx, sy, ORIGIN_X, ORIGIN_Y)
+    local look = self.look
+    if look.sprite then
+        -- Comic art faces up: rotate a quarter turn more, and sx (the aim axis) is its y
+        local k = look.scale
+        love.graphics.draw(look.sprite, px, py, self.aim + sway + math.pi / 2,
+            k * sy, k * sx, look.origin[1], look.origin[2])
+    else
+        -- Out of ammo: show the reload pose
+        local pose = (self.ammo == 0) and "reload" or look.weapon
+        local img = look.poses[pose] or look.poses.gun
+        love.graphics.draw(img, px, py, self.aim + sway, sx, sy, ORIGIN_X, ORIGIN_Y)
+    end
 
     self:drawMuzzleFlash()
     self:drawHealthBar()

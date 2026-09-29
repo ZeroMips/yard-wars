@@ -20,10 +20,12 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
 ## Layout
 - `main.lua` — state (menu/game), game modes (`MODES`: Duel = respawning bot, Waves = +1 bot
   per cleared wave), game loop, bullet/hit logic (sub-stepped), HUD, minimap, rowdy switching.
-  Escape / Android back: game → menu, menu → quit.
+  Escape / Android back: game → menu, menu → quit. F2 toggles the art style
+  (comic / Kenney) for player and bots.
 - `src/menu.lua` — start screen with one button per mode (mouse, touch, keyboard)
 - `conf.lua` — identity "yard-wars", 1280x720 resizable window
-- `src/assets.lua` — tilesheet quads + character pose images; `Assets.look(character, weapon)`
+- `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
+  ("comic" | "kenney"), `Assets.look(character, weapon, comic)`
 - `src/arena.lua` — 40x24 tiles (64px), left half defined and mirrored to the right;
   walls (solid, 2x2), crates (solid), bushes (hiding, 2x2); `resolveCircle`, `hitsSolid`,
   raycast, `hasLineOfSight`, `randomOpenPoint`, spawns
@@ -38,13 +40,17 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
   (pellets/spread), aim beam/cone (`drawAim`), health/ammo bars, animation (pose, walk
   sway/bob, breathing, recoil, muzzle flash, spawn pop-in), hooks into Effects
 - `src/rowdies.lua` — data: Gunner (pistol), Shotgunner (5 pellets, 0.6 rad cone),
-  Sniper (range 720). See the comment at the top for stat meanings.
+  Sniper (range 720), plus `Rowdies.bot` (enemy look). See the comment at the top for
+  stat meanings and the `comic` look entry.
 - `src/player.lua` — Player subclass, `update(dt, input, bullets)`, 0.25s fire buffer
 - `src/enemy.lua` — Bot subclass: states patrol/chase/strafe/retreat/flee/search, LOS +
   bush-reveal rules, aim spread, stuck detection (slides sideways)
 - `src/bullet.lua` — owner/damage/color; speed+range read from owner (default range 480)
 - `src/effects.lua` — particles: puff, sparks, burst, ring (`drawBelow`/`drawAbove` layers)
-- `assets/images/` — `tilesheet.png` (Kenney), `characters/<name>_<pose>.png`
+- `assets/images/` — `tilesheet.png` (Kenney), `characters/<name>_<pose>.png`,
+  `comic/<name>.png`
+- `tools/make_comic_sprites.py` — AI image (white bg, facing up) → cut out, trimmed,
+  88px-wide sprite; prints origin + muzzle for `src/rowdies.lua`
 
 ## Conventions
 - Code and comments in English.
@@ -55,9 +61,17 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
 - Tile art uses nearest filtering to avoid bleeding when scaled.
 
 ## Art
-- Current: Kenney "Top-down Shooter" (CC0, see CREDITS.md). 6 still poses per character
+- Branch `art/comic` (default style there): one still sprite per character, generated with
+  Google Gemini (prompts + raw 1024px JPEGs in ~/Downloads/yard-wars-art/, not in the repo),
+  top-down, facing UP, bold outline. Stored at 2x (88px wide), drawn at
+  `Assets.comicScale` 0.5 with mipmaps; rotates around the head (`origin`). Keeps the
+  Kenney-style animation (sway, bob, recoil, flash); no reload pose.
+  New character: same Gemini chat, then add the name to `NAMES` in the tool and
+  `Assets.comicNames`, run the tool, copy origin/muzzle into `src/rowdies.lua`.
+- Kenney "Top-down Shooter" (CC0, see CREDITS.md). 6 still poses per character
   (stand/hold/gun/machine/silencer/reload), all sharing body-center origin (16, 21.5).
-- Under evaluation: "Undead Empire 2D Assets" (2015) — 64x64 top-down, layered characters
+- Set aside (too gritty, comic style preferred): "Undead Empire 2D Assets" (2015), prototype
+  on local branch `art/undead-empire` — 64x64 top-down, layered characters
   (4-frame legs walk cycle + torso poses 1h/2h/DW + separate weapon sprites), zombies,
   effects, dungeon tiles. Gritty horror style rather than cartoon. No license file in the
   zip → verify source and license before any public use. Would need a small
