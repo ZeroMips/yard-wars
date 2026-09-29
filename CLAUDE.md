@@ -18,7 +18,10 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
   start it from its icon.
 
 ## Layout
-- `main.lua` — game loop, bullet/hit logic (sub-stepped), HUD, minimap, rowdy switching
+- `main.lua` — state (menu/game), game modes (`MODES`: Duel = respawning bot, Waves = +1 bot
+  per cleared wave), game loop, bullet/hit logic (sub-stepped), HUD, minimap, rowdy switching.
+  Escape / Android back: game → menu, menu → quit.
+- `src/menu.lua` — start screen with one button per mode (mouse, touch, keyboard)
 - `conf.lua` — identity "yard-wars", 1280x720 resizable window
 - `src/assets.lua` — tilesheet quads + character pose images; `Assets.look(character, weapon)`
 - `src/arena.lua` — 40x24 tiles (64px), left half defined and mirrored to the right;

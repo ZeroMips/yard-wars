@@ -36,6 +36,12 @@ local function stickVector(s)
     return dx / len * mag, dy / len * mag, mag
 end
 
+-- Forget all active touches and queued shots (new game / back to menu)
+function Controls.reset()
+    move.id, aim.id, pendingShot = nil, nil, nil
+    Controls.switchRequested = false
+end
+
 -- ---- Touch callbacks (forwarded from main.lua) ----
 function Controls.touchpressed(id, x, y)
     Controls.touchMode = true

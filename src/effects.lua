@@ -5,6 +5,9 @@ local list = {}
 
 local function add(p) list[#list + 1] = p end
 
+-- Remove all particles (new game)
+function Effects.clear() list = {} end
+
 -- Dust puff at a footstep
 function Effects.puff(x, y)
     local l = 0.45
