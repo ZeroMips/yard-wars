@@ -64,7 +64,7 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
 - Branch `art/comic` (default style there): one still sprite per character, generated with
   Google Gemini (prompts + raw 1024px JPEGs in ~/Downloads/yard-wars-art/, not in the repo),
   top-down, facing UP, bold outline. Stored at 2x (88px wide), drawn at
-  `Assets.comicScale` 0.5 with mipmaps; rotates around the head (`origin`). Keeps the
+  `Assets.comicScale` 0.6 with mipmaps; rotates around the head (`origin`). Keeps the
   Kenney-style animation (sway, bob, recoil, flash); no reload pose.
   New character: same Gemini chat, then add the name to `NAMES` in the tool and
   `Assets.comicNames`, run the tool, copy origin/muzzle into `src/rowdies.lua`.

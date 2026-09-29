@@ -10,7 +10,7 @@ local POSES = { "stand", "hold", "gun", "machine", "silencer", "reload" }
 -- Art style: "comic" (one AI-generated still per character, see tools/make_comic_sprites.py)
 -- or "kenney" (pose images). F2 toggles it on desktop.
 Assets.style = "comic"
-Assets.comicScale = 0.5 -- comic sprites are stored at 2x for sharp high-DPI screens
+Assets.comicScale = 0.6 -- sprites are stored at ~2x (88px wide) for sharp high-DPI screens
 Assets.comicNames = { "gunner", "shotgunner", "sniper", "bot" }
 
 function Assets.load()
