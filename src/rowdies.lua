@@ -40,10 +40,25 @@ local Rowdies = {
     },
 }
 
--- Look of the enemy bots (not playable, so not part of the list above)
+-- The enemy bots (not playable, so not part of the list above)
 Rowdies.bot = {
-    character = "robot1", weapon = "machine",
+    name = "Bot", character = "robot1", weapon = "machine",
     comic = { image = "bot", origin = { 46, 81 }, muzzle = { 79, 0 } },
+    stats = { speed = 170, hp = 100, damage = 15, reload = 0.6, maxAmmo = 3, ammoRefill = 1.8,
+              barColor = { 0.9, 0.25, 0.25 }, bulletColor = { 1, 0.35, 0.3 } },
 }
+
+-- Short key for a definition (sent over the network): its index, or "bot"
+function Rowdies.key(def)
+    if def == Rowdies.bot then return "bot" end
+    for i, d in ipairs(Rowdies) do
+        if d == def then return i end
+    end
+end
+
+function Rowdies.byKey(key)
+    if key == "bot" then return Rowdies.bot end
+    return Rowdies[key]
+end
 
 return Rowdies

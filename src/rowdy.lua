@@ -127,7 +127,8 @@ function Rowdy:animateWalk(moved, dt)
         if self.stepTimer <= 0 then
             self.stepTimer = 0.14
             if not Arena.inBush(self.x, self.y) then -- dust would give away a hiding spot
-                self:emit("step", { x = self.x - self.dirX * 12, y = self.y - self.dirY * 12 + 10 })
+                self:emit("step", { id = self.id,
+                    x = self.x - self.dirX * 12, y = self.y - self.dirY * 12 + 10 })
             end
         end
     end
@@ -240,7 +241,7 @@ function Rowdy:drawHealthBar()
     love.graphics.rectangle("fill", x - 2, y - 2, w + 4, h + 4, 3, 3)
     love.graphics.setColor(0.25, 0.25, 0.25, 1)
     love.graphics.rectangle("fill", x, y, w, h, 2, 2)
-    local c = self.barColor
+    local c = self.hudColor or self.barColor -- hudColor: set by the renderer (team colors)
     love.graphics.setColor(c[1], c[2], c[3], 1)
     love.graphics.rectangle("fill", x, y, w * (self.hp / self.maxHp), h, 2, 2)
     if self.showAmmo then self:drawAmmoBar(x, y + h + 5, w) end

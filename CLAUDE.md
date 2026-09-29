@@ -8,6 +8,13 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
 - Quick smoke test (no errors on load/first frames): `timeout 6 love .` — LÖVE prints
   error tracebacks to stdout; exit code 124 means it ran until the timeout.
 - Packed build: `zip -9 -r ../yard-wars.love . -x '.git/*'`
+- LAN test on one machine: `love . --host` (or `--host waves`) and `love . --join 127.0.0.1`
+  in a second terminal. UDP port 27015 (if the phone can't connect: `sudo ufw allow 27015/udp`).
+- Scripted test harnesses (copy main.lua to game.lua in a temp dir, override love.update/
+  draw, symlink `src`/`assets`): NEVER symlink conf.lua (writing the test conf overwrote
+  the real one once), and set `t.window.vsync = 0` + `love.timer.sleep` — with vsync the
+  window blocks forever when the screen is locked. Print needs `io.stdout:setvbuf("no")`
+  if the process gets killed by `timeout`.
 
 ## Android test workflow (took a while to figure out — don't change without reason)
 - Use the OFFICIAL "LÖVE for Android" (package `org.love2d.android`, APK from
@@ -18,8 +25,8 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
   start it from its icon.
 
 ## Layout
-- `main.lua` — client: state (menu/game), game modes (`MODES`: Duel = respawning bot,
-  Waves = +1 bot per cleared wave), fixed-step loop (`World.TICK` = 1/60, a shot from the
+- `main.lua` — client: state (menu/join/game), roles local/host/client, `MENU` entries
+  (Duel, Waves, Host LAN duel = free-for-all, Host LAN waves = co-op, Join), fixed-step loop (`World.TICK` = 1/60, a shot from the
   controls is kept until a step uses it), local player by id (`localId`), world events →
   particles/shake, camera, HUD, minimap, rowdy switching.
   Escape / Android back: game → menu, menu → quit. F2 toggles the art style
@@ -28,6 +35,14 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
   `id`/`team`/`def`/kills/deaths, bullets (sub-stepped, hit other teams), waves, bush
   hiding (`isHiddenFrom`), `nearestOpponent`; `update(dt, inputs[id])`; things that happened
   go to `world.events` (spawn/death/step/impact/hit) via `emit`, read with `takeEvents()`
+- `src/net.lua` — enet LAN server (runs next to the World on the host: hello → player,
+  input per step, events reliable + 30 Hz snapshots unreliable, 6 s timeout) and client
+  (hello/input/rowdy; input `fire` is a counter so lost packets lose no shot)
+- `src/replica.lua` — client-side World copy from snapshots: others interpolated 100 ms
+  behind the host, own rowdy 50 ms; bullets drawn from spawn records (straight lines);
+  events played when their time comes; clock offset = max(t - arrival), pulled down 10%
+- `src/codec.lua` — message serializer (no loadstring; rejects malformed input)
+- `src/join.lua` — join screen (address field in the upper half, last address saved)
 - `src/menu.lua` — start screen with one button per mode (mouse, touch, keyboard)
 - `conf.lua` — identity "yard-wars", 1280x720 resizable window
 - `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
@@ -97,8 +112,11 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
 Server-authoritative, host device = server, LAN first (enet is built into LÖVE 11.5).
 1. DONE: `src/world.lua` refactor (single-player, same gameplay). Headless-tested: world
    runs with graphics/window modules disabled. Confirmed on the phone (2026-09-29).
-2. Host/join by IP, clients send input `{dx, dy, aim, fire, seq}`, server sends snapshots
-   (+ events, bullet spawns), clients interpolate others ~100 ms behind.
+2. DONE on desktop (two instances, 2026-09-29): host/join by IP, input → host, events +
+   snapshots → clients, interpolation. Duel = free-for-all (own team per player), Waves =
+   co-op. Checked: PvP kills/deaths agree on both sides, rowdy switch from a client,
+   no friendly fire in co-op, disconnect removes the player / client returns to the menu.
+   NOT yet tried phone <-> desktop.
 3. Own-player prediction/reconciliation, LAN discovery lobby, team mode, disconnects.
 4. Optional: internet play via a dedicated headless server on a VPS.
 Not done yet: render interpolation between steps (60 Hz sim looks slightly uneven on

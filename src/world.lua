@@ -33,14 +33,20 @@ function World.new(mode)
         bullets = {},
         events = {},
         nextId = 1,
+        nextBulletId = 1,
+        nextTeam = 3, -- free-for-all: every player gets a team of their own
+        time = 0,     -- simulated seconds since the start
         wave = 0, waveSize = 0,
         waveTimer = 0, -- countdown to the next wave once all bots are dead
     }, World)
 end
 
--- Events: { kind = "spawn" | "death" | "step" | "impact" | "hit", x, y, ... }
+-- Events: { kind, t = world time, x, y, ... }
+--   spawn {id}  death {id, color}  step {id}  bullet {see newBullets}
+--   impact {bullet, owner, color} (wall/crate)  hit {bullet, owner, victim}
 function World:emit(kind, data)
     data.kind = kind
+    data.t = self.time
     self.events[#self.events + 1] = data
 end
 
@@ -69,9 +75,32 @@ end
 
 function World:get(id) return self.byId[id] end
 
--- def: an entry of src/rowdies.lua
-function World:addPlayer(def, x, y)
-    return self:add(Player.new(x, y, Assets.look(def), def.stats), World.TEAM_PLAYERS, def)
+-- def: an entry of src/rowdies.lua. team: default TEAM_PLAYERS (all players together);
+-- World:newTeam() gives a team of its own (free-for-all).
+function World:addPlayer(def, x, y, team)
+    return self:add(Player.new(x, y, Assets.look(def), def.stats),
+        team or World.TEAM_PLAYERS, def)
+end
+
+function World:newTeam()
+    self.nextTeam = self.nextTeam + 1
+    return self.nextTeam - 1
+end
+
+-- Spawn point for another player: the regular spawn for the first one, otherwise the
+-- free spot farthest from everybody else (out of a few random tries).
+function World:playerSpawn()
+    if #self.entities == 0 then return Arena.spawn.x, Arena.spawn.y end
+    local bx, by, bestD2
+    for _ = 1, 30 do
+        local x, y = Arena.randomOpenPoint()
+        local d2 = math.huge
+        for _, e in ipairs(self.entities) do
+            d2 = math.min(d2, (e.x - x) ^ 2 + (e.y - y) ^ 2)
+        end
+        if not bestD2 or d2 > bestD2 then bx, by, bestD2 = x, y, d2 end
+    end
+    return bx, by
 end
 
 -- Switch a player to another rowdy (resets HP and ammo)
@@ -147,7 +176,7 @@ function World:spawnBots(count)
     local def = Rowdies.bot
     for i = 1, count do
         local x, y = botSpawnPoint(self, i)
-        local e = self:add(Enemy.new(x, y, Assets.look(def)), World.TEAM_BOTS, def)
+        local e = self:add(Enemy.new(x, y, Assets.look(def), def.stats), World.TEAM_BOTS, def)
         e:respawn() -- pop-in animation + spawn event
     end
 end
@@ -183,7 +212,8 @@ local function updateBullets(self, dt)
         for _ = 1, steps do
             b:update(dt / steps)
             if Arena.hitsSolid(b.x, b.y, Bullet.radius) then
-                self:emit("impact", { x = b.x, y = b.y, color = b.color }) -- wall / crate
+                self:emit("impact", { x = b.x, y = b.y, color = b.color, -- wall / crate
+                    bullet = b.id, owner = b.owner.id })
                 remove = true
                 break
             elseif b.life <= 0 then
@@ -197,7 +227,8 @@ local function updateBullets(self, dt)
             end
             if victim then
                 remove = true
-                self:emit("hit", { x = b.x, y = b.y, victim = victim.id })
+                self:emit("hit", { x = b.x, y = b.y, victim = victim.id,
+                    bullet = b.id, owner = b.owner.id })
                 if victim:takeDamage(b.damage) then
                     victim.deaths = victim.deaths + 1
                     local killer = self.byId[b.owner.id]
@@ -227,6 +258,19 @@ local function updateWaves(self, dt)
     end
 end
 
+-- Give bullets fired in this step an id and announce them. A bullet flies in a straight
+-- line, so a client can draw it from this alone: position(t) = x0 + vx * (t - t0).
+local function newBullets(self)
+    for _, b in ipairs(self.bullets) do
+        if not b.id then
+            b.id, b.t0 = self.nextBulletId, self.time
+            self.nextBulletId = self.nextBulletId + 1
+            self:emit("bullet", { id = b.id, owner = b.owner.id, x = b.x, y = b.y,
+                vx = b.vx, vy = b.vy, life = b.life })
+        end
+    end
+end
+
 -- One simulation step. inputs[id] = input table for player `id` (missing = idle).
 function World:update(dt, inputs)
     for _, e in ipairs(self.entities) do
@@ -236,8 +280,10 @@ function World:update(dt, inputs)
             e:update(dt, inputs[e.id] or IDLE, self.bullets)
         end
     end
+    newBullets(self)
     updateBullets(self, dt)
     if self.mode.waves then updateWaves(self, dt) end
+    self.time = self.time + dt
 end
 
 return World

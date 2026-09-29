@@ -13,12 +13,10 @@ local PREFERRED_MIN = 220  -- closer than this: back off
 local PREFERRED_MAX = 340  -- farther than this: approach
 local AIM_SPREAD    = 0.25 -- radians of random inaccuracy
 
-function Enemy.new(x, y, image)
+-- stats: see src/rowdies.lua (Rowdies.bot)
+function Enemy.new(x, y, look, stats)
     local self = setmetatable({}, Enemy)
-    self:init(x, y, image, {
-        speed = 170, hp = 100, damage = 15, reload = 0.6, maxAmmo = 3, ammoRefill = 1.8,
-        barColor = { 0.9, 0.25, 0.25 }, bulletColor = { 1, 0.35, 0.3 },
-    })
+    self:init(x, y, look, stats)
     self.state = "patrol"
     self.wx, self.wy = x, y
     self.wanderTimer = 0
