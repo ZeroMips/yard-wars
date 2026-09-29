@@ -50,19 +50,23 @@ function Assets.load()
     end
 end
 
--- A "look" = which character + which weapon pose to hold ("gun", "machine", "silencer").
--- With style "comic" and a `comic` entry (see src/rowdies.lua) it is a single sprite:
---   { sprite = img, origin = {x, y}, scale, muzzle = {forward, sideways} in world px }
-function Assets.look(character, weapon, comic)
-    if Assets.style == "comic" and comic then
-        local k = Assets.comicScale
+-- A "look" says how a rowdy definition (src/rowdies.lua) is drawn in the current
+-- style. It is plain data (image names, no images), so the simulation can use it
+-- without graphics (the muzzle position depends on it):
+--   comic : { style = "comic", image, weapon, origin = {x, y}, scale,
+--             muzzle = {forward, sideways} in world px }
+--   kenney: { style = "kenney", character, weapon }
+function Assets.look(def)
+    local weapon = def.weapon or "gun"
+    if Assets.style == "comic" and def.comic then
+        local c, k = def.comic, Assets.comicScale
         return {
-            sprite = Assets.comic[comic.image], weapon = weapon or "gun",
-            origin = comic.origin, scale = k,
-            muzzle = { comic.muzzle[1] * k, comic.muzzle[2] * k },
+            style = "comic", image = c.image, weapon = weapon,
+            origin = c.origin, scale = k,
+            muzzle = { c.muzzle[1] * k, c.muzzle[2] * k },
         }
     end
-    return { poses = Assets.characters[character], weapon = weapon or "gun" }
+    return { style = "kenney", character = def.character, weapon = weapon }
 end
 
 return Assets

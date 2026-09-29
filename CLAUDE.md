@@ -18,14 +18,21 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
   start it from its icon.
 
 ## Layout
-- `main.lua` — state (menu/game), game modes (`MODES`: Duel = respawning bot, Waves = +1 bot
-  per cleared wave), game loop, bullet/hit logic (sub-stepped), HUD, minimap, rowdy switching.
+- `main.lua` — client: state (menu/game), game modes (`MODES`: Duel = respawning bot,
+  Waves = +1 bot per cleared wave), fixed-step loop (`World.TICK` = 1/60, a shot from the
+  controls is kept until a step uses it), local player by id (`localId`), world events →
+  particles/shake, camera, HUD, minimap, rowdy switching.
   Escape / Android back: game → menu, menu → quit. F2 toggles the art style
   (comic / Kenney) for player and bots.
+- `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
+  `id`/`team`/`def`/kills/deaths, bullets (sub-stepped, hit other teams), waves, bush
+  hiding (`isHiddenFrom`), `nearestOpponent`; `update(dt, inputs[id])`; things that happened
+  go to `world.events` (spawn/death/step/impact/hit) via `emit`, read with `takeEvents()`
 - `src/menu.lua` — start screen with one button per mode (mouse, touch, keyboard)
 - `conf.lua` — identity "yard-wars", 1280x720 resizable window
 - `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
-  ("comic" | "kenney"), `Assets.look(character, weapon, comic)`
+  ("comic" | "kenney"), `Assets.look(def)` → plain-data look (image names, origin, muzzle;
+  usable without graphics)
 - `src/arena.lua` — 40x24 tiles (64px), left half defined and mirrored to the right;
   walls (solid, 2x2), crates (solid), bushes (hiding, 2x2); `resolveCircle`, `hitsSolid`,
   raycast, `hasLineOfSight`, `randomOpenPoint`, spawns
@@ -38,14 +45,15 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
     enemy in range (ignores walls); top-left button switches rowdy
 - `src/rowdy.lua` — base class: stats, HP, ammo (3 bars + refill timer), shoot
   (pellets/spread), aim beam/cone (`drawAim`), health/ammo bars, animation (pose, walk
-  sway/bob, breathing, recoil, muzzle flash, spawn pop-in), hooks into Effects
+  sway/bob, breathing, recoil, muzzle flash, spawn pop-in); logic reports via `self:emit`
 - `src/rowdies.lua` — data: Gunner (pistol), Shotgunner (5 pellets, 0.6 rad cone),
   Sniper (range 720), plus `Rowdies.bot` (enemy look). See the comment at the top for
   stat meanings and the `comic` look entry.
 - `src/player.lua` — Player subclass, `update(dt, input, bullets)`, 0.25s fire buffer
-- `src/enemy.lua` — Bot subclass: states patrol/chase/strafe/retreat/flee/search, LOS +
+- `src/enemy.lua` — Bot subclass (`isBot`), `update(dt, world)` targets the nearest opponent;
+  states patrol/chase/strafe/retreat/flee/search, LOS +
   bush-reveal rules, aim spread, stuck detection (slides sideways)
-- `src/bullet.lua` — owner/damage/color; speed+range read from owner (default range 480)
+- `src/bullet.lua` — owner/team/damage/color; speed+range read from owner (default range 480)
 - `src/effects.lua` — particles: puff, sparks, burst, ring (`drawBelow`/`drawAbove` layers)
 - `assets/images/` — `tilesheet.png` (Kenney), `characters/<name>_<pose>.png`,
   `comic/<name>.png`
@@ -54,7 +62,8 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
 
 ## Conventions
 - Code and comments in English.
-- Keep game logic separate from input/rendering (multiplayer via enet/sock.lua may come later).
+- Keep game logic separate from input/rendering: nothing under `World:update` may call
+  love.graphics, Effects, Camera or Controls (multiplayer: see Multiplayer plan below).
 - World units: 1 tile = 64px. HUD is laid out for a 720px short screen side and scaled
   by `uiScale = min(w,h)/720`; fonts use dpiscale.
 - Rowdy stats live in `src/rowdies.lua`; bullets read range/bulletSpeed/damage from owner.
@@ -83,6 +92,17 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
 - NOT yet confirmed on device: auto-aim fix (preview + fire buffer) and the animation
   update (poses, walk sway, recoil, muzzle flash, dust, sparks, death burst, respawn pop-in).
   Desktop smoke test loads without errors (2026-09-29).
+
+## Multiplayer plan (branch `net/world`)
+Server-authoritative, host device = server, LAN first (enet is built into LÖVE 11.5).
+1. DONE: `src/world.lua` refactor (single-player, same gameplay). Headless-tested: world
+   runs with graphics/window modules disabled.
+2. Host/join by IP, clients send input `{dx, dy, aim, fire, seq}`, server sends snapshots
+   (+ events, bullet spawns), clients interpolate others ~100 ms behind.
+3. Own-player prediction/reconciliation, LAN discovery lobby, team mode, disconnects.
+4. Optional: internet play via a dedicated headless server on a VPS.
+Not done yet: render interpolation between steps (60 Hz sim looks slightly uneven on
+>60 Hz desktop monitors; Pixel 6a runs at 60 Hz).
 
 ## Next-step ideas
 1. Super attack with charge meter (charges on hits) + touch HUD button

@@ -4,6 +4,7 @@ local Rowdy = require("src.rowdy")
 
 local Enemy = setmetatable({}, { __index = Rowdy })
 Enemy.__index = Enemy
+Enemy.isBot = true
 
 local SIGHT_RANGE   = 700  -- how far the bot can see
 local BUSH_REVEAL   = 130  -- bot only spots a player in a bush this close
@@ -33,13 +34,18 @@ function Enemy:respawn()
     self.wanderTimer = 0
 end
 
-function Enemy:update(dt, target, bullets)
+-- world: see src/world.lua. The bot goes after the nearest opponent.
+function Enemy:update(dt, world)
     self:tick(dt)
     if self.dead then return end
 
-    local dx, dy = target.x - self.x, target.y - self.y
-    local dist = math.max(0.001, math.sqrt(dx * dx + dy * dy))
-    local visible = not target.dead and dist <= SIGHT_RANGE
+    local target = world:nearestOpponent(self)
+    local dx, dy, dist = 0, 0, math.huge
+    if target then
+        dx, dy = target.x - self.x, target.y - self.y
+        dist = math.max(0.001, math.sqrt(dx * dx + dy * dy))
+    end
+    local visible = target and not target.dead and dist <= SIGHT_RANGE
         and Arena.hasLineOfSight(self.x, self.y, target.x, target.y)
     if visible and dist > BUSH_REVEAL and Arena.inBush(target.x, target.y) then
         visible = false -- player is hiding in a bush
@@ -73,7 +79,7 @@ function Enemy:update(dt, target, bullets)
         if dist <= SHOOT_RANGE and self.cooldown <= 0 and self.ammo >= 1 then
             local exact = self.aim
             self.aim = exact + (math.random() - 0.5) * AIM_SPREAD
-            self:shoot(bullets)
+            self:shoot(world.bullets)
             self.aim = exact
         end
 
@@ -95,7 +101,7 @@ function Enemy:update(dt, target, bullets)
         local wx, wy = self.wx - self.x, self.wy - self.y
         local wd = math.sqrt(wx * wx + wy * wy)
         if wd < 30 or self.wanderTimer <= 0 then
-            if math.random() < 0.6 then -- roam towards the action
+            if target and math.random() < 0.6 then -- roam towards the action
                 self.wx, self.wy = Arena.randomOpenPoint(target.x, target.y, 500)
             else
                 self.wx, self.wy = Arena.randomOpenPoint()

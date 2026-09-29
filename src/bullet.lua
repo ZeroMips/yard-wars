@@ -16,6 +16,7 @@ function Bullet.new(x, y, angle, owner)
         vy = math.sin(angle) * speed,
         life = range / speed,
         owner = owner,
+        team = owner.team, -- only hits rowdies of other teams
         damage = owner.damage,
         color = owner.bulletColor,
     }, Bullet)
