@@ -1,7 +1,8 @@
 # Yard Wars (LÖVE 11.x)
 
 Top-down arena shooter (mobile twin-stick style) in LÖVE (Lua). Currently 1 player vs. 1 bot
-in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE for Android 11.5).
+in a mirrored arena. Developed on Linux, tested on a Pixel 6a and a moto g67 (second
+phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP path).
 
 ## Running
 - Desktop: `love .` in the project folder.
