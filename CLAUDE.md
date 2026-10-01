@@ -45,7 +45,7 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   inputs[id])`; rounds (`world.match`): duel = first to `KILL_TARGET` 10 or most kills after
   `TIME_LIMIT` 180 s (tie = draw), waves = `LIVES` 3 per player (`out` = no respawn), over
   when all players are out; `restartMatch()`; the world stands still while over; things
-  that happened go to `world.events` (spawn/death/step/impact/hit/heal)
+  that happened go to `world.events` (also shot/superReady/matchStart/matchOver for sounds) (spawn/death/step/impact/hit/heal)
   via `emit`, read with `takeEvents()`. Snapshots carry medpacks (`m`).
 - `src/net.lua` — discovery (`Net.newFinder`: query to broadcast + every address of the
   own /24 on UDP 27016 every 2 s, hosts answer with mode/players; one short-lived socket
@@ -96,6 +96,11 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   states patrol/chase/strafe/retreat/flee/search, LOS +
   bush-reveal rules, aim spread, stuck detection (slides sideways)
 - `src/bullet.lua` — owner/team/damage/color; speed+range read from owner (default range 480)
+- `src/sound.lua` — sound effects synthesized at startup (sfxr-style layers: square/saw/
+  sine/triangle/noise with pitch slides + envelopes; no files): per-rowdy shots, hit/hurt,
+  impact, death, spawn, super, superReady chime, heal, round start, victory/defeat/draw, click.
+  `Sound.play(name, x, y)`: quieter with distance from the own rowdy, panned; same sound
+  not faster than 35 ms; M mutes. ~70 ms to build on desktop (~220 ms without JIT).
 - `src/effects.lua` — particles: puff, sparks, burst, ring, heal ("+" signs) (`drawBelow`/`drawAbove` layers)
 - `assets/images/` — `tilesheet.png` (Kenney), `characters/<name>_<pose>.png`,
   `comic/<name>.png`
@@ -157,4 +162,4 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
    the Pixel 2026-10-01)
 3. Sprite-frame animation system (legs walk cycle, torso pose, weapon layer)
 4. More rowdies, gadgets, arena variety, bot A* pathfinding for bigger maps
-5. Optional: multiplayer (enet), sound effects (jsfxr / Kenney audio)
+5. (done: LAN multiplayer; synthesized sound effects 2026-10-01, not yet on a phone)

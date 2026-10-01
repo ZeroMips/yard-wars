@@ -177,6 +177,7 @@ local function fire(self, bullets, attack)
     self.recoil = 1
     self.flashTimer = FLASH_TIME
     self.flashSize = (n > 1) and 1.5 or 1
+    if attack == self then self:emit("shot", { id = self.id, x = bx, y = by }) end
 end
 
 -- One attack: uses one ammo bar and fires `pellets` projectiles in a cone.
@@ -194,7 +195,10 @@ end
 
 -- Damage dealt with normal attacks fills the super meter
 function Rowdy:addCharge(damage)
-    if self.super then self.charge = math.min(1, self.charge + damage / self.super.charge) end
+    if not self.super then return end
+    local before = self.charge
+    self.charge = math.min(1, self.charge + damage / self.super.charge)
+    if before < 1 and self.charge >= 1 then self:emit("superReady", { id = self.id }) end
 end
 
 -- The super attack: needs a full meter, no ammo. Returns true if it happened.

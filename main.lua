@@ -19,6 +19,7 @@ local Replica  = require("src.replica")
 local Medpack  = require("src.medpack")
 local Picker   = require("src.picker")
 local Result   = require("src.result")
+local Sound    = require("src.sound")
 
 -- Game modes (round rules: see World.KILL_TARGET / TIME_LIMIT / LIVES).
 --   waves = false: duel - the bots respawn; first to 10 kills or most kills after
@@ -108,6 +109,8 @@ local function newGame(mode, host)
     player = world:addPlayer(Rowdies[rowdyIndex], Arena.spawn.x, Arena.spawn.y)
     localId = player.id
     world:start()
+    world:takeEvents() -- the bots' spawn sounds would all play at once
+    Sound.play("roundStart")
     Camera.snap(player.x, player.y, Arena.width, Arena.height)
 end
 
@@ -138,6 +141,7 @@ end
 
 -- Rowdy choice before a game (forWhat = MENU entry) or between rounds ("between")
 local function openPicker(forWhat)
+    Sound.play("click")
     state, pickFor = "pick", forWhat
     Picker.selected = rowdyIndex
     if forWhat == "between" then
@@ -148,6 +152,7 @@ local function openPicker(forWhat)
 end
 
 local function confirmPick()
+    Sound.play("click")
     rowdyIndex = Picker.selected
     if pickFor == "between" then
         state = "game"
@@ -165,6 +170,7 @@ local function confirmPick()
 end
 
 local function cancelPick()
+    Sound.play("click")
     if pickFor == "between" then state = "game" else state = "menu" end
 end
 
@@ -181,6 +187,7 @@ end
 function love.load(args)
     love.graphics.setBackgroundColor(0.05, 0.15, 0.08)
     Assets.load()
+    Sound.load()
     love.resize()
     openMenu()
     -- Testing shortcuts: love . [--rowdy N] --host [waves] | --join <address> | --find
@@ -209,28 +216,50 @@ end
 
 local function hidden(e) return world:isHiddenFrom(e, player) end
 
--- Turn simulation events into particles and screen shake
+-- Turn simulation events into particles, screen shake and sounds
 local function playEvents(events)
     for _, ev in ipairs(events) do
         if ev.kind == "spawn" then
             Effects.ring(ev.x, ev.y, 45, { 1, 1, 1 })
+            Sound.play("spawn", ev.x, ev.y, 0.7)
         elseif ev.kind == "death" then
             Effects.burst(ev.x, ev.y, ev.color, 16)
             Effects.ring(ev.x, ev.y, 55, ev.color)
+            Sound.play("death", ev.x, ev.y)
         elseif ev.kind == "step" then
             Effects.puff(ev.x, ev.y)
+        elseif ev.kind == "shot" then
+            local e = world:get(ev.id)
+            Sound.play(Sound.shotFor(e and e.def), ev.x, ev.y, ev.id == localId and 0.8 or 0.6)
         elseif ev.kind == "impact" then
             Effects.sparks(ev.x, ev.y, 4, ev.color, 140) -- bullet hit a wall / crate
+            Sound.play("impact", ev.x, ev.y)
         elseif ev.kind == "super" then
             Effects.ring(ev.x, ev.y, 50, { 1, 0.82, 0.1 })
             Effects.sparks(ev.x, ev.y, 10, { 1, 0.85, 0.3 }, 260)
             if ev.id == localId then Camera.shake(4) end
+            Sound.play("super", ev.x, ev.y)
+        elseif ev.kind == "superReady" then
+            if ev.id == localId then Sound.play("superReady") end
         elseif ev.kind == "heal" then
             Effects.heal(ev.x, ev.y)
             Effects.ring(ev.x, ev.y, 40, { 0.4, 1, 0.4 })
+            Sound.play("heal", ev.x, ev.y)
         elseif ev.kind == "hit" then
             Effects.sparks(ev.x, ev.y, 7, { 1, 0.45, 0.3 }, 200)
-            if ev.victim == localId then Camera.shake(5) end
+            if ev.victim == localId then
+                Camera.shake(5)
+                Sound.play("hurt")
+            else
+                Sound.play("hit", ev.x, ev.y)
+            end
+        elseif ev.kind == "matchStart" then
+            Sound.play("roundStart")
+        elseif ev.kind == "matchOver" then
+            if world.mode.waves then Sound.play("defeat")
+            elseif not ev.winner then Sound.play("draw")
+            elseif ev.winner == localId then Sound.play("victory")
+            else Sound.play("defeat") end
         end
     end
 end
@@ -308,7 +337,10 @@ function love.update(dt)
     if state == "menu" then return end -- connection lost
 
     Effects.update(dt)
-    if player then Camera.update(dt, player.x, player.y, Arena.width, Arena.height) end
+    if player then
+        Camera.update(dt, player.x, player.y, Arena.width, Arena.height)
+        Sound.setListener(player.x, player.y)
+    end
 end
 
 local function drawMinimap(screenW)
@@ -426,6 +458,7 @@ local function resultInfo()
 end
 
 local function resultAction(id)
+    Sound.play("click")
     if id == "again" then
         world:restartMatch()
         Result.selected = 1
@@ -552,7 +585,7 @@ local function press(x, y)
     elseif state == "pick" then
         local what, i = Picker.hit(x, y)
         if what == "card" then
-            if Picker.selected == i then confirmPick() else Picker.selected = i end
+            if Picker.selected == i then confirmPick() else Picker.selected = i; Sound.play("click") end
         elseif what == "confirm" then confirmPick()
         elseif what == "back" then cancelPick() end
     elseif state == "game" and world and world.match.over then
@@ -593,9 +626,10 @@ function love.textinput(t)
     if state == "join" then Join.textinput(t) end
 end
 
--- Escape (= Android back button): game/join -> menu, rowdy choice -> back,
+-- M: sound on/off. Escape (= Android back button): game/join -> menu, rowdy choice -> back,
 -- menu -> quit
 function love.keypressed(key)
+    if key == "m" and state ~= "join" then Sound.toggleMute() return end
     if state == "menu" then
         if key == "escape" then love.event.quit() return end
         local i = Menu.keypressed(MENU, key)

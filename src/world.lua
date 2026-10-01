@@ -66,7 +66,8 @@ end
 --   spawn {id}  death {id, color}  step {id}  bullet {see newBullets}
 --   impact {bullet, owner, color} (wall/crate)  hit {bullet, owner, victim}
 --   heal {id, amount} (picked up a medpack)  super {id} (fired a super, at the muzzle)
---   matchOver {winner}  matchStart
+--   matchOver {winner}  matchStart  shot {id} (normal attack, at the muzzle)
+--   superReady {id} (super meter just filled up)
 function World:emit(kind, data)
     data.kind = kind
     data.t = self.time
