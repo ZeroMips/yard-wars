@@ -46,6 +46,7 @@ local MENU = {
 }
 
 local MAX_STEPS = 5 -- simulation steps per frame at most (after a hitch: slow down instead)
+local MUTE_SIZE = 44 -- touch mute button in the top right corner (HUD units)
 local OPPONENT_COLOR = { 1, 0.5, 0.15 } -- health bar of other players
 local TEAMMATE_COLOR = { 0.3, 0.6, 1 }
 
@@ -66,6 +67,7 @@ local pendingFire    -- a shot requested since the last simulation step
 local pendingSuper   -- same for the super attack
 local rowdyIndex = 1
 local input -- last controls reading
+local muteTouch -- id of the touch that pressed the mute button (its release is ignored)
 local hudFont
 
 -- HUD is laid out for a 720px screen (short side) and scaled on bigger/denser screens
@@ -348,6 +350,7 @@ local function drawMinimap(screenW)
     local s = mw / Arena.width
     local mh = Arena.height * s
     local x0, y0 = screenW - mw - 12, 12
+    if Controls.touchMode then x0 = x0 - MUTE_SIZE - 12 end -- room for the mute button
     local T = 64 * s
 
     love.graphics.setColor(0, 0, 0, 0.55)
@@ -552,7 +555,47 @@ local function drawGame()
     if not world.match.over then drawHud() end -- the result screen shows the scores
 end
 
-function love.draw()
+-- Mute button (touch only): top right corner, HUD units
+local function muteRect()
+    local sw = love.graphics.getWidth() / uiScale()
+    return sw - MUTE_SIZE - 12, 12, MUTE_SIZE
+end
+
+local function hitMute(x, y)
+    if not Controls.touchMode then return false end
+    local ui = uiScale()
+    local bx, by, size = muteRect()
+    x, y = x / ui, y / ui
+    return x >= bx - 8 and x <= bx + size + 8 and y >= by - 8 and y <= by + size + 8
+end
+
+local function drawMuteButton()
+    if not Controls.touchMode then return end
+    local bx, by, size = muteRect()
+    love.graphics.push()
+    love.graphics.scale(uiScale())
+    love.graphics.translate(bx, by)
+    love.graphics.setColor(0, 0, 0, 0.45)
+    love.graphics.rectangle("fill", 0, 0, size, size, 8, 8)
+    -- speaker: box + cone
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.rectangle("fill", 9, 17, 7, 10)
+    love.graphics.polygon("fill", 16, 17, 25, 9, 25, 35, 16, 27)
+    love.graphics.setLineWidth(3)
+    if Sound.muted then
+        love.graphics.setColor(1, 0.35, 0.3)
+        love.graphics.line(29, 16, 38, 28)
+        love.graphics.line(38, 16, 29, 28)
+    else
+        love.graphics.arc("line", "open", 26, 22, 7, -0.9, 0.9)
+        love.graphics.arc("line", "open", 26, 22, 13, -0.9, 0.9)
+    end
+    love.graphics.setLineWidth(1)
+    love.graphics.pop()
+    love.graphics.setColor(1, 1, 1)
+end
+
+local function drawScreen()
     local betweenRounds = state == "pick" and pickFor == "between"
     if state == "menu" or state == "join" or (state == "pick" and not betweenRounds) then
         Camera.attach()
@@ -575,6 +618,11 @@ function love.draw()
     elseif world.match.over then
         Result.draw(resultInfo(), menuFonts)
     end
+end
+
+function love.draw()
+    drawScreen()
+    drawMuteButton()
 end
 
 -- Menus, rowdy choice, join screen, result screen: taps and clicks
@@ -602,12 +650,20 @@ end
 
 -- Touch input (Android/iOS)
 function love.touchpressed(id, x, y)
+    Controls.touchMode = true
+    if hitMute(x, y) then
+        Sound.toggleMute()
+        muteTouch = id
+        return
+    end
     if playing() then Controls.touchpressed(id, x, y) end
 end
 function love.touchmoved(id, x, y)
+    if id == muteTouch then return end
     if playing() then Controls.touchmoved(id, x, y) end
 end
 function love.touchreleased(id, x, y)
+    if id == muteTouch then muteTouch = nil return end
     if playing() then Controls.touchreleased(id, x, y)
     else Controls.touchMode = true; press(x, y) end
 end

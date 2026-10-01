@@ -100,7 +100,8 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   sine/triangle/noise with pitch slides + envelopes; no files): per-rowdy shots, hit/hurt,
   impact, death, spawn, super, superReady chime, heal, round start, victory/defeat/draw, click.
   `Sound.play(name, x, y)`: quieter with distance from the own rowdy, panned; same sound
-  not faster than 35 ms; M mutes. ~70 ms to build on desktop (~220 ms without JIT).
+  not faster than 35 ms; M mutes (touch: speaker button top right on every screen, the
+  minimap moves left for it); the setting is saved in `sound.txt`. ~70 ms to build on desktop (~220 ms without JIT).
 - `src/effects.lua` — particles: puff, sparks, burst, ring, heal ("+" signs) (`drawBelow`/`drawAbove` layers)
 - `assets/images/` — `tilesheet.png` (Kenney), `characters/<name>_<pose>.png`,
   `comic/<name>.png`

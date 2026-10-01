@@ -113,8 +113,12 @@ local DEFS = {
     click        = { { wave = "square", f1 = 1200, f2 = 900, dur = 0.025, vol = 0.15 } },
 }
 
+local SETTINGS_FILE = "sound.txt" -- remembers "muted" between starts
+
 -- Build all sounds (call once in love.load)
 function Sound.load()
+    Sound.muted = love.filesystem.getInfo(SETTINGS_FILE) ~= nil
+        and love.filesystem.read(SETTINGS_FILE) == "muted"
     love.audio.setDistanceModel("none") -- positions only pan, the volume is ours
     for name, layers in pairs(DEFS) do
         local data = synth(layers)
@@ -168,6 +172,7 @@ end
 function Sound.toggleMute()
     Sound.muted = not Sound.muted
     if Sound.muted then love.audio.stop() end
+    love.filesystem.write(SETTINGS_FILE, Sound.muted and "muted" or "on")
 end
 
 return Sound
