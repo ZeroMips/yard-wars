@@ -1,43 +1,64 @@
+-- Client side: menu, input, fixed-step loop, camera, effects and HUD.
+-- The game itself (rowdies, bullets, hits, scores, waves) lives in src/world.lua.
+--
+-- Roles while playing:
+--   "local"  single player: this device runs the world
+--   "host"   LAN game: this device runs the world + a Net server (src/net.lua)
+--   "client" LAN game: the world is a copy rebuilt from the host (src/replica.lua)
 local Assets   = require("src.assets")
 local Arena    = require("src.arena")
 local Camera   = require("src.camera")
 local Controls = require("src.controls")
 local Rowdies = require("src.rowdies")
-local Player   = require("src.player")
-local Enemy    = require("src.enemy")
-local Bullet   = require("src.bullet")
+local World    = require("src.world")
 local Effects  = require("src.effects")
 local Menu     = require("src.menu")
+local Join     = require("src.join")
+local Net      = require("src.net")
+local Replica  = require("src.replica")
 
--- Game modes shown on the start screen.
---   waves = false: the bots respawn after dying (endless duel)
---   waves = true : killed bots stay dead; clearing a wave starts a bigger one
+-- Game modes.
+--   waves = false: the bots respawn after dying (endless duel; LAN: free-for-all)
+--   waves = true : killed bots stay dead; clearing a wave starts a bigger one (LAN: co-op)
 local MODES = {
-    { name = "Duel",  description = "1 vs 1 against a bot that keeps respawning",
-      waves = false },
-    { name = "Waves", description = "Survive waves - every wave brings one more bot",
-      waves = true },
+    duel  = { name = "Duel",  waves = false },
+    waves = { name = "Waves", waves = true },
 }
 
-local state = "menu" -- "menu" or "game"
-local mode           -- entry of MODES while playing
+-- Start screen buttons
+local MENU = {
+    { name = "Duel", description = "1 vs 1 against a bot that keeps respawning",
+      mode = MODES.duel },
+    { name = "Waves", description = "Survive waves - every wave brings one more bot",
+      mode = MODES.waves },
+    { name = "Host LAN duel", description = "Free-for-all with friends in your Wi-Fi",
+      mode = MODES.duel, host = true },
+    { name = "Host LAN waves", description = "Survive waves together with friends",
+      mode = MODES.waves, host = true },
+    { name = "Join LAN game", description = "Play in a game hosted in your Wi-Fi",
+      join = true },
+}
+
+local MAX_STEPS = 5 -- simulation steps per frame at most (after a hitch: slow down instead)
+local OPPONENT_COLOR = { 1, 0.5, 0.15 } -- health bar of other players
+local TEAMMATE_COLOR = { 0.3, 0.6, 1 }
+
+local state = "menu" -- "menu", "join" or "game"
+local role           -- "local", "host" or "client" while playing
 local menuTime = 0   -- drives the camera pan behind the menu
 local menuFonts
 
-local player
-local enemies = {}
-local bullets = {}
-local kills, deaths = 0, 0
-local wave, waveSize = 0, 0
-local waveTimer = 0 -- countdown to the next wave once all bots are dead
+local world          -- World (local/host) or the replica's copy (client)
+local localId        -- id of the player on this device
+local player         -- the own rowdy, refreshed every frame (nil while joining)
+local server, hostAddress -- host
+local client, replica     -- client
+local finder              -- looks for LAN games while the join screen is open
+local accumulator = 0
+local pendingFire    -- a shot requested since the last simulation step
 local rowdyIndex = 1
 local input -- last controls reading
 local hudFont
-
-local HIDE_REVEAL    = 150 -- enemy in a bush is only visible this close
-local WAVE_DELAY     = 2   -- seconds between clearing a wave and the next one
-local MAX_ENEMIES    = 64  -- safety cap for the wave size
-local SPAWN_MIN_DIST = 600 -- bots never spawn closer than this to the player
 
 -- HUD is laid out for a 720px screen (short side) and scaled on bigger/denser screens
 local function uiScale() return math.min(love.graphics.getDimensions()) / 720 end
@@ -45,74 +66,103 @@ local function uiScale() return math.min(love.graphics.getDimensions()) / 720 en
 local function selectRowdy(i)
     rowdyIndex = ((i - 1) % #Rowdies) + 1
     local def = Rowdies[rowdyIndex]
-    player:setRowdy(Assets.look(def.character, def.weapon, def.comic), def.stats)
+    if client then
+        client:selectRowdy(rowdyIndex)
+    else
+        world:setRowdy(player, def)
+    end
     Controls.switchLabel = "Rowdy: " .. def.name
 end
 
-local function farFromPlayer(x, y)
-    local dx, dy = x - player.x, y - player.y
-    return dx * dx + dy * dy >= SPAWN_MIN_DIST * SPAWN_MIN_DIST
-end
-
--- The first bot uses the regular enemy spawn, the rest a random free spot.
--- Either way it has to be far enough from the player.
-local function enemySpawnPoint(i)
-    local sx, sy = Arena.enemySpawn.x, Arena.enemySpawn.y
-    if i == 1 and farFromPlayer(sx, sy) then return sx, sy end
-    for _ = 1, 20 do
-        local x, y = Arena.randomOpenPoint()
-        if farFromPlayer(x, y) then return x, y end
-    end
-    return sx, sy
-end
-
-local function botLook()
-    local bot = Rowdies.bot
-    return Assets.look(bot.character, bot.weapon, bot.comic)
-end
-
-local function spawnBots(count)
-    for i = 1, count do
-        local x, y = enemySpawnPoint(i)
-        local e = Enemy.new(x, y, botLook())
-        e:respawn() -- pop-in animation + spawn ring
-        enemies[#enemies + 1] = e
-    end
-end
-
--- Every wave has one bot more than the one before.
-local function startWave()
-    wave = wave + 1
-    waveSize = math.min(waveSize + 1, MAX_ENEMIES)
-    spawnBots(waveSize)
-end
-
-local function newGame(m)
-    mode, state = m, "game"
-    enemies, bullets = {}, {}
-    kills, deaths = 0, 0
-    wave, waveSize, waveTimer = 0, 0, 0
+local function resetGame()
+    accumulator, pendingFire, input = 0, nil, nil
+    world, player, localId = nil, nil, nil
     Effects.clear()
     Controls.reset()
+end
 
-    local def = Rowdies[rowdyIndex]
-    player = Player.new(Arena.spawn.x, Arena.spawn.y,
-        Assets.look(def.character, def.weapon, def.comic), def.stats)
+local function closeFinder()
+    if finder then finder:close() end
+    finder = nil
+end
+
+-- Back to the start screen (message: why, e.g. "Connection lost")
+local function openMenu(message)
+    if server then server:close() end
+    if client then client:close() end
+    closeFinder()
+    server, client, replica = nil, nil, nil
+    state, role = "menu", nil
+    Menu.message = message
+    Controls.reset()
+end
+
+-- Single player or LAN host: this device runs the world
+local function newGame(mode, host)
+    resetGame()
+    world = World.new(mode)
+    if host then
+        local err
+        server, err = Net.newServer(world)
+        if not server then openMenu("Can't host: " .. err) return end
+        hostAddress = Net.localAddress() or "(no network)"
+    end
+    state, role = "game", host and "host" or "local"
+    Menu.message = nil
+    player = world:addPlayer(Rowdies[rowdyIndex], Arena.spawn.x, Arena.spawn.y)
+    localId = player.id
     selectRowdy(rowdyIndex)
-    if mode.waves then startWave() else spawnBots(1) end
+    world:start()
     Camera.snap(player.x, player.y, Arena.width, Arena.height)
 end
 
-local function openMenu()
-    state = "menu"
-    Controls.reset()
+local function openJoin()
+    state = "join"
+    Join.status = nil
+    Join.games = {}
+    Join.open()
+    finder = Net.newFinder({ Join.address }) -- ask the last joined host first
 end
 
-function love.load()
+-- address: a found game's address, or nil for the one typed in
+local function joinGame(address)
+    if address then Join.address = address end
+    address = Join.address
+    if address == "" then Join.status = "Enter the host's address" return end
+    local err
+    client, err = Net.newClient(address, rowdyIndex)
+    if not client then Join.status = err return end
+    Join.save()
+    Join.close()
+    closeFinder()
+    resetGame()
+    replica = Replica.new()
+    state, role = "game", "client"
+    Menu.message = nil
+    Controls.switchLabel = "Rowdy: " .. Rowdies[rowdyIndex].name
+end
+
+local function startMenuEntry(i)
+    local entry = MENU[i]
+    Menu.selected = i
+    if entry.join then openJoin() else newGame(entry.mode, entry.host) end
+end
+
+function love.load(args)
     love.graphics.setBackgroundColor(0.05, 0.15, 0.08)
     Assets.load()
     love.resize()
     openMenu()
+    -- Testing shortcuts: love . --host [waves] | --join <address> | --find (join screen)
+    for i, a in ipairs(args or {}) do
+        if a == "--find" then openJoin() end
+        if a == "--host" then
+            newGame(args[i + 1] == "waves" and MODES.waves or MODES.duel, true)
+        elseif a == "--join" and args[i + 1] then
+            Join.address = args[i + 1]
+            joinGame()
+        end
+    end
 end
 
 function love.resize()
@@ -126,34 +176,80 @@ function love.resize()
     }
 end
 
-local function enemyHidden(enemy)
-    if enemy.dead or not Arena.inBush(enemy.x, enemy.y) then return false end
-    local dx, dy = enemy.x - player.x, enemy.y - player.y
-    return dx * dx + dy * dy > HIDE_REVEAL * HIDE_REVEAL
-end
+local function hidden(e) return world:isHiddenFrom(e, player) end
 
--- Nearest enemy the player can actually see (for tap auto-aim)
-local function nearestVisibleEnemy()
-    local best, bestD2
-    for _, e in ipairs(enemies) do
-        if not e.dead and not enemyHidden(e) then
-            local dx, dy = e.x - player.x, e.y - player.y
-            local d2 = dx * dx + dy * dy
-            if not bestD2 or d2 < bestD2 then best, bestD2 = e, d2 end
+-- Turn simulation events into particles and screen shake
+local function playEvents(events)
+    for _, ev in ipairs(events) do
+        if ev.kind == "spawn" then
+            Effects.ring(ev.x, ev.y, 45, { 1, 1, 1 })
+        elseif ev.kind == "death" then
+            Effects.burst(ev.x, ev.y, ev.color, 16)
+            Effects.ring(ev.x, ev.y, 55, ev.color)
+        elseif ev.kind == "step" then
+            Effects.puff(ev.x, ev.y)
+        elseif ev.kind == "impact" then
+            Effects.sparks(ev.x, ev.y, 4, ev.color, 140) -- bullet hit a wall / crate
+        elseif ev.kind == "hit" then
+            Effects.sparks(ev.x, ev.y, 7, { 1, 0.45, 0.3 }, 200)
+            if ev.victim == localId then Camera.shake(5) end
         end
     end
-    return best
 end
 
-local function bulletHits(b, victim)
-    if victim.dead then return false end
-    local dx, dy = victim.x - b.x, victim.y - b.y
-    local r = victim.radius + Bullet.radius
-    return dx * dx + dy * dy < r * r
+local function readInput()
+    input = Controls.get(player, world:nearestOpponent(player, true))
+end
+
+-- Local / host: run the simulation in fixed steps
+local function updateWorld(dt)
+    if server then server:service() end
+    readInput()
+    if input.fire then pendingFire = true end -- kept until a step uses it
+
+    accumulator = math.min(accumulator + dt, World.TICK * MAX_STEPS)
+    while accumulator >= World.TICK do
+        accumulator = accumulator - World.TICK
+        local inputs = { [localId] = { dx = input.dx, dy = input.dy, aim = input.aim,
+            fire = pendingFire } }
+        pendingFire = nil
+        if server then server:addInputs(inputs) end
+        world:update(World.TICK, inputs)
+        local events = world:takeEvents()
+        playEvents(events)
+        if server then server:afterStep(events) end
+    end
+    player = world:get(localId)
+end
+
+-- Client: exchange messages with the host and rebuild the world copy
+local function updateClient()
+    client:service()
+    if client.state == "closed" then openMenu(client.error) return end
+    replica:receive(client:takeInbox())
+    local due = replica:update()
+    if not due then return end -- nothing received yet
+    playEvents(due)
+    world, localId, player = replica.world, replica.localId, replica:player()
+    if not player then return end
+    readInput()
+    client:sendInput(input)
+    -- Show the own aim right away (the host's answer takes a moment)
+    if input.aim then player.aim = input.aim end
 end
 
 function love.update(dt)
-    if state == "menu" then
+    if state == "join" then
+        if finder then
+            finder:update(dt)
+            Join.games = finder.games
+            Join.searching = finder.network or "no network"
+            Join.stats = finder:stats()
+        else
+            Join.searching = "search not available"
+        end
+    end
+    if state ~= "game" then
         -- Slow pan over the arena behind the menu
         menuTime = menuTime + dt
         Camera.snap(Arena.width / 2 + math.sin(menuTime * 0.15) * Arena.width * 0.3,
@@ -166,68 +262,11 @@ function love.update(dt)
         selectRowdy(rowdyIndex + 1)
     end
 
-    input = Controls.get(player, nearestVisibleEnemy())
-    player:update(dt, input, bullets)
-    for _, e in ipairs(enemies) do e:update(dt, player, bullets) end
+    if role == "client" then updateClient() else updateWorld(dt) end
+    if state ~= "game" then return end -- connection lost
+
     Effects.update(dt)
-
-    for i = #bullets, 1, -1 do
-        local b = bullets[i]
-        -- Move in small sub-steps so fast bullets can't skip through targets
-        local speed = math.sqrt(b.vx * b.vx + b.vy * b.vy)
-        local steps = math.max(1, math.ceil(speed * dt / 10))
-        local remove = false
-
-        for _ = 1, steps do
-            b:update(dt / steps)
-            if Arena.hitsSolid(b.x, b.y, Bullet.radius) then
-                Effects.sparks(b.x, b.y, 4, b.color, 140) -- impact on wall / crate
-                remove = true
-                break
-            elseif b.life <= 0 then
-                remove = true
-                break
-            end
-            -- Player bullets hit any bot, bot bullets only the player
-            local victim
-            if b.owner == player then
-                for _, e in ipairs(enemies) do
-                    if bulletHits(b, e) then victim = e break end
-                end
-            elseif bulletHits(b, player) then
-                victim = player
-            end
-            if victim then
-                remove = true
-                Effects.sparks(b.x, b.y, 7, { 1, 0.45, 0.3 }, 200)
-                if victim == player then Camera.shake(5) end
-                if victim:takeDamage(b.damage) then
-                    if victim == player then deaths = deaths + 1
-                    else kills = kills + 1 end
-                end
-                break
-            end
-        end
-
-        if remove then table.remove(bullets, i) end
-    end
-
-    -- Waves: killed bots stay dead; once the wave is cleared the next one follows.
-    -- (Otherwise dead bots stay in the list and respawn by themselves.)
-    if mode.waves then
-        for i = #enemies, 1, -1 do
-            if enemies[i].dead then
-                table.remove(enemies, i)
-                if #enemies == 0 then waveTimer = WAVE_DELAY end
-            end
-        end
-        if #enemies == 0 then
-            waveTimer = waveTimer - dt
-            if waveTimer <= 0 then startWave() end
-        end
-    end
-
-    Camera.update(dt, player.x, player.y, Arena.width, Arena.height)
+    if player then Camera.update(dt, player.x, player.y, Arena.width, Arena.height) end
 end
 
 local function drawMinimap(screenW)
@@ -249,9 +288,10 @@ local function drawMinimap(screenW)
     for _, w in ipairs(Arena.walls) do
         love.graphics.rectangle("fill", x0 + w.x * T, y0 + w.y * T, w.w * T, w.h * T)
     end
-    love.graphics.setColor(0.95, 0.25, 0.25, 1)
-    for _, e in ipairs(enemies) do
-        if not e.dead and not enemyHidden(e) then
+    for _, e in ipairs(world.entities) do
+        if e ~= player and not e.dead and not hidden(e) then
+            if world:isOpponent(e, player) then love.graphics.setColor(0.95, 0.25, 0.25, 1)
+            else love.graphics.setColor(TEAMMATE_COLOR) end
             love.graphics.circle("fill", x0 + e.x * s, y0 + e.y * s, 3.5)
         end
     end
@@ -261,34 +301,30 @@ local function drawMinimap(screenW)
     end
 end
 
-function love.draw()
-    if state == "menu" then
-        Camera.attach()
-        Arena.drawBelow()
-        Arena.drawBushes(nil)
-        Camera.detach()
-        Menu.draw(MODES, menuFonts, Controls.touchMode)
-        return
-    end
-
-    -- World (moves with the camera)
+-- Arena in the background + one centered line of text (while connecting)
+local function drawWaiting(text)
     Camera.attach()
     Arena.drawBelow()
-    if input and input.aiming and not player.dead then player:drawAim() end
-    Effects.drawBelow()
-    for _, b in ipairs(bullets) do b:draw() end
-    for _, e in ipairs(enemies) do
-        if not enemyHidden(e) then e:draw() end
-    end
-    player:draw()
-    Effects.drawAbove()
-    Arena.drawBushes(player)
+    Arena.drawBushes(nil)
     Camera.detach()
+    local ui = uiScale()
+    love.graphics.push()
+    love.graphics.scale(ui)
+    local sw, sh = love.graphics.getWidth() / ui, love.graphics.getHeight() / ui
+    love.graphics.setColor(0, 0, 0, 0.6)
+    love.graphics.rectangle("fill", 0, 0, sw, sh)
+    love.graphics.setFont(menuFonts.button)
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.printf(text, 0, sh / 2 - 40, sw, "center")
+    love.graphics.setFont(hudFont)
+    love.graphics.setColor(1, 1, 1, 0.6)
+    love.graphics.printf(Controls.touchMode and "Back to cancel" or "Esc to cancel",
+        0, sh / 2 + 10, sw, "center")
+    love.graphics.pop()
+    love.graphics.setColor(1, 1, 1)
+end
 
-    -- Virtual sticks + switch button (touch only)
-    Controls.draw()
-
-    -- HUD (fixed on screen, scaled)
+local function drawHud()
     local ui = uiScale()
     local sw = love.graphics.getWidth() / ui
     love.graphics.push()
@@ -298,29 +334,90 @@ function love.draw()
     love.graphics.print("FPS: " .. love.timer.getFPS() ..
         (Controls.touchMode and "" or
             ("   [1-" .. #Rowdies .. "] " .. Rowdies[rowdyIndex].name)), 10, 10)
-    love.graphics.printf("You " .. kills .. " : " .. deaths .. " Bot",
-        0, 10, sw, "center")
-    if mode.waves then
-        love.graphics.printf("Wave " .. wave .. "   Bots left: " .. #enemies,
+    if role == "host" then
+        love.graphics.print("Hosting at " .. hostAddress .. "   players joined: " ..
+            server:playerCount() .. "   searches answered: " .. (server.queries or 0) ..
+            (server.lastQueryFrom and (" (last from " .. server.lastQueryFrom .. ")") or ""), 10, 32)
+    elseif role == "client" then
+        love.graphics.print("Ping: " .. client:ping() .. " ms", 10, 32)
+    end
+    if role == "local" then
+        love.graphics.printf("You " .. player.kills .. " : " .. player.deaths .. " Bot",
+            0, 10, sw, "center")
+    else
+        love.graphics.printf("Kills " .. player.kills .. "   Deaths " .. player.deaths,
+            0, 10, sw, "center")
+    end
+    if world.mode.waves then
+        love.graphics.printf("Wave " .. world.wave .. "   Bots left: " .. world:countBots(),
             0, 32, sw, "center")
     end
     if player.dead then
         love.graphics.printf(string.format("You were defeated - respawn in %.1f",
-            player.respawnTimer), 0, 60, sw, "center")
-    elseif mode.waves and #enemies == 0 then
+            math.max(0, player.respawnTimer)), 0, 60, sw, "center")
+    elseif world.mode.waves and world:countBots() == 0 then
         love.graphics.printf(string.format("Wave cleared! %d bots incoming in %.1f",
-            math.min(waveSize + 1, MAX_ENEMIES), math.max(0, waveTimer)), 0, 60, sw, "center")
+            math.min(world.waveSize + 1, World.MAX_BOTS), math.max(0, world.waveTimer)),
+            0, 60, sw, "center")
     end
     drawMinimap(sw)
     love.graphics.pop()
 end
 
--- Menu: start the mode whose button was tapped/clicked
-local function menuPress(x, y)
-    local i = Menu.hit(MODES, x, y)
-    if i then
-        Menu.selected = i
-        newGame(MODES[i])
+function love.draw()
+    if state == "menu" or state == "join" then
+        Camera.attach()
+        Arena.drawBelow()
+        Arena.drawBushes(nil)
+        Camera.detach()
+        if state == "menu" then Menu.draw(MENU, menuFonts, Controls.touchMode)
+        else Join.draw(menuFonts) end
+        return
+    end
+    if not player then
+        drawWaiting(client.state == "connecting" and ("Connecting to " .. Join.address .. " ...")
+            or "Joining ...")
+        return
+    end
+
+    -- Health bars: own and bots in their own colors, other players by team
+    for _, e in ipairs(world.entities) do
+        e.showAmmo = (e == player)
+        if e == player or e.isBot then e.hudColor = nil
+        elseif world:isOpponent(e, player) then e.hudColor = OPPONENT_COLOR
+        else e.hudColor = TEAMMATE_COLOR end
+    end
+
+    -- World (moves with the camera)
+    Camera.attach()
+    Arena.drawBelow()
+    if input and input.aiming and not player.dead then player:drawAim() end
+    Effects.drawBelow()
+    for _, b in ipairs(world.bullets) do b:draw() end
+    for _, e in ipairs(world.entities) do
+        if e ~= player and not hidden(e) then e:draw() end
+    end
+    player:draw() -- own rowdy on top
+    Effects.drawAbove()
+    Arena.drawBushes(player)
+    Camera.detach()
+
+    -- Virtual sticks + switch button (touch only)
+    Controls.draw()
+    drawHud()
+end
+
+-- Menu / join screen: taps and clicks
+local function press(x, y)
+    if state == "menu" then
+        local i = Menu.hit(MENU, x, y)
+        if i then startMenuEntry(i) end
+    elseif state == "join" then
+        local what, i = Join.hit(x, y)
+        if what == "game" then joinGame(Join.games[i].address)
+        elseif what == "connect" then joinGame()
+        elseif what == "back" then Join.close(); openMenu()
+        elseif what == "field" then love.keyboard.setTextInput(true) end
     end
 end
 
@@ -333,36 +430,48 @@ function love.touchmoved(id, x, y)
 end
 function love.touchreleased(id, x, y)
     if state == "game" then Controls.touchreleased(id, x, y)
-    else Controls.touchMode = true; menuPress(x, y) end
+    else Controls.touchMode = true; press(x, y) end
 end
 
 -- Mouse (touches also arrive here as emulated mouse events: skip those)
 function love.mousereleased(x, y, button, istouch)
-    if state == "menu" and button == 1 and not istouch then menuPress(x, y) end
+    if state ~= "game" and button == 1 and not istouch then press(x, y) end
 end
 function love.mousemoved(x, y, dx, dy, istouch)
     if state == "menu" and not istouch then
-        Menu.selected = Menu.hit(MODES, x, y) or Menu.selected
+        Menu.selected = Menu.hit(MENU, x, y) or Menu.selected
     end
 end
 
--- Escape (= Android back button): game -> menu, menu -> quit
+function love.textinput(t)
+    if state == "join" then Join.textinput(t) end
+end
+
+-- Escape (= Android back button): game/join -> menu, menu -> quit
 function love.keypressed(key)
     if state == "menu" then
         if key == "escape" then love.event.quit() return end
-        local i = Menu.keypressed(MODES, key)
-        if i then newGame(MODES[i]) end
+        local i = Menu.keypressed(MENU, key)
+        if i then startMenuEntry(i) end
+        return
+    elseif state == "join" then
+        local action = Join.keypressed(key)
+        if action == "connect" then joinGame()
+        elseif action == "back" then Join.close(); openMenu() end
         return
     end
     if key == "escape" then openMenu() return end
     if key == "f2" then -- toggle art style: comic <-> Kenney (only the looks change)
         Assets.style = (Assets.style == "comic") and "kenney" or "comic"
-        local hp, ammo = player.hp, player.ammo
-        selectRowdy(rowdyIndex)
-        player.hp, player.ammo = hp, ammo
-        for _, e in ipairs(enemies) do e.look = botLook() end
+        if world then world:restyle() end
         return
     end
+    if not player then return end
     local n = tonumber(key)
     if n and Rowdies[n] then selectRowdy(n) end
+end
+
+function love.quit()
+    if server then server:close() end
+    if client then client:close() end
 end

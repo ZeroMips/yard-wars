@@ -1,13 +1,23 @@
 # Yard Wars (LÖVE 11.x)
 
 Top-down arena shooter (mobile twin-stick style) in LÖVE (Lua). Currently 1 player vs. 1 bot
-in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE for Android 11.5).
+in a mirrored arena. Developed on Linux, tested on a Pixel 6a and a moto g67 (second
+phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP path).
 
 ## Running
 - Desktop: `love .` in the project folder.
 - Quick smoke test (no errors on load/first frames): `timeout 6 love .` — LÖVE prints
   error tracebacks to stdout; exit code 124 means it ran until the timeout.
 - Packed build: `zip -9 -r ../yard-wars.love . -x '.git/*'`
+- LAN test on one machine: `love . --host` (or `--host waves`) and `love . --join 127.0.0.1`
+  (or `love . --find` for the join screen with discovery) in a second terminal.
+  UDP ports 27015 (game) + 27016 (discovery); if a phone can't connect/find the desktop:
+  `sudo ufw allow 27015:27016/udp`.
+- Scripted test harnesses (copy main.lua to game.lua in a temp dir, override love.update/
+  draw, symlink `src`/`assets`): NEVER symlink conf.lua (writing the test conf overwrote
+  the real one once), and set `t.window.vsync = 0` + `love.timer.sleep` — with vsync the
+  window blocks forever when the screen is locked. Print needs `io.stdout:setvbuf("no")`
+  if the process gets killed by `timeout`.
 
 ## Android test workflow (took a while to figure out — don't change without reason)
 - Use the OFFICIAL "LÖVE for Android" (package `org.love2d.android`, APK from
@@ -15,17 +25,39 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
 - Opening `.love` files via Drive / Files "open with" fails (content:// URIs).
 - Working method: copy the unpacked game (main.lua at top level) via USB MTP to
   `/sdcard/Android/data/org.love2d.android/files/games/lovegame/`, force-stop LÖVE,
-  start it from its icon.
+  start it from its icon. Also write `version.txt` (`git log -1 --format='%h %cd'`, not in
+  git) into the game folder: the menu shows it bottom-left, so you can see which build runs
+  (LÖVE keeps running in the background unless force-stopped).
 
 ## Layout
-- `main.lua` — state (menu/game), game modes (`MODES`: Duel = respawning bot, Waves = +1 bot
-  per cleared wave), game loop, bullet/hit logic (sub-stepped), HUD, minimap, rowdy switching.
+- `main.lua` — client: state (menu/join/game), roles local/host/client, `MENU` entries
+  (Duel, Waves, Host LAN duel = free-for-all, Host LAN waves = co-op, Join), fixed-step loop (`World.TICK` = 1/60, a shot from the
+  controls is kept until a step uses it), local player by id (`localId`), world events →
+  particles/shake, camera, HUD, minimap, rowdy switching.
   Escape / Android back: game → menu, menu → quit. F2 toggles the art style
   (comic / Kenney) for player and bots.
+- `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
+  `id`/`team`/`def`/kills/deaths, bullets (sub-stepped, hit other teams), waves, bush
+  hiding (`isHiddenFrom`), `nearestOpponent`; `update(dt, inputs[id])`; things that happened
+  go to `world.events` (spawn/death/step/impact/hit) via `emit`, read with `takeEvents()`
+- `src/net.lua` — discovery (`Net.newFinder`: query to broadcast + every address of the
+  own /24 on UDP 27016 every 2 s, hosts answer with mode/players; one short-lived socket
+  per 32 addresses because queries to absent hosts block the send buffer for ~3 s;
+  use `socket.udp4()` + bind "0.0.0.0": `socket.udp()` + "*" becomes IPv6 on Android and
+  sendto IPv4 fails with "hostname nor servname provided"), enet LAN server (runs next to the World on the host: hello → player,
+  input per step, events reliable + 30 Hz snapshots unreliable, 6 s timeout) and client
+  (hello/input/rowdy; input `fire` is a counter so lost packets lose no shot)
+- `src/replica.lua` — client-side World copy from snapshots: others interpolated 100 ms
+  behind the host, own rowdy 50 ms; bullets drawn from spawn records (straight lines);
+  events played when their time comes; clock offset = max(t - arrival), pulled down 10%
+- `src/codec.lua` — message serializer (no loadstring; rejects malformed input)
+- `src/join.lua` — join screen: address field in the upper half (last address saved; phone
+  keyboard opens only when the field is tapped), found games below as tap-to-join buttons
 - `src/menu.lua` — start screen with one button per mode (mouse, touch, keyboard)
 - `conf.lua` — identity "yard-wars", 1280x720 resizable window
 - `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
-  ("comic" | "kenney"), `Assets.look(character, weapon, comic)`
+  ("comic" | "kenney"), `Assets.look(def)` → plain-data look (image names, origin, muzzle;
+  usable without graphics)
 - `src/arena.lua` — 40x24 tiles (64px), left half defined and mirrored to the right;
   walls (solid, 2x2), crates (solid), bushes (hiding, 2x2); `resolveCircle`, `hitsSolid`,
   raycast, `hasLineOfSight`, `randomOpenPoint`, spawns
@@ -38,14 +70,15 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
     enemy in range (ignores walls); top-left button switches rowdy
 - `src/rowdy.lua` — base class: stats, HP, ammo (3 bars + refill timer), shoot
   (pellets/spread), aim beam/cone (`drawAim`), health/ammo bars, animation (pose, walk
-  sway/bob, breathing, recoil, muzzle flash, spawn pop-in), hooks into Effects
+  sway/bob, breathing, recoil, muzzle flash, spawn pop-in); logic reports via `self:emit`
 - `src/rowdies.lua` — data: Gunner (pistol), Shotgunner (5 pellets, 0.6 rad cone),
   Sniper (range 720), plus `Rowdies.bot` (enemy look). See the comment at the top for
   stat meanings and the `comic` look entry.
 - `src/player.lua` — Player subclass, `update(dt, input, bullets)`, 0.25s fire buffer
-- `src/enemy.lua` — Bot subclass: states patrol/chase/strafe/retreat/flee/search, LOS +
+- `src/enemy.lua` — Bot subclass (`isBot`), `update(dt, world)` targets the nearest opponent;
+  states patrol/chase/strafe/retreat/flee/search, LOS +
   bush-reveal rules, aim spread, stuck detection (slides sideways)
-- `src/bullet.lua` — owner/damage/color; speed+range read from owner (default range 480)
+- `src/bullet.lua` — owner/team/damage/color; speed+range read from owner (default range 480)
 - `src/effects.lua` — particles: puff, sparks, burst, ring (`drawBelow`/`drawAbove` layers)
 - `assets/images/` — `tilesheet.png` (Kenney), `characters/<name>_<pose>.png`,
   `comic/<name>.png`
@@ -54,7 +87,8 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
 
 ## Conventions
 - Code and comments in English.
-- Keep game logic separate from input/rendering (multiplayer via enet/sock.lua may come later).
+- Keep game logic separate from input/rendering: nothing under `World:update` may call
+  love.graphics, Effects, Camera or Controls (multiplayer: see Multiplayer plan below).
 - World units: 1 tile = 64px. HUD is laid out for a 720px short screen side and scaled
   by `uiScale = min(w,h)/720`; fonts use dpiscale.
 - Rowdy stats live in `src/rowdies.lua`; bullets read range/bulletSpeed/damage from owner.
@@ -83,6 +117,22 @@ in a mirrored arena. Developed on Linux, tested on a Pixel 6a (official LÖVE fo
 - NOT yet confirmed on device: auto-aim fix (preview + fire buffer) and the animation
   update (poses, walk sway, recoil, muzzle flash, dust, sparks, death burst, respawn pop-in).
   Desktop smoke test loads without errors (2026-09-29).
+
+## Multiplayer plan (branch `net/world`)
+Server-authoritative, host device = server, LAN first (enet is built into LÖVE 11.5).
+1. DONE: `src/world.lua` refactor (single-player, same gameplay). Headless-tested: world
+   runs with graphics/window modules disabled. Confirmed on the phone (2026-09-29).
+2. DONE on desktop (two instances, 2026-09-29): host/join by IP, input → host, events +
+   snapshots → clients, interpolation. Duel = free-for-all (own team per player), Waves =
+   co-op. Checked: PvP kills/deaths agree on both sides, rowdy switch from a client,
+   no friendly fire in co-op, disconnect removes the player / client returns to the menu.
+   Confirmed phone <-> phone (Pixel 6a + moto g67, 2026-09-30).
+3. DONE: LAN discovery (join screen lists hosts). Confirmed on devices (2026-10-01): Pixel
+   6a finds a desktop host, and a phone as host is found too. moto g67 still has an older build.
+   Open: own-player prediction/reconciliation, team mode, lobby/ready, player names.
+4. Optional: internet play via a dedicated headless server on a VPS.
+Not done yet: render interpolation between steps (60 Hz sim looks slightly uneven on
+>60 Hz desktop monitors; Pixel 6a runs at 60 Hz).
 
 ## Next-step ideas
 1. Super attack with charge meter (charges on hits) + touch HUD button

@@ -1,9 +1,15 @@
--- Start screen: title + one button per game mode.
+-- Start screen: title + one button per entry ({ name, description }).
 -- Works with mouse, touch and keyboard (up/down + enter).
 -- Laid out in HUD units (720 along the short screen side), like the in-game HUD.
 local Menu = {}
 
 Menu.selected = 1
+Menu.message = nil -- shown under the title (e.g. "Connection lost")
+
+-- Build shown in the corner: version.txt is written when the game is copied to a
+-- device (commit + date), so it's easy to see which code a phone runs.
+Menu.version = (love.filesystem.getInfo("version.txt") and
+    love.filesystem.read("version.txt") or "dev"):gsub("%s+$", "")
 
 local BTN_W, BTN_H, BTN_GAP = 420, 90, 20
 
@@ -14,11 +20,13 @@ local function layout(count)
     local ui = uiScale()
     local sw, sh = love.graphics.getWidth() / ui, love.graphics.getHeight() / ui
     local w = math.min(BTN_W, sw - 40)
-    local total = count * BTN_H + (count - 1) * BTN_GAP
+    -- Shrink the buttons if they don't fit below the title (landscape: 720 high)
+    local h = math.max(60, math.min(BTN_H, (sh - 250 - (count - 1) * BTN_GAP) / count))
+    local total = count * h + (count - 1) * BTN_GAP
     local y0 = math.max(200, sh / 2 - total / 2 + 40)
     local rects = {}
     for i = 1, count do
-        rects[i] = { x = (sw - w) / 2, y = y0 + (i - 1) * (BTN_H + BTN_GAP), w = w, h = BTN_H }
+        rects[i] = { x = (sw - w) / 2, y = y0 + (i - 1) * (h + BTN_GAP), w = w, h = h }
     end
     return rects, sw, sh
 end
@@ -61,7 +69,12 @@ function Menu.draw(modes, fonts, touchMode)
     love.graphics.printf("YARD WARS", 0, top - 150, sw, "center")
     love.graphics.setFont(fonts.text)
     love.graphics.setColor(1, 1, 1, 0.8)
-    love.graphics.printf("Choose a mode", 0, top - 45, sw, "center")
+    if Menu.message then
+        love.graphics.setColor(1, 0.55, 0.3)
+        love.graphics.printf(Menu.message, 0, top - 45, sw, "center")
+    else
+        love.graphics.printf("Choose a mode", 0, top - 45, sw, "center")
+    end
 
     for i, r in ipairs(rects) do
         local selected = (i == Menu.selected)
@@ -74,10 +87,10 @@ function Menu.draw(modes, fonts, touchMode)
 
         love.graphics.setFont(fonts.button)
         love.graphics.setColor(1, 1, 1)
-        love.graphics.printf(modes[i].name, r.x, r.y + 14, r.w, "center")
+        love.graphics.printf(modes[i].name, r.x, r.y + r.h * 0.15, r.w, "center")
         love.graphics.setFont(fonts.text)
         love.graphics.setColor(1, 1, 1, 0.7)
-        love.graphics.printf(modes[i].description, r.x + 10, r.y + 54, r.w - 20, "center")
+        love.graphics.printf(modes[i].description, r.x + 10, r.y + r.h * 0.6, r.w - 20, "center")
     end
 
     local last = rects[#rects]
@@ -85,6 +98,8 @@ function Menu.draw(modes, fonts, touchMode)
     love.graphics.printf(touchMode and "Tap a mode to start  -  In game, Back returns here"
         or "Click or Enter to start  -  In game, Esc returns here",
         0, last.y + last.h + 30, sw, "center")
+    love.graphics.setColor(1, 1, 1, 0.35)
+    love.graphics.print(Menu.version, 8, sh - 24)
 
     love.graphics.pop()
     love.graphics.setColor(1, 1, 1, 1)

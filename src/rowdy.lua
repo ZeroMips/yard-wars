@@ -1,8 +1,10 @@
 -- Shared base for everything that walks, aims, shoots and has HP.
 -- Player and Enemy inherit from this.
+-- Game logic (update/tick/move/shoot/takeDamage) never touches graphics or effects:
+-- what happened is reported with self:emit() to the world (see src/world.lua).
 local Arena   = require("src.arena")
+local Assets  = require("src.assets")
 local Bullet  = require("src.bullet")
-local Effects = require("src.effects")
 
 local Rowdy = {}
 Rowdy.__index = Rowdy
@@ -32,8 +34,7 @@ function Rowdy:applyStats(stats)
     self.bulletColor = stats.bulletColor or self.bulletColor or { 1, 0.85, 0.2 }
 end
 
--- look = { poses = <pose images>, weapon = "gun" | "machine" | "silencer" }
--- or a single-sprite comic look (see Assets.look)
+-- look: see Assets.look
 function Rowdy:init(x, y, look, stats)
     self.x, self.y = x, y
     self.spawnX, self.spawnY = x, y
@@ -65,7 +66,12 @@ function Rowdy:setRowdy(look, stats)
     self.cooldown = 0
 end
 
--- Call once per frame: timers, ammo refill and respawn.
+-- Report something that happened (spawn, death, step, ...) to the world, if any.
+function Rowdy:emit(kind, data)
+    if self.world then self.world:emit(kind, data) end
+end
+
+-- Call once per simulation step: timers, ammo refill and respawn.
 function Rowdy:tick(dt)
     self.cooldown = math.max(0, self.cooldown - dt)
     self.hitFlash = math.max(0, self.hitFlash - dt)
@@ -92,7 +98,7 @@ function Rowdy:respawn()
     self.dead = false
     self.cooldown = 0.5
     self.spawnAnim = SPAWN_TIME
-    Effects.ring(self.x, self.y, 45, { 1, 1, 1 })
+    self:emit("spawn", { x = self.x, y = self.y, id = self.id })
 end
 
 -- Returns true if this hit killed the rowdy.
@@ -104,8 +110,7 @@ function Rowdy:takeDamage(amount)
         self.hp = 0
         self.dead = true
         self.respawnTimer = RESPAWN_TIME
-        Effects.burst(self.x, self.y, self.barColor, 16)
-        Effects.ring(self.x, self.y, 55, self.barColor)
+        self:emit("death", { x = self.x, y = self.y, id = self.id, color = self.barColor })
         return true
     end
     return false
@@ -122,7 +127,8 @@ function Rowdy:animateWalk(moved, dt)
         if self.stepTimer <= 0 then
             self.stepTimer = 0.14
             if not Arena.inBush(self.x, self.y) then -- dust would give away a hiding spot
-                Effects.puff(self.x - self.dirX * 12, self.y - self.dirY * 12 + 10)
+                self:emit("step", { id = self.id,
+                    x = self.x - self.dirX * 12, y = self.y - self.dirY * 12 + 10 })
             end
         end
     end
@@ -235,7 +241,7 @@ function Rowdy:drawHealthBar()
     love.graphics.rectangle("fill", x - 2, y - 2, w + 4, h + 4, 3, 3)
     love.graphics.setColor(0.25, 0.25, 0.25, 1)
     love.graphics.rectangle("fill", x, y, w, h, 2, 2)
-    local c = self.barColor
+    local c = self.hudColor or self.barColor -- hudColor: set by the renderer (team colors)
     love.graphics.setColor(c[1], c[2], c[3], 1)
     love.graphics.rectangle("fill", x, y, w * (self.hp / self.maxHp), h, 2, 2)
     if self.showAmmo then self:drawAmmoBar(x, y + h + 5, w) end
@@ -293,15 +299,16 @@ function Rowdy:draw()
         love.graphics.setColor(1, 1, 1, alpha)
     end
     local look = self.look
-    if look.sprite then
+    if look.style == "comic" then
         -- Comic art faces up: rotate a quarter turn more, and sx (the aim axis) is its y
         local k = look.scale
-        love.graphics.draw(look.sprite, px, py, self.aim + sway + math.pi / 2,
+        love.graphics.draw(Assets.comic[look.image], px, py, self.aim + sway + math.pi / 2,
             k * sy, k * sx, look.origin[1], look.origin[2])
     else
         -- Out of ammo: show the reload pose
+        local poses = Assets.characters[look.character]
         local pose = (self.ammo == 0) and "reload" or look.weapon
-        local img = look.poses[pose] or look.poses.gun
+        local img = poses[pose] or poses.gun
         love.graphics.draw(img, px, py, self.aim + sway, sx, sy, ORIGIN_X, ORIGIN_Y)
     end
 
