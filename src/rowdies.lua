@@ -42,7 +42,9 @@ local Rowdies = {
                   reload = 0.4, maxAmmo = 3, ammoRefill = 1.6,
                   super = { name = "Wrecking Ball",
                             description = "Big ball that rolls through everyone", charge = 180, damage = 75, range = 440,
-                            bulletSpeed = 450, radius = 16, pierce = true } },
+                            -- fast enough to catch a strafing bot at mid range
+                            -- (450 px/s missed every moving target)
+                            bulletSpeed = 900, radius = 28, pierce = true } },
     },
     {
         name = "Sniper", role = "Long range, fragile", character = "manBrown",
