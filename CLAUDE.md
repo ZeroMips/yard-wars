@@ -95,7 +95,7 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
 - Tile art uses nearest filtering to avoid bleeding when scaled.
 
 ## Art
-- Branch `art/comic` (default style there): one still sprite per character, generated with
+- Comic style (default): one still sprite per character, generated with
   Google Gemini (prompts + raw 1024px JPEGs in ~/Downloads/yard-wars-art/, not in the repo),
   top-down, facing UP, bold outline. Stored at 2x (88px wide), drawn at
   `Assets.comicScale` 0.6 with mipmaps; rotates around the head (`origin`). Keeps the
@@ -118,7 +118,7 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   update (poses, walk sway, recoil, muzzle flash, dust, sparks, death burst, respawn pop-in).
   Desktop smoke test loads without errors (2026-09-29).
 
-## Multiplayer plan (branch `net/world`)
+## Multiplayer plan (merged into master 2026-10-01)
 Server-authoritative, host device = server, LAN first (enet is built into LÖVE 11.5).
 1. DONE: `src/world.lua` refactor (single-player, same gameplay). Headless-tested: world
    runs with graphics/window modules disabled. Confirmed on the phone (2026-09-29).
