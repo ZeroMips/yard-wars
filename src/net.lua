@@ -43,10 +43,17 @@ end
 -- Notice a dead connection within a few seconds (enet's default is up to 30 s)
 local function setTimeout(peer) peer:timeout(32, 2000, 6000) end
 
+-- Discovery sockets are explicitly IPv4. socket.udp() leaves the address family open
+-- until binding, and binding "*" gives an IPv6 socket on Android, which then can't
+-- send to IPv4 addresses ("hostname nor servname provided, or not known").
+local function udp4()
+    return (socket.udp4 or socket.udp)()
+end
+
 -- This device's address in the local network (for "join me at ..."), or nil.
 -- Connecting a UDP socket sends nothing; it only picks the outgoing interface.
 function Net.localAddress()
-    local udp = socket.udp()
+    local udp = udp4()
     if not udp then return nil end
     udp:setpeername("8.8.8.8", 80)
     local ip = udp:getsockname()
@@ -70,8 +77,8 @@ function Net.newServer(world)
     local host = enet.host_create("*:" .. Net.PORT, Net.MAX_CLIENTS, 2)
     if not host then return nil, "Port " .. Net.PORT .. " is in use" end
     -- Answer discovery queries (optional: without it, joining by address still works)
-    local udp = socket.udp()
-    if udp and not udp:setsockname("*", Net.DISCOVERY_PORT) then udp:close(); udp = nil end
+    local udp = udp4()
+    if udp and not udp:setsockname("0.0.0.0", Net.DISCOVERY_PORT) then udp:close(); udp = nil end
     if udp then udp:settimeout(0) end
     return setmetatable({ host = host, world = world, clients = {}, steps = 0, events = {},
         discovery = udp }, Server)
@@ -208,17 +215,19 @@ local SOCKET_LIFE = 4   -- seconds a query socket is kept (answers come within m
 -- { address, mode, waves, players, seen } sorted by address.
 -- hints: addresses to ask first (e.g. the last joined host)
 function Net.newFinder(hints)
-    if not socket.udp() then return nil end
+    local probe = udp4()
+    if not probe then return nil end
+    probe:close()
     return setmetatable({ sockets = {}, hints = hints or {}, games = {}, byAddress = {},
         timer = 0, sent = 0, sendErrors = 0, answers = 0, lastError = nil }, Finder)
 end
 
 local function newSocket(self)
-    local udp = socket.udp()
+    local udp = udp4()
     if not udp then return nil end
     udp:settimeout(0)
-    udp:setsockname("*", 0)
-    udp:setoption("broadcast", true) -- LuaSocket 3.0-rc1: only works after binding
+    udp:setsockname("0.0.0.0", 0)
+    udp:setoption("broadcast", true)
     self.sockets[#self.sockets + 1] = { udp = udp, created = love.timer.getTime() }
     return udp
 end
