@@ -4,8 +4,9 @@
 --
 -- Messages (tables, encoded with src/codec.lua):
 --   client -> host   hello {rowdy}          reliable, once after connecting
---                    input {dx, dy, aim, fire} unreliable, every frame; fire is a
---                                             counter, so a lost packet loses no shot
+--                    input {dx, dy, aim, fire, super} unreliable, every frame; fire
+--                                             and super are counters, so a lost packet
+--                                             loses no shot
 --                    rowdy {index}          reliable
 --   host -> client   welcome {id, mode}       reliable
 --                    events {list}            reliable, world events (with world time t)
@@ -33,7 +34,7 @@ local CH_RELIABLE, CH_FAST = 0, 1
 -- Entity fields in a snapshot (sent as an array in this order)
 Net.FIELDS = { "id", "team", "key", "x", "y", "aim", "hp", "ammo", "ammoTimer", "dead",
     "respawnTimer", "walkPhase", "walkBlend", "recoil", "flashTimer", "flashSize",
-    "hitFlash", "spawnAnim", "kills", "deaths", "isBot" }
+    "hitFlash", "spawnAnim", "kills", "deaths", "isBot", "charge" }
 
 local function send(peer, msg, reliable)
     peer:send(Codec.encode(msg), reliable and CH_RELIABLE or CH_FAST,
@@ -151,10 +152,11 @@ function Server:addInputs(inputs)
     for _, c in pairs(self.clients) do
         local i = c.input
         if c.id and i then
-            local fire = tonumber(i.fire) or 0
+            local fire, super = tonumber(i.fire) or 0, tonumber(i.super) or 0
             inputs[c.id] = { dx = clampAxis(i.dx), dy = clampAxis(i.dy),
-                aim = tonumber(i.aim), fire = fire ~= c.fireSeen }
-            c.fireSeen = fire
+                aim = tonumber(i.aim), fire = fire ~= c.fireSeen,
+                super = super ~= (c.superSeen or 0) }
+            c.fireSeen, c.superSeen = fire, super
         end
     end
 end
@@ -169,6 +171,7 @@ local function snapshot(world)
         s[3] = Rowdies.key(e.def)
         s[4], s[5], s[6] = round(e.x, 10), round(e.y, 10), round(e.aim, 1000)
         s[21] = e.isBot or false
+        s[22] = round(e.charge or 0, 100)
         ents[#ents + 1] = s
     end
     local packs = {}
@@ -339,7 +342,7 @@ function Net.newClient(address, rowdyIndex)
         return nil, "Bad address: " .. address
     end
     return setmetatable({ host = host, peer = peer, state = "connecting",
-        started = love.timer.getTime(), rowdy = rowdyIndex, fire = 0,
+        started = love.timer.getTime(), rowdy = rowdyIndex, fire = 0, super = 0,
         inbox = {} }, Client)
 end
 
@@ -389,8 +392,9 @@ end
 function Client:sendInput(input)
     if self.state ~= "joined" then return end
     if input.fire then self.fire = self.fire + 1 end
+    if input.super then self.super = self.super + 1 end
     send(self.peer, { type = "input", dx = input.dx, dy = input.dy, aim = input.aim,
-        fire = self.fire })
+        fire = self.fire, super = self.super })
     self.host:flush()
 end
 

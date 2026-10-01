@@ -52,7 +52,7 @@ end
 -- Events: { kind, t = world time, x, y, ... }
 --   spawn {id}  death {id, color}  step {id}  bullet {see newBullets}
 --   impact {bullet, owner, color} (wall/crate)  hit {bullet, owner, victim}
---   heal {id, amount} (picked up a medpack)
+--   heal {id, amount} (picked up a medpack)  super {id} (fired a super, at the muzzle)
 function World:emit(kind, data)
     data.kind = kind
     data.t = self.time
@@ -205,7 +205,7 @@ end
 local function bulletHits(b, victim)
     if victim.dead then return false end
     local dx, dy = victim.x - b.x, victim.y - b.y
-    local r = victim.radius + Bullet.radius
+    local r = victim.radius + b.radius
     return dx * dx + dy * dy < r * r
 end
 
@@ -220,7 +220,7 @@ local function updateBullets(self, dt)
 
         for _ = 1, steps do
             b:update(dt / steps)
-            if Arena.hitsSolid(b.x, b.y, Bullet.radius) then
+            if Arena.hitsSolid(b.x, b.y, b.radius) then
                 self:emit("impact", { x = b.x, y = b.y, color = b.color, -- wall / crate
                     bullet = b.id, owner = b.owner.id })
                 remove = true
@@ -229,22 +229,31 @@ local function updateBullets(self, dt)
                 remove = true
                 break
             end
-            -- Bullets hit any rowdy of another team
+            -- Bullets hit any rowdy of another team; piercing ones each rowdy once
             local victim
             for _, e in ipairs(self.entities) do
-                if e.team ~= b.team and bulletHits(b, e) then victim = e break end
+                if e.team ~= b.team and not (b.hitIds and b.hitIds[e.id]) and bulletHits(b, e) then
+                    victim = e
+                    break
+                end
             end
             if victim then
-                remove = true
                 self:emit("hit", { x = b.x, y = b.y, victim = victim.id,
-                    bullet = b.id, owner = b.owner.id })
+                    bullet = b.id, owner = b.owner.id, pierce = b.pierce })
+                local shooter = self.byId[b.owner.id]
+                if shooter and not b.super then shooter:addCharge(b.damage) end
                 if victim:takeDamage(b.damage) then
                     victim.deaths = victim.deaths + 1
-                    local killer = self.byId[b.owner.id]
-                    if killer then killer.kills = killer.kills + 1 end
+                    if shooter then shooter.kills = shooter.kills + 1 end
                     self:dropMedpack(victim.x, victim.y)
                 end
-                break
+                if b.pierce then
+                    b.hitIds = b.hitIds or {}
+                    b.hitIds[victim.id] = true
+                else
+                    remove = true
+                    break
+                end
             end
         end
 
@@ -304,7 +313,7 @@ local function newBullets(self)
             b.id, b.t0 = self.nextBulletId, self.time
             self.nextBulletId = self.nextBulletId + 1
             self:emit("bullet", { id = b.id, owner = b.owner.id, x = b.x, y = b.y,
-                vx = b.vx, vy = b.vy, life = b.life })
+                vx = b.vx, vy = b.vy, life = b.life, radius = b.radius, super = b.super })
         end
     end
 end

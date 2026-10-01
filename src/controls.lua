@@ -1,9 +1,12 @@
--- Input abstraction. Desktop: WASD + mouse (hold left button to fire).
+-- Input abstraction. Desktop: WASD + mouse (hold left button to fire; hold right
+-- button or E to aim the super, release to fire it).
 -- Touch (Android/iOS), twin-stick style:
 --   left half  : floating move stick
 --   right half : aim stick. Drag = aim beam, RELEASE = fire.
 --                Drag back to the center before releasing = cancel.
 --                Quick TAP = auto-aim at the nearest enemy in range and fire.
+--   super button (left of the aim stick, glows when charged): same gestures as the
+--                aim stick, but for the super attack
 --   top-left button: switch rowdy.
 -- Both input modes return the same table, so the rest of the game doesn't care.
 local Camera = require("src.camera")
@@ -15,17 +18,27 @@ Controls.touchMode = (osName == "Android" or osName == "iOS")
 Controls.switchRequested = false -- set when the on-screen switch button is tapped
 Controls.switchLabel = ""        -- text of the button (set by main.lua)
 Controls.font = nil              -- HUD font (set by main.lua)
+Controls.superCharge = 0         -- 0..1, shown on the super button (set by main.lua)
+Controls.hasSuper = false        -- the current rowdy has a super (set by main.lua)
 
 local DEADZONE = 0.25
 local SWITCH_BTN = { x = 10, y = 36, w = 170, h = 40 } -- in HUD units (720px high screen)
 
 local move = { id = nil, ox = 0, oy = 0, x = 0, y = 0 }
-local aim  = { id = nil, ox = 0, oy = 0, x = 0, y = 0, maxMag = 0 }
+local aim  = { id = nil, ox = 0, oy = 0, x = 0, y = 0, maxMag = 0, super = false }
+local superHeld = false -- desktop: right mouse button / E held last frame
 local lastAim = 0
 local pendingShot = nil -- filled when the aim stick is released
 
 local function uiScale() return math.min(love.graphics.getDimensions()) / 720 end
 local function stickRadius() return 80 * uiScale() end
+
+-- Super button: up and to the left of where the aim stick usually is (screen px)
+local function superButton()
+    local w, h = love.graphics.getDimensions()
+    local r = stickRadius()
+    return w * 0.84 - r * 1.9, h * 0.72 - r * 0.6, r * 0.55
+end
 
 -- Direction (-1..1) and strength (0..1) of a stick
 local function stickVector(s)
@@ -40,6 +53,7 @@ end
 function Controls.reset()
     move.id, aim.id, pendingShot = nil, nil, nil
     Controls.switchRequested = false
+    superHeld = false
 end
 
 -- ---- Touch callbacks (forwarded from main.lua) ----
@@ -52,14 +66,20 @@ function Controls.touchpressed(id, x, y)
         return
     end
 
+    -- Super button (only when charged; otherwise it acts like the rest of the screen)
+    local sx, sy, sr = superButton()
+    local onSuper = Controls.hasSuper and Controls.superCharge >= 1
+        and (x - sx) ^ 2 + (y - sy) ^ 2 <= (sr * 1.4) ^ 2
+
     local s
-    if x < love.graphics.getWidth() / 2 then
+    if x < love.graphics.getWidth() / 2 and not onSuper then
         if move.id then return end
         s = move
     else
         if aim.id then return end
         s = aim
         aim.maxMag = 0
+        aim.super = onSuper
     end
     s.id, s.ox, s.oy, s.x, s.y = id, x, y, x, y
 end
@@ -82,26 +102,28 @@ function Controls.touchreleased(id, x, y)
         if mag > DEADZONE then lastAim = math.atan2(vy, vx) end
 
         if aim.maxMag < DEADZONE then
-            pendingShot = { tap = true }            -- quick tap: auto-aim
+            pendingShot = { tap = true, super = aim.super }        -- quick tap: auto-aim
         elseif mag >= DEADZONE then
-            pendingShot = { angle = lastAim }       -- released while aiming: fire
-        end                                         -- back in the center: cancelled
+            pendingShot = { angle = lastAim, super = aim.super }   -- released: fire
+        end                                                        -- in the center: cancel
         aim.id = nil
     end
 end
 
 -- Angle to the target if it is within attack range, else nil.
 -- (Walls are ignored on purpose: a quick tap should always fire at someone.)
-local function autoAimAngle(player, target)
+local function autoAimAngle(player, target, super)
     if not target then return nil end
+    local range = (super and player.super and player.super.range) or player.range
     local dx, dy = target.x - player.x, target.y - player.y
-    if math.sqrt(dx * dx + dy * dy) > player.range + 60 then return nil end
+    if math.sqrt(dx * dx + dy * dy) > range + 60 then return nil end
     return math.atan2(dy, dx)
 end
 
 -- ---- Read input for this frame ----
 -- target: the enemy to auto-aim at on a tap (nil if none / not visible)
--- Returns { dx, dy, aim (angle or nil), fire (bool), aiming (show the beam) }
+-- Returns { dx, dy, aim (angle or nil), fire (bool), super (bool: fire the super),
+--           aiming (show the beam), aimingSuper (show the super's aim) }
 function Controls.get(player, target)
     if Controls.touchMode then
         local dx, dy = 0, 0
@@ -115,7 +137,7 @@ function Controls.get(player, target)
         if aim.id then
             if aim.maxMag < DEADZONE then
                 -- finger down but not dragged yet: preview the auto-aim direction
-                angle = autoAimAngle(player, target) or lastAim
+                angle = autoAimAngle(player, target, aim.super) or lastAim
             else
                 angle = lastAim
             end
@@ -124,17 +146,20 @@ function Controls.get(player, target)
             angle = lastAim
         end
 
+        local super = false
         if pendingShot then
-            fire = true
+            if pendingShot.super then super = true else fire = true end
             if pendingShot.tap then
-                angle = autoAimAngle(player, target) or lastAim
+                angle = autoAimAngle(player, target, pendingShot.super) or lastAim
             else
                 angle = pendingShot.angle
             end
             pendingShot = nil
         end
         if angle then lastAim = angle end
-        return { dx = dx, dy = dy, aim = angle, fire = fire, aiming = aim.id ~= nil }
+        return { dx = dx, dy = dy, aim = angle, fire = fire, super = super,
+                 aiming = aim.id ~= nil and not aim.super,
+                 aimingSuper = aim.id ~= nil and aim.super }
     end
 
     local dx, dy = 0, 0
@@ -143,11 +168,17 @@ function Controls.get(player, target)
     if love.keyboard.isDown("a") then dx = dx - 1 end
     if love.keyboard.isDown("d") then dx = dx + 1 end
     local mx, my = Camera.toWorld(love.mouse.getPosition())
+    -- Super: hold right mouse button or E to aim, release to fire
+    local held = love.mouse.isDown(2) or love.keyboard.isDown("e")
+    local super = superHeld and not held
+    superHeld = held
     return {
         dx = dx, dy = dy,
         aim = math.atan2(my - player.y, mx - player.x),
-        fire = love.mouse.isDown(1),
-        aiming = true,
+        fire = love.mouse.isDown(1) and not held,
+        super = super,
+        aiming = not held,
+        aimingSuper = held and Controls.hasSuper,
     }
 end
 
@@ -180,7 +211,43 @@ function Controls.draw()
     end
 
     drawStick(move, w * 0.16, h * 0.72, { 1, 1, 1 })
-    drawStick(aim,  w * 0.84, h * 0.72, { 1, 0.6, 0.2 })
+    if aim.super then
+        drawStick(aim, w * 0.84, h * 0.72, { 1, 0.82, 0.1 })
+    else
+        drawStick(aim, w * 0.84, h * 0.72, { 1, 0.6, 0.2 })
+    end
+
+    -- Super button: dark disc, gold charge ring; full = glowing gold disc
+    if Controls.hasSuper and not (aim.id and aim.super) then
+        local sx, sy, sr = superButton()
+        local charge = math.min(1, Controls.superCharge)
+        love.graphics.setColor(0, 0, 0, 0.45)
+        love.graphics.circle("fill", sx, sy, sr)
+        love.graphics.setLineWidth(sr * 0.18)
+        if charge >= 1 then
+            local k = 0.5 + 0.5 * math.sin(love.timer.getTime() * 6)
+            love.graphics.setColor(1, 0.82, 0.1, 0.55 + 0.35 * k)
+            love.graphics.circle("fill", sx, sy, sr * (0.8 + 0.06 * k))
+            love.graphics.setColor(1, 0.95, 0.6, 1)
+            love.graphics.circle("line", sx, sy, sr)
+        elseif charge > 0 then
+            love.graphics.setColor(1, 0.82, 0.1, 0.9)
+            love.graphics.arc("line", "open", sx, sy, sr * 0.9,
+                -math.pi / 2, -math.pi / 2 + charge * math.pi * 2, 32)
+        end
+        love.graphics.setLineWidth(1)
+        if Controls.font then -- label in HUD units, like the switch button
+            local ui = uiScale()
+            love.graphics.push()
+            love.graphics.translate(sx, sy)
+            love.graphics.scale(ui)
+            love.graphics.setFont(Controls.font)
+            love.graphics.setColor(1, 1, 1, charge >= 1 and 1 or 0.5)
+            local fh = Controls.font:getHeight()
+            love.graphics.printf("SUPER", -60, -fh / 2, 120, "center")
+            love.graphics.pop()
+        end
+    end
 
     -- Switch-rowdy button
     local b = SWITCH_BTN

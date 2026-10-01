@@ -57,6 +57,7 @@ local client, replica     -- client
 local finder              -- looks for LAN games while the join screen is open
 local accumulator = 0
 local pendingFire    -- a shot requested since the last simulation step
+local pendingSuper   -- same for the super attack
 local rowdyIndex = 1
 local input -- last controls reading
 local hudFont
@@ -76,7 +77,7 @@ local function selectRowdy(i)
 end
 
 local function resetGame()
-    accumulator, pendingFire, input = 0, nil, nil
+    accumulator, pendingFire, pendingSuper, input = 0, nil, nil, nil
     world, player, localId = nil, nil, nil
     Effects.clear()
     Controls.reset()
@@ -191,6 +192,10 @@ local function playEvents(events)
             Effects.puff(ev.x, ev.y)
         elseif ev.kind == "impact" then
             Effects.sparks(ev.x, ev.y, 4, ev.color, 140) -- bullet hit a wall / crate
+        elseif ev.kind == "super" then
+            Effects.ring(ev.x, ev.y, 50, { 1, 0.82, 0.1 })
+            Effects.sparks(ev.x, ev.y, 10, { 1, 0.85, 0.3 }, 260)
+            if ev.id == localId then Camera.shake(4) end
         elseif ev.kind == "heal" then
             Effects.heal(ev.x, ev.y)
             Effects.ring(ev.x, ev.y, 40, { 0.4, 1, 0.4 })
@@ -202,6 +207,8 @@ local function playEvents(events)
 end
 
 local function readInput()
+    Controls.hasSuper = player.super ~= nil
+    Controls.superCharge = player.charge or 0
     input = Controls.get(player, world:nearestOpponent(player, true))
 end
 
@@ -210,13 +217,14 @@ local function updateWorld(dt)
     if server then server:service() end
     readInput()
     if input.fire then pendingFire = true end -- kept until a step uses it
+    if input.super then pendingSuper = true end
 
     accumulator = math.min(accumulator + dt, World.TICK * MAX_STEPS)
     while accumulator >= World.TICK do
         accumulator = accumulator - World.TICK
         local inputs = { [localId] = { dx = input.dx, dy = input.dy, aim = input.aim,
-            fire = pendingFire } }
-        pendingFire = nil
+            fire = pendingFire, super = pendingSuper } }
+        pendingFire, pendingSuper = nil, nil
         if server then server:addInputs(inputs) end
         world:update(World.TICK, inputs)
         local events = world:takeEvents()
@@ -335,9 +343,14 @@ local function drawHud()
     love.graphics.scale(ui)
     love.graphics.setFont(hudFont)
     love.graphics.setColor(1, 1, 1)
+    local superInfo = ""
+    if player.super and not Controls.touchMode then
+        superInfo = "   [RMB/E] " .. player.super.name .. ": " ..
+            (player.charge >= 1 and "READY" or (math.floor(player.charge * 100) .. "%"))
+    end
     love.graphics.print("FPS: " .. love.timer.getFPS() ..
         (Controls.touchMode and "" or
-            ("   [1-" .. #Rowdies .. "] " .. Rowdies[rowdyIndex].name)), 10, 10)
+            ("   [1-" .. #Rowdies .. "] " .. Rowdies[rowdyIndex].name)) .. superInfo, 10, 10)
     if role == "host" then
         love.graphics.print("Hosting at " .. hostAddress .. "   players joined: " ..
             server:playerCount() .. "   searches answered: " .. (server.queries or 0) ..
@@ -395,7 +408,10 @@ function love.draw()
     -- World (moves with the camera)
     Camera.attach()
     Arena.drawBelow()
-    if input and input.aiming and not player.dead then player:drawAim() end
+    if input and not player.dead then
+        if input.aimingSuper and player.super then player:drawAim(true)
+        elseif input.aiming then player:drawAim() end
+    end
     for _, m in ipairs(world.medpacks) do Medpack.draw(m, world.time) end
     Effects.drawBelow()
     for _, b in ipairs(world.bullets) do b:draw() end

@@ -71,12 +71,17 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   - desktop: WASD + mouse (hold LMB to fire)
   - touch: left half = floating move stick; right half = aim stick, drag = aim beam,
     RELEASE = fire, drag back to center = cancel, quick TAP = auto-aim at nearest visible
-    enemy in range (ignores walls); top-left button switches rowdy
+    enemy in range (ignores walls); top-left button switches rowdy; super button (left
+    of the aim stick, charge ring, glows when full) = same gestures for the super
+  - desktop super: hold right mouse button or E to aim, release to fire
 - `src/rowdy.lua` — base class: stats, HP, ammo (3 bars + refill timer), shoot
   (pellets/spread), aim beam/cone (`drawAim`), health/ammo bars, animation (pose, walk
   sway/bob, breathing, recoil, muzzle flash, spawn pop-in); logic reports via `self:emit`
 - `src/rowdies.lua` — data: Gunner (pistol), Shotgunner (5 pellets, 0.6 rad cone),
-  Sniper (range 720), plus `Rowdies.bot` (enemy look). See the comment at the top for
+  Sniper (range 720), plus `Rowdies.bot` (enemy look + stats). Supers (`stats.super`,
+  charged by normal-attack damage, `charge` = damage needed): Gunner "Bullet Storm" (10-bullet
+  fan), Shotgunner "Wrecking Ball" (big slow piercing ball), Sniper "Railgun" (fast,
+  long, piercing). Super bullets: own `radius`, `pierce` (each rowdy hit once). See the comment at the top for
   stat meanings and the `comic` look entry.
 - `src/player.lua` — Player subclass, `update(dt, input, bullets)`, 0.25s fire buffer
 - `src/enemy.lua` — Bot subclass (`isBot`), `update(dt, world)` targets the nearest opponent;
@@ -139,7 +144,7 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 >60 Hz desktop monitors; Pixel 6a runs at 60 Hz).
 
 ## Next-step ideas
-1. Super attack with charge meter (charges on hits) + touch HUD button
+1. (done: super attack with charge meter + touch button, 2026-10-01; not yet on a phone)
 2. Start screen with rowdy picker + match timer / game over
 3. Sprite-frame animation system (legs walk cycle, torso pose, weapon layer)
 4. More rowdies, gadgets, arena variety, bot A* pathfinding for bigger maps

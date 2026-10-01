@@ -17,6 +17,7 @@ local MUZZLE = { gun = { 33, 8 }, machine = { 33, 8 }, silencer = { 38, 8 } }
 local RESPAWN_TIME = 2.5
 local SPAWN_TIME   = 0.35 -- pop-in animation after respawn
 local FLASH_TIME   = 0.07 -- muzzle flash
+local SUPER_COLOR  = { 1, 0.82, 0.1 } -- super meter, aim and "ready" glow
 
 -- Apply a stats table (see src/rowdies.lua). Used by init() and setRowdy().
 function Rowdy:applyStats(stats)
@@ -32,6 +33,7 @@ function Rowdy:applyStats(stats)
     self.bulletSpeed = stats.bulletSpeed or Bullet.speed
     self.barColor    = stats.barColor or self.barColor or { 0.3, 0.9, 0.3 }
     self.bulletColor = stats.bulletColor or self.bulletColor or { 1, 0.85, 0.2 }
+    self.super       = stats.super             -- nil: no super attack
 end
 
 -- look: see Assets.look
@@ -50,6 +52,7 @@ function Rowdy:init(x, y, look, stats)
     self.hitFlash = 0
     self.dead = false
     self.respawnTimer = 0
+    self.charge = 0 -- super meter 0..1 (kept when defeated, reset when switching)
     -- animation state
     self.walkPhase, self.walkBlend, self.stepTimer = 0, 0, 0
     self.dirX, self.dirY = 1, 0
@@ -64,6 +67,7 @@ function Rowdy:setRowdy(look, stats)
     self.ammo = self.maxAmmo
     self.ammoTimer = 0
     self.cooldown = 0
+    self.charge = 0
 end
 
 -- Report something that happened (spawn, death, step, ...) to the world, if any.
@@ -155,37 +159,66 @@ function Rowdy:muzzle()
            self.y + s * m[1] + c * m[2]
 end
 
--- One attack: uses one ammo bar and fires `pellets` projectiles in a cone.
--- Returns true if the attack happened.
-function Rowdy:shoot(bullets)
-    if self.dead or self.cooldown > 0 or self.ammo < 1 then return false end
+-- Fire `attack.pellets` projectiles in a cone of `attack.spread` (attack: self for the
+-- normal attack, or self.super)
+local function fire(self, bullets, attack)
     local bx, by = self:muzzle()
-    local n = self.pellets
+    local n, spread = attack.pellets or 1, attack.spread or 0
     for i = 1, n do
         local a = self.aim
         if n > 1 then
             local t = (i - 1) / (n - 1) - 0.5 -- -0.5 .. 0.5 across the cone
-            a = a + t * self.spread + (math.random() - 0.5) * self.spread * 0.15
+            a = a + t * spread + (math.random() - 0.5) * spread * 0.15
         end
-        bullets[#bullets + 1] = Bullet.new(bx, by, a, self)
+        bullets[#bullets + 1] = Bullet.new(bx, by, a, self, attack ~= self and attack or nil)
     end
-    self.ammo = self.ammo - 1
     self.cooldown = self.reload
     self.recoil = 1
     self.flashTimer = FLASH_TIME
     self.flashSize = (n > 1) and 1.5 or 1
+end
+
+-- One attack: uses one ammo bar and fires `pellets` projectiles in a cone.
+-- Returns true if the attack happened.
+function Rowdy:shoot(bullets)
+    if self.dead or self.cooldown > 0 or self.ammo < 1 then return false end
+    fire(self, bullets, self)
+    self.ammo = self.ammo - 1
+    return true
+end
+
+function Rowdy:superReady()
+    return self.super ~= nil and self.charge >= 1 and not self.dead
+end
+
+-- Damage dealt with normal attacks fills the super meter
+function Rowdy:addCharge(damage)
+    if self.super then self.charge = math.min(1, self.charge + damage / self.super.charge) end
+end
+
+-- The super attack: needs a full meter, no ammo. Returns true if it happened.
+function Rowdy:shootSuper(bullets)
+    if not self:superReady() or self.cooldown > 0 then return false end
+    fire(self, bullets, self.super)
+    self.charge = 0
+    self.flashSize = 2.2
+    local mx, my = self:muzzle()
+    self:emit("super", { id = self.id, x = mx, y = my })
     return true
 end
 
 -- Aiming indicator: a beam for single shots, a cone for
--- spread attacks. It ends at the first wall or crate.
-function Rowdy:drawAim()
+-- spread attacks. It ends at the first wall or crate. useSuper: for the super attack
+-- (gold, its own range/spread/bullet size).
+function Rowdy:drawAim(useSuper)
     if self.dead then return end
+    local a = (useSuper and self.super) or self
+    local spread, radius = a.spread or 0, a.radius or Bullet.radius
     local mx, my = self:muzzle()
-    local len = Arena.raycast(mx, my, self.aim, self.range, Bullet.radius)
-    local hw = 9
-    local hwEnd = hw + math.tan(self.spread / 2) * len
-    local c = self.bulletColor
+    local len = Arena.raycast(mx, my, self.aim, a.range or Bullet.range, radius)
+    local hw = math.max(9, radius + 3)
+    local hwEnd = hw + math.tan(spread / 2) * len
+    local c = (a == self) and self.bulletColor or SUPER_COLOR
 
     self.aimMesh = self.aimMesh or love.graphics.newMesh(4, "fan", "stream")
     self.aimMesh:setVertices({
@@ -202,7 +235,7 @@ function Rowdy:drawAim()
     love.graphics.draw(self.aimMesh)
     love.graphics.setColor(c[1], c[2], c[3], 0.6)
     love.graphics.setLineWidth(2)
-    if self.spread > 0 then
+    if spread > 0 then
         love.graphics.line(0, -hw, len, -hwEnd, len, hwEnd, 0, hw)
     else
         love.graphics.setColor(c[1], c[2], c[3], 0.12)
@@ -244,7 +277,17 @@ function Rowdy:drawHealthBar()
     local c = self.hudColor or self.barColor -- hudColor: set by the renderer (team colors)
     love.graphics.setColor(c[1], c[2], c[3], 1)
     love.graphics.rectangle("fill", x, y, w * (self.hp / self.maxHp), h, 2, 2)
-    if self.showAmmo then self:drawAmmoBar(x, y + h + 5, w) end
+    if self.showAmmo then
+        self:drawAmmoBar(x, y + h + 5, w)
+        if self.super then -- super meter: thin gold bar under the ammo
+            local sy = y + h + 13
+            love.graphics.setColor(0, 0, 0, 0.8)
+            love.graphics.rectangle("fill", x - 1, sy - 1, w + 2, 5, 2, 2)
+            local c = SUPER_COLOR
+            love.graphics.setColor(c[1], c[2], c[3], self.charge >= 1 and 1 or 0.75)
+            love.graphics.rectangle("fill", x, sy, w * math.min(1, self.charge), 3, 1, 1)
+        end
+    end
 end
 
 -- Muzzle flash: a short additive glow with a few rays
@@ -292,6 +335,16 @@ function Rowdy:draw()
 
     love.graphics.setColor(0, 0, 0, 0.25 * alpha)
     love.graphics.ellipse("fill", self.x, self.y + 6, self.radius * pop, self.radius * 0.8 * pop)
+
+    -- Super ready: pulsing gold ring under the rowdy (visible to everybody)
+    if self:superReady() then
+        local k = 0.5 + 0.5 * math.sin(t * 6)
+        local c = SUPER_COLOR
+        love.graphics.setColor(c[1], c[2], c[3], (0.35 + 0.35 * k) * alpha)
+        love.graphics.setLineWidth(3)
+        love.graphics.circle("line", self.x, self.y + 4, (self.radius + 8 + 3 * k) * pop)
+        love.graphics.setLineWidth(1)
+    end
 
     if self.hitFlash > 0 then
         love.graphics.setColor(1, 0.4, 0.4, alpha)

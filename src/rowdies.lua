@@ -18,25 +18,35 @@
 --   reload       minimum delay between two attacks (s)
 --   maxAmmo      ammo bars
 --   ammoRefill   seconds until one ammo bar refills
+--   super        special attack, charged by dealing damage (optional):
+--                  name, charge (damage needed to fill the meter), and like above
+--                  pellets, spread, damage, range, bulletSpeed, plus
+--                  radius (bullet size, default 6) and pierce (flies through rowdies)
 local Rowdies = {
     {
         name = "Gunner", character = "manBlue", weapon = "gun",
         comic = { image = "gunner", origin = { 46, 65 }, muzzle = { 63, 0 } },
         stats = { speed = 250, hp = 100, damage = 20, range = 480, bulletSpeed = 600,
-                  reload = 0.3, maxAmmo = 3, ammoRefill = 1.2 },
+                  reload = 0.3, maxAmmo = 3, ammoRefill = 1.2,
+                  super = { name = "Bullet Storm", charge = 200, pellets = 10, spread = 0.9,
+                            damage = 22, range = 520, bulletSpeed = 750 } },
     },
     {
         name = "Shotgunner", character = "hitman1", weapon = "machine",
         comic = { image = "shotgunner", origin = { 46, 84 }, muzzle = { 82, 0 } },
         stats = { speed = 240, hp = 120, damage = 9, pellets = 5, spread = 0.6,
                   range = 320, bulletSpeed = 600,
-                  reload = 0.4, maxAmmo = 3, ammoRefill = 1.6 },
+                  reload = 0.4, maxAmmo = 3, ammoRefill = 1.6,
+                  super = { name = "Wrecking Ball", charge = 180, damage = 75, range = 440,
+                            bulletSpeed = 450, radius = 16, pierce = true } },
     },
     {
         name = "Sniper", character = "manBrown", weapon = "silencer",
         comic = { image = "sniper", origin = { 46, 89 }, muzzle = { 87, 0 } },
         stats = { speed = 225, hp = 80, damage = 50, range = 720, bulletSpeed = 1100,
-                  reload = 0.5, maxAmmo = 3, ammoRefill = 2.0 },
+                  reload = 0.5, maxAmmo = 3, ammoRefill = 2.0,
+                  super = { name = "Railgun", charge = 150, damage = 90, range = 960,
+                            bulletSpeed = 1800, radius = 7, pierce = true } },
     },
 }
 

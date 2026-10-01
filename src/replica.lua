@@ -81,10 +81,11 @@ end
 function Replica:addEvent(ev)
     if ev.kind == "bullet" then
         self.bullets[ev.id] = { owner = ev.owner, x0 = ev.x, y0 = ev.y, vx = ev.vx, vy = ev.vy,
-            t0 = ev.t, tEnd = ev.t + (ev.life or 1) }
+            t0 = ev.t, tEnd = ev.t + (ev.life or 1), radius = ev.radius, super = ev.super }
         return
     end
-    if (ev.kind == "hit" or ev.kind == "impact") and self.bullets[ev.bullet] then
+    -- A hit ends the bullet, unless it pierces (flies on through rowdies)
+    if (ev.kind == "impact" or (ev.kind == "hit" and not ev.pierce)) and self.bullets[ev.bullet] then
         local b = self.bullets[ev.bullet]
         b.tEnd = math.min(b.tEnd, ev.t)
     end
@@ -182,6 +183,7 @@ function Replica:update()
             local owner = world.byId[b.owner]
             world.bullets[#world.bullets + 1] = setmetatable({
                 x = b.x0 + b.vx * (t - b.t0), y = b.y0 + b.vy * (t - b.t0),
+                vx = b.vx, vy = b.vy, radius = b.radius, super = b.super,
                 color = owner and owner.bulletColor or { 1, 0.85, 0.2 },
             }, Bullet)
         elseif remoteT > b.tEnd and ownT > b.tEnd then
