@@ -84,7 +84,8 @@ function Rowdy:tick(dt)
     self.spawnAnim = math.max(0, self.spawnAnim - dt)
     if self.dead then
         self.respawnTimer = self.respawnTimer - dt
-        if self.respawnTimer <= 0 then self:respawn() end
+        -- out = no lives left (Waves): stays down
+        if self.respawnTimer <= 0 and not self.out then self:respawn() end
     elseif self.ammo < self.maxAmmo then
         self.ammoTimer = self.ammoTimer + dt
         if self.ammoTimer >= self.ammoRefill then

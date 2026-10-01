@@ -7,7 +7,6 @@
 --                Quick TAP = auto-aim at the nearest enemy in range and fire.
 --   super button (left of the aim stick, glows when charged): same gestures as the
 --                aim stick, but for the super attack
---   top-left button: switch rowdy.
 -- Both input modes return the same table, so the rest of the game doesn't care.
 local Camera = require("src.camera")
 
@@ -15,14 +14,11 @@ local Controls = {}
 
 local osName = love.system.getOS()
 Controls.touchMode = (osName == "Android" or osName == "iOS")
-Controls.switchRequested = false -- set when the on-screen switch button is tapped
-Controls.switchLabel = ""        -- text of the button (set by main.lua)
 Controls.font = nil              -- HUD font (set by main.lua)
 Controls.superCharge = 0         -- 0..1, shown on the super button (set by main.lua)
 Controls.hasSuper = false        -- the current rowdy has a super (set by main.lua)
 
 local DEADZONE = 0.25
-local SWITCH_BTN = { x = 10, y = 36, w = 170, h = 40 } -- in HUD units (720px high screen)
 
 local move = { id = nil, ox = 0, oy = 0, x = 0, y = 0 }
 local aim  = { id = nil, ox = 0, oy = 0, x = 0, y = 0, maxMag = 0, super = false }
@@ -52,19 +48,12 @@ end
 -- Forget all active touches and queued shots (new game / back to menu)
 function Controls.reset()
     move.id, aim.id, pendingShot = nil, nil, nil
-    Controls.switchRequested = false
     superHeld = false
 end
 
 -- ---- Touch callbacks (forwarded from main.lua) ----
 function Controls.touchpressed(id, x, y)
     Controls.touchMode = true
-
-    local ui, b = uiScale(), SWITCH_BTN
-    if x >= b.x * ui and x <= (b.x + b.w) * ui and y >= b.y * ui and y <= (b.y + b.h) * ui then
-        Controls.switchRequested = true
-        return
-    end
 
     -- Super button (only when charged; otherwise it acts like the rest of the screen)
     local sx, sy, sr = superButton()
@@ -236,7 +225,7 @@ function Controls.draw()
                 -math.pi / 2, -math.pi / 2 + charge * math.pi * 2, 32)
         end
         love.graphics.setLineWidth(1)
-        if Controls.font then -- label in HUD units, like the switch button
+        if Controls.font then -- label in HUD units, like the HUD
             local ui = uiScale()
             love.graphics.push()
             love.graphics.translate(sx, sy)
@@ -249,16 +238,6 @@ function Controls.draw()
         end
     end
 
-    -- Switch-rowdy button
-    local b = SWITCH_BTN
-    love.graphics.push()
-    love.graphics.scale(uiScale())
-    love.graphics.setColor(0, 0, 0, 0.45)
-    love.graphics.rectangle("fill", b.x, b.y, b.w, b.h, 8, 8)
-    love.graphics.setColor(1, 1, 1, 0.9)
-    if Controls.font then love.graphics.setFont(Controls.font) end
-    love.graphics.printf(Controls.switchLabel, b.x, b.y + 11, b.w, "center")
-    love.graphics.pop()
     love.graphics.setColor(1, 1, 1, 1)
 end
 

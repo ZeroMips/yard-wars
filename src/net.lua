@@ -34,7 +34,7 @@ local CH_RELIABLE, CH_FAST = 0, 1
 -- Entity fields in a snapshot (sent as an array in this order)
 Net.FIELDS = { "id", "team", "key", "x", "y", "aim", "hp", "ammo", "ammoTimer", "dead",
     "respawnTimer", "walkPhase", "walkBlend", "recoil", "flashTimer", "flashSize",
-    "hitFlash", "spawnAnim", "kills", "deaths", "isBot", "charge" }
+    "hitFlash", "spawnAnim", "kills", "deaths", "isBot", "charge", "out" }
 
 local function send(peer, msg, reliable)
     peer:send(Codec.encode(msg), reliable and CH_RELIABLE or CH_FAST,
@@ -122,8 +122,9 @@ local function receive(self, peer, msg)
     elseif msg.type == "input" and c.id then
         c.input = msg
     elseif msg.type == "rowdy" and c.id then
+        -- only between rounds (switching heals completely)
         local def, p = Rowdies[tonumber(msg.index)], world:get(c.id)
-        if def and p then world:setRowdy(p, def) end
+        if def and p and world.match.over then world:setRowdy(p, def) end
     end
 end
 
@@ -172,14 +173,18 @@ local function snapshot(world)
         s[4], s[5], s[6] = round(e.x, 10), round(e.y, 10), round(e.aim, 1000)
         s[21] = e.isBot or false
         s[22] = round(e.charge or 0, 100)
+        s[23] = e.out or false
         ents[#ents + 1] = s
     end
     local packs = {}
     for _, m in ipairs(world.medpacks) do
         packs[#packs + 1] = { m.id, round(m.x, 10), round(m.y, 10), m.born, m.expires }
     end
+    local m = world.match
     return { type = "snap", t = world.time, wave = world.wave, waveSize = world.waveSize,
-        waveTimer = world.waveTimer, e = ents, m = packs }
+        waveTimer = world.waveTimer, e = ents, m = packs,
+        match = { over = m.over, timeLeft = m.timeLeft and round(m.timeLeft, 10),
+                  winner = m.winner, wave = m.wave } }
 end
 
 -- Call after every world step with the events of that step

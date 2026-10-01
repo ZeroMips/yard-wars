@@ -47,8 +47,11 @@ local function decodeSnap(msg)
                 born = tonumber(m[4]) or 0, expires = tonumber(m[5]) or 0 }
         end
     end
+    local m = type(msg.match) == "table" and msg.match or {}
     return { t = tonumber(msg.t) or 0, wave = msg.wave, waveSize = msg.waveSize,
-        waveTimer = msg.waveTimer, ents = ents, medpacks = packs }
+        waveTimer = msg.waveTimer, ents = ents, medpacks = packs,
+        match = { over = m.over == true, timeLeft = tonumber(m.timeLeft),
+                  winner = tonumber(m.winner), wave = tonumber(m.wave) } }
 end
 
 -- Feed the messages from Client:takeInbox()
@@ -139,6 +142,7 @@ local function proxyFor(self, s)
     for f, v in pairs(s) do p[f] = v end
     p.dead = s.dead == true
     p.isBot = s.isBot == true
+    p.out = s.out == true
     return p
 end
 
@@ -167,6 +171,7 @@ function Replica:update()
     end
     table.sort(world.entities, function(a, b) return a.id < b.id end)
     world.wave, world.waveSize, world.waveTimer = newest.wave, newest.waveSize, newest.waveTimer
+    world.match = newest.match
 
     -- Medpacks as of the remote time (the newest snapshot not newer than that)
     local at = self.snaps[1]

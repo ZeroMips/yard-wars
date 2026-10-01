@@ -26,6 +26,12 @@ World.MEDPACK_LIFE   = 15  -- seconds until it disappears (blinks before, see ma
 local MEDPACK_REACH  = 24  -- picked up within rowdy radius + this
 local MAX_MEDPACKS   = 24
 
+-- Rounds. Duel: first to KILL_TARGET kills wins, or most kills when the time is up.
+-- Waves: every player has LIVES; the round ends when all players are out.
+World.KILL_TARGET = 10
+World.TIME_LIMIT  = 180 -- seconds
+World.LIVES       = 3
+
 local WAVE_DELAY     = 2   -- seconds between clearing a wave and the next one
 local SPAWN_MIN_DIST = 600 -- bots never spawn closer than this to a player
 local IDLE = { dx = 0, dy = 0 } -- input of a player that sent nothing
@@ -46,13 +52,21 @@ function World.new(mode)
         time = 0,     -- simulated seconds since the start
         wave = 0, waveSize = 0,
         waveTimer = 0, -- countdown to the next wave once all bots are dead
+        match = World.newMatch(mode),
     }, World)
+end
+
+-- Round state: { over = bool, timeLeft (duel), winner = entity id or nil (draw),
+-- wave = wave reached (waves) }
+function World.newMatch(mode)
+    return { over = false, timeLeft = (not mode.waves) and World.TIME_LIMIT or nil }
 end
 
 -- Events: { kind, t = world time, x, y, ... }
 --   spawn {id}  death {id, color}  step {id}  bullet {see newBullets}
 --   impact {bullet, owner, color} (wall/crate)  hit {bullet, owner, victim}
 --   heal {id, amount} (picked up a medpack)  super {id} (fired a super, at the muzzle)
+--   matchOver {winner}  matchStart
 function World:emit(kind, data)
     data.kind = kind
     data.t = self.time
@@ -246,6 +260,10 @@ local function updateBullets(self, dt)
                     victim.deaths = victim.deaths + 1
                     if shooter then shooter.kills = shooter.kills + 1 end
                     self:dropMedpack(victim.x, victim.y)
+                    -- Waves: out of lives = no more respawns
+                    if self.mode.waves and not victim.isBot and victim.deaths >= World.LIVES then
+                        victim.out = true
+                    end
                 end
                 if b.pierce then
                     b.hitIds = b.hitIds or {}
@@ -318,8 +336,71 @@ local function newBullets(self)
     end
 end
 
+-- Lives left of a player in Waves
+function World:livesLeft(e)
+    return math.max(0, World.LIVES - e.deaths)
+end
+
+local function endMatch(self, winner)
+    self.match.over = true
+    self.match.winner = winner and winner.id
+    self.match.wave = self.wave
+    self:emit("matchOver", { winner = self.match.winner })
+end
+
+-- Has the round been decided?
+local function checkMatch(self, dt)
+    local m = self.match
+    if self.mode.waves then
+        local players, out = 0, 0
+        for _, e in ipairs(self.entities) do
+            if not e.isBot then
+                players = players + 1
+                if e.out then out = out + 1 end
+            end
+        end
+        if players > 0 and out == players then endMatch(self, nil) end
+        return
+    end
+    -- Duel: somebody reached the kill target, or the time is up (most kills wins)
+    local best, tie
+    for _, e in ipairs(self.entities) do
+        if not best or e.kills > best.kills then best, tie = e, false
+        elseif e.kills == best.kills then tie = true end
+    end
+    if best and best.kills >= World.KILL_TARGET then endMatch(self, best) return end
+    m.timeLeft = m.timeLeft - dt
+    if m.timeLeft <= 0 then
+        m.timeLeft = 0
+        endMatch(self, (best and not tie and best.kills > 0) and best or nil)
+    end
+end
+
+-- Next round with the same players: scores, lives and bots start over
+function World:restartMatch()
+    for i = #self.entities, 1, -1 do
+        local e = self.entities[i]
+        if e.isBot then self:remove(e) end
+    end
+    self.bullets, self.medpacks = {}, {}
+    self.wave, self.waveSize, self.waveTimer = 0, 0, 0
+    for _, e in ipairs(self.entities) do
+        e.kills, e.deaths, e.out, e.charge = 0, 0, false, 0
+        e.fireBuffer, e.superBuffer = nil, nil
+        e:respawn()
+    end
+    self.match = World.newMatch(self.mode)
+    self:emit("matchStart", {})
+    self:start()
+end
+
 -- One simulation step. inputs[id] = input table for player `id` (missing = idle).
+-- After the round is over the world stands still (until restartMatch).
 function World:update(dt, inputs)
+    if self.match.over then
+        self.time = self.time + dt
+        return
+    end
     for _, e in ipairs(self.entities) do
         if e.isBot then
             e:update(dt, self)
@@ -331,6 +412,7 @@ function World:update(dt, inputs)
     updateBullets(self, dt)
     updateMedpacks(self)
     if self.mode.waves then updateWaves(self, dt) end
+    checkMatch(self, dt)
     self.time = self.time + dt
 end
 

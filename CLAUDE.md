@@ -30,8 +30,10 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   (LÖVE keeps running in the background unless force-stopped).
 
 ## Layout
-- `main.lua` — client: state (menu/join/game), roles local/host/client, `MENU` entries
-  (Duel, Waves, Host LAN duel = free-for-all, Host LAN waves = co-op, Join), fixed-step loop (`World.TICK` = 1/60, a shot from the
+- `main.lua` — client: state (menu/pick/join/game), roles local/host/client, `MENU` entries
+  (Duel, Waves, Host LAN duel = free-for-all, Host LAN waves = co-op, Join); every entry
+  first opens the rowdy choice; result screen (Play again / Rowdy / Menu; LAN clients:
+  Rowdy / Leave, the host starts the next round), fixed-step loop (`World.TICK` = 1/60, a shot from the
   controls is kept until a step uses it), local player by id (`localId`), world events →
   particles/shake, camera, HUD, minimap, rowdy switching.
   Escape / Android back: game → menu, menu → quit. F2 toggles the art style
@@ -40,7 +42,10 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   `id`/`team`/`def`/kills/deaths, bullets (sub-stepped, hit other teams), waves, bush
   hiding (`isHiddenFrom`), `nearestOpponent`, medpacks (every death drops one; hurt players,
   not bots, heal `MEDPACK_HEAL` = 40% of max HP; gone after 15 s, max 24); `update(dt,
-  inputs[id])`; things that happened go to `world.events` (spawn/death/step/impact/hit/heal)
+  inputs[id])`; rounds (`world.match`): duel = first to `KILL_TARGET` 10 or most kills after
+  `TIME_LIMIT` 180 s (tie = draw), waves = `LIVES` 3 per player (`out` = no respawn), over
+  when all players are out; `restartMatch()`; the world stands still while over; things
+  that happened go to `world.events` (spawn/death/step/impact/hit/heal)
   via `emit`, read with `takeEvents()`. Snapshots carry medpacks (`m`).
 - `src/net.lua` — discovery (`Net.newFinder`: query to broadcast + every address of the
   own /24 on UDP 27016 every 2 s, hosts answer with mode/players; one short-lived socket
@@ -57,6 +62,8 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   keyboard opens only when the field is tapped), found games below as tap-to-join buttons
 - `src/medpack.lua` — medpack drawing (comic box + red cross, bob, pop-in, blinks last 3 s);
   confirmed on the Pixel 2026-10-01
+- `src/picker.lua` — rowdy choice screen (cards: picture, role, HP, attack, super)
+- `src/result.lua` — end-of-round screen (title, scoreboard, buttons)
 - `src/menu.lua` — start screen with one button per mode (mouse, touch, keyboard)
 - `conf.lua` — identity "yard-wars", 1280x720 resizable window
 - `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
@@ -71,8 +78,9 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   - desktop: WASD + mouse (hold LMB to fire)
   - touch: left half = floating move stick; right half = aim stick, drag = aim beam,
     RELEASE = fire, drag back to center = cancel, quick TAP = auto-aim at nearest visible
-    enemy in range (ignores walls); top-left button switches rowdy; super button (left
-    of the aim stick, charge ring, glows when full) = same gestures for the super
+    enemy in range (ignores walls); super button (left
+    of the aim stick, charge ring, glows when full) = same gestures for the super.
+    No in-game rowdy switching (chosen before each round; switching healed fully)
   - desktop super: hold right mouse button or E to aim, release to fire
 - `src/rowdy.lua` — base class: stats, HP, ammo (3 bars + refill timer), shoot
   (pellets/spread), aim beam/cone (`drawAim`), health/ammo bars, animation (pose, walk
@@ -145,7 +153,8 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 
 ## Next-step ideas
 1. (done: super attack with charge meter + touch button; confirmed on the Pixel 2026-10-01)
-2. Start screen with rowdy picker + match timer / game over
+2. (done: rowdy choice, rounds with timer/kill target/lives, result screen, 2026-10-01;
+   not yet on a phone)
 3. Sprite-frame animation system (legs walk cycle, torso pose, weapon layer)
 4. More rowdies, gadgets, arena variety, bot A* pathfinding for bigger maps
 5. Optional: multiplayer (enet), sound effects (jsfxr / Kenney audio)

@@ -17,10 +17,14 @@ local Join     = require("src.join")
 local Net      = require("src.net")
 local Replica  = require("src.replica")
 local Medpack  = require("src.medpack")
+local Picker   = require("src.picker")
+local Result   = require("src.result")
 
--- Game modes.
---   waves = false: the bots respawn after dying (endless duel; LAN: free-for-all)
---   waves = true : killed bots stay dead; clearing a wave starts a bigger one (LAN: co-op)
+-- Game modes (round rules: see World.KILL_TARGET / TIME_LIMIT / LIVES).
+--   waves = false: duel - the bots respawn; first to 10 kills or most kills after
+--                  3 minutes wins (LAN: free-for-all)
+--   waves = true : killed bots stay dead; clearing a wave starts a bigger one; 3 lives
+--                  per player (LAN: co-op)
 local MODES = {
     duel  = { name = "Duel",  waves = false },
     waves = { name = "Waves", waves = true },
@@ -28,9 +32,9 @@ local MODES = {
 
 -- Start screen buttons
 local MENU = {
-    { name = "Duel", description = "1 vs 1 against a bot that keeps respawning",
+    { name = "Duel", description = "1 vs 1 against a bot - first to 10 kills",
       mode = MODES.duel },
-    { name = "Waves", description = "Survive waves - every wave brings one more bot",
+    { name = "Waves", description = "Survive waves with 3 lives - each wave one more bot",
       mode = MODES.waves },
     { name = "Host LAN duel", description = "Free-for-all with friends in your Wi-Fi",
       mode = MODES.duel, host = true },
@@ -44,7 +48,8 @@ local MAX_STEPS = 5 -- simulation steps per frame at most (after a hitch: slow d
 local OPPONENT_COLOR = { 1, 0.5, 0.15 } -- health bar of other players
 local TEAMMATE_COLOR = { 0.3, 0.6, 1 }
 
-local state = "menu" -- "menu", "join" or "game"
+local state = "menu" -- "menu", "pick" (rowdy choice), "join" or "game"
+local pickFor        -- what the rowdy choice is for: a MENU entry, or "between" rounds
 local role           -- "local", "host" or "client" while playing
 local menuTime = 0   -- drives the camera pan behind the menu
 local menuFonts
@@ -64,17 +69,6 @@ local hudFont
 
 -- HUD is laid out for a 720px screen (short side) and scaled on bigger/denser screens
 local function uiScale() return math.min(love.graphics.getDimensions()) / 720 end
-
-local function selectRowdy(i)
-    rowdyIndex = ((i - 1) % #Rowdies) + 1
-    local def = Rowdies[rowdyIndex]
-    if client then
-        client:selectRowdy(rowdyIndex)
-    else
-        world:setRowdy(player, def)
-    end
-    Controls.switchLabel = "Rowdy: " .. def.name
-end
 
 local function resetGame()
     accumulator, pendingFire, pendingSuper, input = 0, nil, nil, nil
@@ -113,7 +107,6 @@ local function newGame(mode, host)
     Menu.message = nil
     player = world:addPlayer(Rowdies[rowdyIndex], Arena.spawn.x, Arena.spawn.y)
     localId = player.id
-    selectRowdy(rowdyIndex)
     world:start()
     Camera.snap(player.x, player.y, Arena.width, Arena.height)
 end
@@ -141,13 +134,48 @@ local function joinGame(address)
     replica = Replica.new()
     state, role = "game", "client"
     Menu.message = nil
-    Controls.switchLabel = "Rowdy: " .. Rowdies[rowdyIndex].name
+end
+
+-- Rowdy choice before a game (forWhat = MENU entry) or between rounds ("between")
+local function openPicker(forWhat)
+    state, pickFor = "pick", forWhat
+    Picker.selected = rowdyIndex
+    if forWhat == "between" then
+        Picker.confirmLabel = (role == "client") and "OK" or "Play"
+    else
+        Picker.confirmLabel = forWhat.join and "Next" or "Play"
+    end
+end
+
+local function confirmPick()
+    rowdyIndex = Picker.selected
+    if pickFor == "between" then
+        state = "game"
+        if client then
+            client:selectRowdy(rowdyIndex) -- the host switches us before its next round
+        else
+            world:setRowdy(player, Rowdies[rowdyIndex])
+            world:restartMatch()
+        end
+    elseif pickFor.join then
+        openJoin()
+    else
+        newGame(pickFor.mode, pickFor.host)
+    end
+end
+
+local function cancelPick()
+    if pickFor == "between" then state = "game" else state = "menu" end
 end
 
 local function startMenuEntry(i)
-    local entry = MENU[i]
     Menu.selected = i
-    if entry.join then openJoin() else newGame(entry.mode, entry.host) end
+    openPicker(MENU[i])
+end
+
+-- Is the player steering their rowdy right now (not in a menu or between rounds)?
+local function playing()
+    return state == "game" and player ~= nil and not world.match.over
 end
 
 function love.load(args)
@@ -155,8 +183,9 @@ function love.load(args)
     Assets.load()
     love.resize()
     openMenu()
-    -- Testing shortcuts: love . --host [waves] | --join <address> | --find (join screen)
+    -- Testing shortcuts: love . [--rowdy N] --host [waves] | --join <address> | --find
     for i, a in ipairs(args or {}) do
+        if a == "--rowdy" then rowdyIndex = Rowdies[tonumber(args[i + 1])] and tonumber(args[i + 1]) or 1 end
         if a == "--find" then openJoin() end
         if a == "--host" then
             newGame(args[i + 1] == "waves" and MODES.waves or MODES.duel, true)
@@ -207,6 +236,10 @@ local function playEvents(events)
 end
 
 local function readInput()
+    if not playing() then -- menu / round over: stand still
+        input = { dx = 0, dy = 0 }
+        return
+    end
     Controls.hasSuper = player.super ~= nil
     Controls.superCharge = player.charge or 0
     input = Controls.get(player, world:nearestOpponent(player, true))
@@ -261,7 +294,9 @@ function love.update(dt)
             Join.searching = "search not available"
         end
     end
-    if state ~= "game" then
+    -- The game keeps running while a rowdy is chosen between rounds (LAN!)
+    local inGame = state == "game" or (state == "pick" and pickFor == "between")
+    if not inGame then
         -- Slow pan over the arena behind the menu
         menuTime = menuTime + dt
         Camera.snap(Arena.width / 2 + math.sin(menuTime * 0.15) * Arena.width * 0.3,
@@ -269,13 +304,8 @@ function love.update(dt)
         return
     end
 
-    if Controls.switchRequested then
-        Controls.switchRequested = false
-        selectRowdy(rowdyIndex + 1)
-    end
-
     if role == "client" then updateClient() else updateWorld(dt) end
-    if state ~= "game" then return end -- connection lost
+    if state == "menu" then return end -- connection lost
 
     Effects.update(dt)
     if player then Camera.update(dt, player.x, player.y, Arena.width, Arena.height) end
@@ -336,6 +366,76 @@ local function drawWaiting(text)
     love.graphics.setColor(1, 1, 1)
 end
 
+local function formatTime(t)
+    t = math.max(0, math.ceil(t or 0))
+    return string.format("%d:%02d", math.floor(t / 60), t % 60)
+end
+
+local function nameOf(e)
+    if e.id == localId then return "You" end
+    if e.isBot then return "Bot" end
+    return "Player " .. e.id
+end
+
+-- What the end-of-round screen shows (src/result.lua)
+local function resultInfo()
+    local m = world.match
+    local list = {}
+    for _, e in ipairs(world.entities) do
+        if not (world.mode.waves and e.isBot) then list[#list + 1] = e end
+    end
+    table.sort(list, function(a, b)
+        if a.kills ~= b.kills then return a.kills > b.kills end
+        return a.id < b.id
+    end)
+    local lines = {}
+    for _, e in ipairs(list) do
+        lines[#lines + 1] = { string.format("%s (%s)   %d kills   %d deaths", nameOf(e),
+            e.def and e.def.name or "?", e.kills, e.deaths), e.id == localId }
+    end
+
+    local info = { lines = lines }
+    if world.mode.waves then
+        info.title, info.color = "Game over", { 1, 0.55, 0.3 }
+        info.subtitle = "You reached wave " .. (m.wave or world.wave)
+    else
+        if not m.winner then
+            info.title, info.color = "Draw", { 1, 1, 1 }
+        elseif m.winner == localId then
+            info.title, info.color = "Victory!", { 1, 0.82, 0.1 }
+        else
+            info.title, info.color = "Defeat", { 1, 0.35, 0.3 }
+        end
+        local winner = m.winner and world:get(m.winner)
+        if m.timeLeft and m.timeLeft <= 0 then
+            info.subtitle = "Time is up"
+        elseif winner then
+            info.subtitle = nameOf(winner) .. " reached " .. World.KILL_TARGET .. " kills"
+        end
+    end
+    if role == "client" then
+        info.buttons = { { "rowdy", "Rowdy" }, { "menu", "Leave" } }
+        info.note = "Waiting for the host to start the next round"
+    else
+        info.buttons = { { "again", "Play again" }, { "rowdy", "Rowdy" }, { "menu", "Menu" } }
+        if role == "host" then
+            info.note = "Players who joined stay for the next round (" .. server:playerCount() .. ")"
+        end
+    end
+    return info
+end
+
+local function resultAction(id)
+    if id == "again" then
+        world:restartMatch()
+        Result.selected = 1
+    elseif id == "rowdy" then
+        openPicker("between")
+    elseif id == "menu" then
+        openMenu()
+    end
+end
+
 local function drawHud()
     local ui = uiScale()
     local sw = love.graphics.getWidth() / ui
@@ -348,9 +448,8 @@ local function drawHud()
         superInfo = "   [RMB/E] " .. player.super.name .. ": " ..
             (player.charge >= 1 and "READY" or (math.floor(player.charge * 100) .. "%"))
     end
-    love.graphics.print("FPS: " .. love.timer.getFPS() ..
-        (Controls.touchMode and "" or
-            ("   [1-" .. #Rowdies .. "] " .. Rowdies[rowdyIndex].name)) .. superInfo, 10, 10)
+    love.graphics.print("FPS: " .. love.timer.getFPS() .. "   " ..
+        (player.def and player.def.name or "") .. superInfo, 10, 10)
     if role == "host" then
         love.graphics.print("Hosting at " .. hostAddress .. "   players joined: " ..
             server:playerCount() .. "   searches answered: " .. (server.queries or 0) ..
@@ -366,10 +465,17 @@ local function drawHud()
             0, 10, sw, "center")
     end
     if world.mode.waves then
-        love.graphics.printf("Wave " .. world.wave .. "   Bots left: " .. world:countBots(),
-            0, 32, sw, "center")
+        love.graphics.printf("Wave " .. world.wave .. "   Bots left: " .. world:countBots() ..
+            "   Lives: " .. world:livesLeft(player), 0, 32, sw, "center")
+    else
+        love.graphics.printf(formatTime(world.match.timeLeft) .. "   -   first to " ..
+            World.KILL_TARGET .. " kills", 0, 32, sw, "center")
     end
-    if player.dead then
+    if world.match.over then
+        -- the result screen says it all
+    elseif player.out then
+        love.graphics.printf("Out of lives - watching your team", 0, 60, sw, "center")
+    elseif player.dead then
         love.graphics.printf(string.format("You were defeated - respawn in %.1f",
             math.max(0, player.respawnTimer)), 0, 60, sw, "center")
     elseif world.mode.waves and world:countBots() == 0 then
@@ -381,22 +487,7 @@ local function drawHud()
     love.graphics.pop()
 end
 
-function love.draw()
-    if state == "menu" or state == "join" then
-        Camera.attach()
-        Arena.drawBelow()
-        Arena.drawBushes(nil)
-        Camera.detach()
-        if state == "menu" then Menu.draw(MENU, menuFonts, Controls.touchMode)
-        else Join.draw(menuFonts) end
-        return
-    end
-    if not player then
-        drawWaiting(client.state == "connecting" and ("Connecting to " .. Join.address .. " ...")
-            or "Joining ...")
-        return
-    end
-
+local function drawGame()
     -- Health bars: own and bots in their own colors, other players by team
     for _, e in ipairs(world.entities) do
         e.showAmmo = (e == player)
@@ -423,16 +514,50 @@ function love.draw()
     Arena.drawBushes(player)
     Camera.detach()
 
-    -- Virtual sticks + switch button (touch only)
-    Controls.draw()
-    drawHud()
+    -- Virtual sticks + super button (touch only)
+    if playing() then Controls.draw() end
+    if not world.match.over then drawHud() end -- the result screen shows the scores
 end
 
--- Menu / join screen: taps and clicks
+function love.draw()
+    local betweenRounds = state == "pick" and pickFor == "between"
+    if state == "menu" or state == "join" or (state == "pick" and not betweenRounds) then
+        Camera.attach()
+        Arena.drawBelow()
+        Arena.drawBushes(nil)
+        Camera.detach()
+        if state == "menu" then Menu.draw(MENU, menuFonts, Controls.touchMode)
+        elseif state == "join" then Join.draw(menuFonts)
+        else Picker.draw(menuFonts) end
+        return
+    end
+    if not player then
+        drawWaiting(client.state == "connecting" and ("Connecting to " .. Join.address .. " ...")
+            or "Joining ...")
+        return
+    end
+    drawGame()
+    if betweenRounds then
+        Picker.draw(menuFonts, "Choose your rowdy for the next round")
+    elseif world.match.over then
+        Result.draw(resultInfo(), menuFonts)
+    end
+end
+
+-- Menus, rowdy choice, join screen, result screen: taps and clicks
 local function press(x, y)
     if state == "menu" then
         local i = Menu.hit(MENU, x, y)
         if i then startMenuEntry(i) end
+    elseif state == "pick" then
+        local what, i = Picker.hit(x, y)
+        if what == "card" then
+            if Picker.selected == i then confirmPick() else Picker.selected = i end
+        elseif what == "confirm" then confirmPick()
+        elseif what == "back" then cancelPick() end
+    elseif state == "game" and world and world.match.over then
+        local id = Result.hit(resultInfo(), x, y)
+        if id then resultAction(id) end
     elseif state == "join" then
         local what, i = Join.hit(x, y)
         if what == "game" then joinGame(Join.games[i].address)
@@ -444,19 +569,19 @@ end
 
 -- Touch input (Android/iOS)
 function love.touchpressed(id, x, y)
-    if state == "game" then Controls.touchpressed(id, x, y) end
+    if playing() then Controls.touchpressed(id, x, y) end
 end
 function love.touchmoved(id, x, y)
-    if state == "game" then Controls.touchmoved(id, x, y) end
+    if playing() then Controls.touchmoved(id, x, y) end
 end
 function love.touchreleased(id, x, y)
-    if state == "game" then Controls.touchreleased(id, x, y)
+    if playing() then Controls.touchreleased(id, x, y)
     else Controls.touchMode = true; press(x, y) end
 end
 
 -- Mouse (touches also arrive here as emulated mouse events: skip those)
 function love.mousereleased(x, y, button, istouch)
-    if state ~= "game" and button == 1 and not istouch then press(x, y) end
+    if not playing() and button == 1 and not istouch then press(x, y) end
 end
 function love.mousemoved(x, y, dx, dy, istouch)
     if state == "menu" and not istouch then
@@ -468,12 +593,18 @@ function love.textinput(t)
     if state == "join" then Join.textinput(t) end
 end
 
--- Escape (= Android back button): game/join -> menu, menu -> quit
+-- Escape (= Android back button): game/join -> menu, rowdy choice -> back,
+-- menu -> quit
 function love.keypressed(key)
     if state == "menu" then
         if key == "escape" then love.event.quit() return end
         local i = Menu.keypressed(MENU, key)
         if i then startMenuEntry(i) end
+        return
+    elseif state == "pick" then
+        local action = Picker.keypressed(key)
+        if action == "confirm" then confirmPick()
+        elseif action == "back" then cancelPick() end
         return
     elseif state == "join" then
         local action = Join.keypressed(key)
@@ -487,9 +618,10 @@ function love.keypressed(key)
         if world then world:restyle() end
         return
     end
-    if not player then return end
-    local n = tonumber(key)
-    if n and Rowdies[n] then selectRowdy(n) end
+    if world and world.match.over then
+        local id = Result.keypressed(resultInfo(), key)
+        if id then resultAction(id) end
+    end
 end
 
 function love.quit()
