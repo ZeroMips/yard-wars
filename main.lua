@@ -121,7 +121,7 @@ local function openJoin()
     Join.status = nil
     Join.games = {}
     Join.open()
-    finder = Net.newFinder()
+    finder = Net.newFinder({ Join.address }) -- ask the last joined host first
 end
 
 -- address: a found game's address, or nil for the one typed in
@@ -244,6 +244,7 @@ function love.update(dt)
             finder:update(dt)
             Join.games = finder.games
             Join.searching = finder.network or "no network"
+            Join.stats = finder:stats()
         else
             Join.searching = "search not available"
         end
@@ -335,7 +336,8 @@ local function drawHud()
             ("   [1-" .. #Rowdies .. "] " .. Rowdies[rowdyIndex].name)), 10, 10)
     if role == "host" then
         love.graphics.print("Hosting at " .. hostAddress .. "   players joined: " ..
-            server:playerCount(), 10, 32)
+            server:playerCount() .. "   searches answered: " .. (server.queries or 0) ..
+            (server.lastQueryFrom and (" (last from " .. server.lastQueryFrom .. ")") or ""), 10, 32)
     elseif role == "client" then
         love.graphics.print("Ping: " .. client:ping() .. " ms", 10, 32)
     end

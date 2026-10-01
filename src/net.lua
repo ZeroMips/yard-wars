@@ -82,6 +82,7 @@ local function answerQueries(self)
         local data, ip, port = self.discovery:receivefrom()
         if not data then break end
         if data == DISCOVER_QUERY then
+            self.queries, self.lastQueryFrom = (self.queries or 0) + 1, ip -- shown in the HUD
             local mode = self.world.mode
             self.discovery:sendto(Codec.encode({ game = "yard-wars", mode = mode.name,
                 waves = mode.waves, players = self:playerCount() + 1, port = Net.PORT }), ip, port)
@@ -197,28 +198,81 @@ end
 local Finder = {}
 Finder.__index = Finder
 
+-- A query to an address where no device exists waits in the socket's send buffer until
+-- the network gives up on that address (~3 s). One socket for a whole /24 sweep fills
+-- its buffer and further sends fail, so the sweep is split over short-lived sockets.
+local CHUNK = 32        -- addresses per socket
+local SOCKET_LIFE = 4   -- seconds a query socket is kept (answers come within ms)
+
 -- Looks for hosts in the local network while it is updated. finder.games is a list of
 -- { address, mode, waves, players, seen } sorted by address.
-function Net.newFinder()
+-- hints: addresses to ask first (e.g. the last joined host)
+function Net.newFinder(hints)
+    if not socket.udp() then return nil end
+    return setmetatable({ sockets = {}, hints = hints or {}, games = {}, byAddress = {},
+        timer = 0, sent = 0, sendErrors = 0, answers = 0, lastError = nil }, Finder)
+end
+
+local function newSocket(self)
     local udp = socket.udp()
     if not udp then return nil end
     udp:settimeout(0)
-    udp:setoption("broadcast", true)
     udp:setsockname("*", 0)
-    return setmetatable({ udp = udp, games = {}, byAddress = {}, timer = 0 }, Finder)
+    udp:setoption("broadcast", true) -- LuaSocket 3.0-rc1: only works after binding
+    self.sockets[#self.sockets + 1] = { udp = udp, created = love.timer.getTime() }
+    return udp
+end
+
+local function sendAll(self, addresses)
+    local udp = newSocket(self)
+    if not udp then return end
+    for _, ip in ipairs(addresses) do
+        local ok, res, err = pcall(udp.sendto, udp, DISCOVER_QUERY, ip, Net.DISCOVERY_PORT)
+        if ok and res then self.sent = self.sent + 1
+        else self.sendErrors, self.lastError = self.sendErrors + 1, tostring(ok and err or res) end
+    end
 end
 
 local function sendQueries(self)
-    local send = function(ip) pcall(self.udp.sendto, self.udp, DISCOVER_QUERY, ip, Net.DISCOVERY_PORT) end
-    send("255.255.255.255")
     local own = Net.localAddress()
     local prefix = own and own:match("^(%d+%.%d+%.%d+)%.%d+$")
     self.network = prefix and (prefix .. ".x") -- shown on the join screen
-    if prefix then
-        send(prefix .. ".255")
-        for i = 1, 254 do send(prefix .. "." .. i) end
-    else
-        send("127.0.0.1") -- no network: at least find a host on this device
+
+    -- Likely hosts first: hints, games already found, broadcasts
+    local first, done = {}, {}
+    local function add(list, ip)
+        if ip and ip ~= "" and not done[ip] then done[ip] = true; list[#list + 1] = ip end
+    end
+    for _, ip in ipairs(self.hints) do add(first, ip) end
+    for ip in pairs(self.byAddress) do add(first, ip) end
+    add(first, "255.255.255.255")
+    add(first, prefix and (prefix .. ".255") or "127.0.0.1")
+    sendAll(self, first)
+
+    -- Then every address of the /24 network, CHUNK per socket
+    if not prefix then return end
+    local chunk = {}
+    for i = 1, 254 do
+        add(chunk, prefix .. "." .. i)
+        if #chunk == CHUNK then sendAll(self, chunk); chunk = {} end
+    end
+    if #chunk > 0 then sendAll(self, chunk) end
+end
+
+local function receive(self, udp, now)
+    while true do
+        local data, ip = udp:receivefrom()
+        if not data then break end
+        local info = Codec.decode(data)
+        self.answers = self.answers + 1
+        if type(info) == "table" and info.game == "yard-wars" and type(ip) == "string" then
+            local g = self.byAddress[ip] or { address = ip }
+            g.mode = tostring(info.mode or "?")
+            g.waves = info.waves == true
+            g.players = tonumber(info.players) or 1
+            g.seen = now
+            self.byAddress[ip] = g
+        end
     end
 end
 
@@ -229,17 +283,12 @@ function Finder:update(dt)
         sendQueries(self)
     end
     local now = love.timer.getTime()
-    while true do
-        local data, ip = self.udp:receivefrom()
-        if not data then break end
-        local info = Codec.decode(data)
-        if type(info) == "table" and info.game == "yard-wars" and type(ip) == "string" then
-            local g = self.byAddress[ip] or { address = ip }
-            g.mode = tostring(info.mode or "?")
-            g.waves = info.waves == true
-            g.players = tonumber(info.players) or 1
-            g.seen = now
-            self.byAddress[ip] = g
+    for i = #self.sockets, 1, -1 do
+        local s = self.sockets[i]
+        receive(self, s.udp, now)
+        if now - s.created > SOCKET_LIFE then
+            s.udp:close()
+            table.remove(self.sockets, i)
         end
     end
     local games = {}
@@ -251,8 +300,15 @@ function Finder:update(dt)
     self.games = games
 end
 
+-- Counters for the join screen (to see where discovery fails)
+function Finder:stats()
+    return string.format("queries sent %d, failed %d%s, answers %d", self.sent, self.sendErrors,
+        self.lastError and (" (" .. self.lastError .. ")") or "", self.answers)
+end
+
 function Finder:close()
-    self.udp:close()
+    for _, sock in ipairs(self.sockets) do sock.udp:close() end
+    self.sockets = {}
 end
 
 ---------------------------------------------------------------------------- client

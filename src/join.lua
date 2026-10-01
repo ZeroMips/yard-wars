@@ -9,6 +9,7 @@ Join.address = ""
 Join.status = nil -- e.g. "Could not connect"
 Join.games = {}   -- { address, mode, waves, players }
 Join.searching = nil -- e.g. "192.168.6.x"; "no network" / "not available" when it can't
+Join.stats = nil     -- discovery counters (small, under the list)
 
 local SAVE_FILE = "last_host.txt"
 local MAX_LEN = 64
@@ -151,6 +152,10 @@ function Join.draw(fonts)
         love.graphics.setLineWidth(1)
         love.graphics.setColor(1, 1, 1)
         love.graphics.printf(Join.describe(Join.games[i]), r.x + 10, r.y + 20, r.w - 20, "center")
+    end
+    if Join.stats then -- below the list
+        love.graphics.setColor(1, 1, 1, 0.4)
+        love.graphics.printf(Join.stats, 0, GAMES_Y + #rects.games * (GAME_H + GAME_GAP), sw, "center")
     end
 
     love.graphics.pop()
