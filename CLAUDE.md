@@ -41,7 +41,9 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   hiding (`isHiddenFrom`), `nearestOpponent`; `update(dt, inputs[id])`; things that happened
   go to `world.events` (spawn/death/step/impact/hit) via `emit`, read with `takeEvents()`
 - `src/net.lua` — discovery (`Net.newFinder`: query to broadcast + every address of the
-  own /24 on UDP 27016 every 2 s, hosts answer with mode/players), enet LAN server (runs next to the World on the host: hello → player,
+  own /24 on UDP 27016 every 2 s, hosts answer with mode/players; one short-lived socket
+  per 32 addresses because queries to absent hosts block the send buffer for ~3 s;
+  LuaSocket 3.0-rc1: set "broadcast" only AFTER setsockname), enet LAN server (runs next to the World on the host: hello → player,
   input per step, events reliable + 30 Hz snapshots unreliable, 6 s timeout) and client
   (hello/input/rowdy; input `fire` is a counter so lost packets lose no shot)
 - `src/replica.lua` — client-side World copy from snapshots: others interpolated 100 ms
