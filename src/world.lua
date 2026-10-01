@@ -20,7 +20,8 @@ World.MAX_BOTS    = 64     -- safety cap for the wave size
 World.HIDE_REVEAL = 150    -- an opponent in a bush is only visible this close
 World.TEAM_PLAYERS, World.TEAM_BOTS = 1, 2
 
--- Medpacks: every defeated rowdy drops one; a hurt player walking over it heals
+-- Medpacks: a rowdy defeated by a player drops one (a reward for the winner - bots
+-- can't pick them up, so their kills drop nothing); a hurt player walking over it heals
 World.MEDPACK_HEAL   = 0.4 -- share of the picker's max HP
 World.MEDPACK_LIFE   = 15  -- seconds until it disappears (blinks before, see main.lua)
 local MEDPACK_REACH  = 24  -- picked up within rowdy radius + this
@@ -260,7 +261,7 @@ local function updateBullets(self, dt)
                 if victim:takeDamage(b.damage) then
                     victim.deaths = victim.deaths + 1
                     if shooter then shooter.kills = shooter.kills + 1 end
-                    self:dropMedpack(victim.x, victim.y)
+                    if shooter and not shooter.isBot then self:dropMedpack(victim.x, victim.y) end
                     -- Waves: out of lives = no more respawns
                     if self.mode.waves and not victim.isBot and victim.deaths >= World.LIVES then
                         victim.out = true

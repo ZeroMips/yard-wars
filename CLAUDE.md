@@ -40,8 +40,8 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   (comic / Kenney) for player and bots.
 - `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
   `id`/`team`/`def`/kills/deaths, bullets (sub-stepped, hit other teams), waves, bush
-  hiding (`isHiddenFrom`), `nearestOpponent`, medpacks (every death drops one; hurt players,
-  not bots, heal `MEDPACK_HEAL` = 40% of max HP; gone after 15 s, max 24); `update(dt,
+  hiding (`isHiddenFrom`), `nearestOpponent`, medpacks (dropped when a player makes a kill, not
+  by bot kills; hurt players, not bots, heal `MEDPACK_HEAL` = 40% of max HP; gone after 15 s, max 24); `update(dt,
   inputs[id])`; rounds (`world.match`): duel = first to `KILL_TARGET` 10 or most kills after
   `TIME_LIMIT` 180 s (tie = draw), waves = `LIVES` 3 per player (`out` = no respawn), over
   when all players are out; `restartMatch()`; the world stands still while over; things
