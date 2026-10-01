@@ -10,7 +10,9 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   error tracebacks to stdout; exit code 124 means it ran until the timeout.
 - Packed build: `zip -9 -r ../yard-wars.love . -x '.git/*'`
 - LAN test on one machine: `love . --host` (or `--host waves`) and `love . --join 127.0.0.1`
-  in a second terminal. UDP port 27015 (if the phone can't connect: `sudo ufw allow 27015/udp`).
+  (or `love . --find` for the join screen with discovery) in a second terminal.
+  UDP ports 27015 (game) + 27016 (discovery); if a phone can't connect/find the desktop:
+  `sudo ufw allow 27015:27016/udp`.
 - Scripted test harnesses (copy main.lua to game.lua in a temp dir, override love.update/
   draw, symlink `src`/`assets`): NEVER symlink conf.lua (writing the test conf overwrote
   the real one once), and set `t.window.vsync = 0` + `love.timer.sleep` — with vsync the
@@ -36,14 +38,16 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   `id`/`team`/`def`/kills/deaths, bullets (sub-stepped, hit other teams), waves, bush
   hiding (`isHiddenFrom`), `nearestOpponent`; `update(dt, inputs[id])`; things that happened
   go to `world.events` (spawn/death/step/impact/hit) via `emit`, read with `takeEvents()`
-- `src/net.lua` — enet LAN server (runs next to the World on the host: hello → player,
+- `src/net.lua` — discovery (`Net.newFinder`: query to broadcast + every address of the
+  own /24 on UDP 27016 every 2 s, hosts answer with mode/players), enet LAN server (runs next to the World on the host: hello → player,
   input per step, events reliable + 30 Hz snapshots unreliable, 6 s timeout) and client
   (hello/input/rowdy; input `fire` is a counter so lost packets lose no shot)
 - `src/replica.lua` — client-side World copy from snapshots: others interpolated 100 ms
   behind the host, own rowdy 50 ms; bullets drawn from spawn records (straight lines);
   events played when their time comes; clock offset = max(t - arrival), pulled down 10%
 - `src/codec.lua` — message serializer (no loadstring; rejects malformed input)
-- `src/join.lua` — join screen (address field in the upper half, last address saved)
+- `src/join.lua` — join screen: address field in the upper half (last address saved; phone
+  keyboard opens only when the field is tapped), found games below as tap-to-join buttons
 - `src/menu.lua` — start screen with one button per mode (mouse, touch, keyboard)
 - `conf.lua` — identity "yard-wars", 1280x720 resizable window
 - `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
@@ -117,8 +121,9 @@ Server-authoritative, host device = server, LAN first (enet is built into LÖVE 
    snapshots → clients, interpolation. Duel = free-for-all (own team per player), Waves =
    co-op. Checked: PvP kills/deaths agree on both sides, rowdy switch from a client,
    no friendly fire in co-op, disconnect removes the player / client returns to the menu.
-   NOT yet tried phone <-> desktop.
-3. Own-player prediction/reconciliation, LAN discovery lobby, team mode, disconnects.
+   Confirmed phone <-> phone (Pixel 6a + moto g67, 2026-09-30).
+3. DONE: LAN discovery (join screen lists hosts; desktop-tested 2026-10-01, not yet on phones).
+   Open: own-player prediction/reconciliation, team mode, lobby/ready, player names.
 4. Optional: internet play via a dedicated headless server on a VPS.
 Not done yet: render interpolation between steps (60 Hz sim looks slightly uneven on
 >60 Hz desktop monitors; Pixel 6a runs at 60 Hz).

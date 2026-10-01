@@ -15,8 +15,15 @@ local socket   = require("socket")
 local Codec    = require("src.codec")
 local Rowdies = require("src.rowdies")
 
+-- Finding games: a joining device sends DISCOVER_QUERY to UDP DISCOVERY_PORT (broadcast
+-- + every address of its /24 network, since some phones/routers drop broadcasts); hosts
+-- answer with { game = "yard-wars", mode, players, port }. See Net.newFinder.
 local Net = {}
 Net.PORT = 27015
+Net.DISCOVERY_PORT = 27016
+local DISCOVER_QUERY = "yard-wars?1"
+local FIND_INTERVAL = 2  -- seconds between queries
+local FOUND_TIMEOUT = 5  -- a game disappears from the list after this long without answer
 Net.MAX_CLIENTS = 7
 Net.SNAPSHOT_EVERY = 2 -- simulation steps per snapshot (30 Hz)
 Net.CONNECT_TIMEOUT = 5
@@ -62,8 +69,24 @@ Server.__index = Server
 function Net.newServer(world)
     local host = enet.host_create("*:" .. Net.PORT, Net.MAX_CLIENTS, 2)
     if not host then return nil, "Port " .. Net.PORT .. " is in use" end
-    return setmetatable({ host = host, world = world, clients = {}, steps = 0, events = {} },
-        Server)
+    -- Answer discovery queries (optional: without it, joining by address still works)
+    local udp = socket.udp()
+    if udp and not udp:setsockname("*", Net.DISCOVERY_PORT) then udp:close(); udp = nil end
+    if udp then udp:settimeout(0) end
+    return setmetatable({ host = host, world = world, clients = {}, steps = 0, events = {},
+        discovery = udp }, Server)
+end
+
+local function answerQueries(self)
+    while true do
+        local data, ip, port = self.discovery:receivefrom()
+        if not data then break end
+        if data == DISCOVER_QUERY then
+            local mode = self.world.mode
+            self.discovery:sendto(Codec.encode({ game = "yard-wars", mode = mode.name,
+                waves = mode.waves, players = self:playerCount() + 1, port = Net.PORT }), ip, port)
+        end
+    end
 end
 
 function Server:playerCount()
@@ -97,6 +120,7 @@ end
 
 -- Call once per frame before stepping the world
 function Server:service()
+    if self.discovery then answerQueries(self) end
     while true do
         local ev = self.host:service(0)
         if not ev then break end
@@ -165,6 +189,69 @@ function Server:close()
     for peer in pairs(self.clients) do peer:disconnect_now() end
     self.host:flush()
     self.host:destroy()
+    if self.discovery then self.discovery:close() end
+end
+
+---------------------------------------------------------------------------- finder
+
+local Finder = {}
+Finder.__index = Finder
+
+-- Looks for hosts in the local network while it is updated. finder.games is a list of
+-- { address, mode, waves, players, seen } sorted by address.
+function Net.newFinder()
+    local udp = socket.udp()
+    if not udp then return nil end
+    udp:settimeout(0)
+    udp:setoption("broadcast", true)
+    udp:setsockname("*", 0)
+    return setmetatable({ udp = udp, games = {}, byAddress = {}, timer = 0 }, Finder)
+end
+
+local function sendQueries(self)
+    local send = function(ip) pcall(self.udp.sendto, self.udp, DISCOVER_QUERY, ip, Net.DISCOVERY_PORT) end
+    send("255.255.255.255")
+    local own = Net.localAddress()
+    local prefix = own and own:match("^(%d+%.%d+%.%d+)%.%d+$")
+    if prefix then
+        send(prefix .. ".255")
+        for i = 1, 254 do send(prefix .. "." .. i) end
+    else
+        send("127.0.0.1") -- no network: at least find a host on this device
+    end
+end
+
+function Finder:update(dt)
+    self.timer = self.timer - dt
+    if self.timer <= 0 then
+        self.timer = FIND_INTERVAL
+        sendQueries(self)
+    end
+    local now = love.timer.getTime()
+    while true do
+        local data, ip = self.udp:receivefrom()
+        if not data then break end
+        local info = Codec.decode(data)
+        if type(info) == "table" and info.game == "yard-wars" and type(ip) == "string" then
+            local g = self.byAddress[ip] or { address = ip }
+            g.mode = tostring(info.mode or "?")
+            g.waves = info.waves == true
+            g.players = tonumber(info.players) or 1
+            g.seen = now
+            self.byAddress[ip] = g
+        end
+    end
+    local games = {}
+    for ip, g in pairs(self.byAddress) do
+        if now - g.seen > FOUND_TIMEOUT then self.byAddress[ip] = nil
+        else games[#games + 1] = g end
+    end
+    table.sort(games, function(a, b) return a.address < b.address end)
+    self.games = games
+end
+
+function Finder:close()
+    self.udp:close()
 end
 
 ---------------------------------------------------------------------------- client

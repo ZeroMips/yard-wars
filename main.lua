@@ -53,6 +53,7 @@ local localId        -- id of the player on this device
 local player         -- the own rowdy, refreshed every frame (nil while joining)
 local server, hostAddress -- host
 local client, replica     -- client
+local finder              -- looks for LAN games while the join screen is open
 local accumulator = 0
 local pendingFire    -- a shot requested since the last simulation step
 local rowdyIndex = 1
@@ -80,10 +81,16 @@ local function resetGame()
     Controls.reset()
 end
 
+local function closeFinder()
+    if finder then finder:close() end
+    finder = nil
+end
+
 -- Back to the start screen (message: why, e.g. "Connection lost")
 local function openMenu(message)
     if server then server:close() end
     if client then client:close() end
+    closeFinder()
     server, client, replica = nil, nil, nil
     state, role = "menu", nil
     Menu.message = message
@@ -112,17 +119,22 @@ end
 local function openJoin()
     state = "join"
     Join.status = nil
+    Join.games = {}
     Join.open()
+    finder = Net.newFinder()
 end
 
-local function joinGame()
-    local address = Join.address
+-- address: a found game's address, or nil for the one typed in
+local function joinGame(address)
+    if address then Join.address = address end
+    address = Join.address
     if address == "" then Join.status = "Enter the host's address" return end
     local err
     client, err = Net.newClient(address, rowdyIndex)
     if not client then Join.status = err return end
     Join.save()
     Join.close()
+    closeFinder()
     resetGame()
     replica = Replica.new()
     state, role = "game", "client"
@@ -141,8 +153,9 @@ function love.load(args)
     Assets.load()
     love.resize()
     openMenu()
-    -- Testing shortcuts: love . --host [waves] | --join <address>
+    -- Testing shortcuts: love . --host [waves] | --join <address> | --find (join screen)
     for i, a in ipairs(args or {}) do
+        if a == "--find" then openJoin() end
         if a == "--host" then
             newGame(args[i + 1] == "waves" and MODES.waves or MODES.duel, true)
         elseif a == "--join" and args[i + 1] then
@@ -226,6 +239,10 @@ local function updateClient()
 end
 
 function love.update(dt)
+    if state == "join" and finder then
+        finder:update(dt)
+        Join.games = finder.games
+    end
     if state ~= "game" then
         -- Slow pan over the arena behind the menu
         menuTime = menuTime + dt
@@ -389,8 +406,9 @@ local function press(x, y)
         local i = Menu.hit(MENU, x, y)
         if i then startMenuEntry(i) end
     elseif state == "join" then
-        local what = Join.hit(x, y)
-        if what == "connect" then joinGame()
+        local what, i = Join.hit(x, y)
+        if what == "game" then joinGame(Join.games[i].address)
+        elseif what == "connect" then joinGame()
         elseif what == "back" then Join.close(); openMenu()
         elseif what == "field" then love.keyboard.setTextInput(true) end
     end
