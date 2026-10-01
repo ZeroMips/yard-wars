@@ -239,9 +239,14 @@ local function updateClient()
 end
 
 function love.update(dt)
-    if state == "join" and finder then
-        finder:update(dt)
-        Join.games = finder.games
+    if state == "join" then
+        if finder then
+            finder:update(dt)
+            Join.games = finder.games
+            Join.searching = finder.network or "no network"
+        else
+            Join.searching = "search not available"
+        end
     end
     if state ~= "game" then
         -- Slow pan over the arena behind the menu

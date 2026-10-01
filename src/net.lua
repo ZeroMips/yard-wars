@@ -213,6 +213,7 @@ local function sendQueries(self)
     send("255.255.255.255")
     local own = Net.localAddress()
     local prefix = own and own:match("^(%d+%.%d+%.%d+)%.%d+$")
+    self.network = prefix and (prefix .. ".x") -- shown on the join screen
     if prefix then
         send(prefix .. ".255")
         for i = 1, 254 do send(prefix .. "." .. i) end

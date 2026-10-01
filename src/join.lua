@@ -8,6 +8,7 @@ local Join = {}
 Join.address = ""
 Join.status = nil -- e.g. "Could not connect"
 Join.games = {}   -- { address, mode, waves, players }
+Join.searching = nil -- e.g. "192.168.6.x"; "no network" / "not available" when it can't
 
 local SAVE_FILE = "last_host.txt"
 local MAX_LEN = 64
@@ -138,7 +139,8 @@ function Join.draw(fonts)
     -- Games found in the network
     love.graphics.setColor(1, 1, 1, 0.8)
     local dots = string.rep(".", math.floor(love.timer.getTime() * 2) % 4)
-    love.graphics.printf(#Join.games == 0 and ("Searching for games in your Wi-Fi " .. dots)
+    local where = Join.searching and (" (" .. Join.searching .. ")") or ""
+    love.graphics.printf(#Join.games == 0 and ("Searching for games in your Wi-Fi" .. where .. " " .. dots)
         or "Games in your Wi-Fi - tap to join:", 0, GAMES_Y - 32, sw, "center")
     for i, r in ipairs(rects.games) do
         love.graphics.setColor(0.1, 0.12, 0.15, 0.9)

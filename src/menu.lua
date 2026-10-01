@@ -6,6 +6,11 @@ local Menu = {}
 Menu.selected = 1
 Menu.message = nil -- shown under the title (e.g. "Connection lost")
 
+-- Build shown in the corner: version.txt is written when the game is copied to a
+-- device (commit + date), so it's easy to see which code a phone runs.
+Menu.version = (love.filesystem.getInfo("version.txt") and
+    love.filesystem.read("version.txt") or "dev"):gsub("%s+$", "")
+
 local BTN_W, BTN_H, BTN_GAP = 420, 90, 20
 
 local function uiScale() return math.min(love.graphics.getDimensions()) / 720 end
@@ -93,6 +98,8 @@ function Menu.draw(modes, fonts, touchMode)
     love.graphics.printf(touchMode and "Tap a mode to start  -  In game, Back returns here"
         or "Click or Enter to start  -  In game, Esc returns here",
         0, last.y + last.h + 30, sw, "center")
+    love.graphics.setColor(1, 1, 1, 0.35)
+    love.graphics.print(Menu.version, 8, sh - 24)
 
     love.graphics.pop()
     love.graphics.setColor(1, 1, 1, 1)
