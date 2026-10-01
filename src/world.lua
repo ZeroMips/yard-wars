@@ -20,6 +20,12 @@ World.MAX_BOTS    = 64     -- safety cap for the wave size
 World.HIDE_REVEAL = 150    -- an opponent in a bush is only visible this close
 World.TEAM_PLAYERS, World.TEAM_BOTS = 1, 2
 
+-- Medpacks: every defeated rowdy drops one; a hurt player walking over it heals
+World.MEDPACK_HEAL   = 0.4 -- share of the picker's max HP
+World.MEDPACK_LIFE   = 15  -- seconds until it disappears (blinks before, see main.lua)
+local MEDPACK_REACH  = 24  -- picked up within rowdy radius + this
+local MAX_MEDPACKS   = 24
+
 local WAVE_DELAY     = 2   -- seconds between clearing a wave and the next one
 local SPAWN_MIN_DIST = 600 -- bots never spawn closer than this to a player
 local IDLE = { dx = 0, dy = 0 } -- input of a player that sent nothing
@@ -34,6 +40,8 @@ function World.new(mode)
         events = {},
         nextId = 1,
         nextBulletId = 1,
+        medpacks = {}, -- { id, x, y, born, expires }
+        nextMedpackId = 1,
         nextTeam = 3, -- free-for-all: every player gets a team of their own
         time = 0,     -- simulated seconds since the start
         wave = 0, waveSize = 0,
@@ -44,6 +52,7 @@ end
 -- Events: { kind, t = world time, x, y, ... }
 --   spawn {id}  death {id, color}  step {id}  bullet {see newBullets}
 --   impact {bullet, owner, color} (wall/crate)  hit {bullet, owner, victim}
+--   heal {id, amount} (picked up a medpack)
 function World:emit(kind, data)
     data.kind = kind
     data.t = self.time
@@ -233,6 +242,7 @@ local function updateBullets(self, dt)
                     victim.deaths = victim.deaths + 1
                     local killer = self.byId[b.owner.id]
                     if killer then killer.kills = killer.kills + 1 end
+                    self:dropMedpack(victim.x, victim.y)
                 end
                 break
             end
@@ -255,6 +265,34 @@ local function updateWaves(self, dt)
     if self:countBots() == 0 then
         self.waveTimer = self.waveTimer - dt
         if self.waveTimer <= 0 then self:startWave() end
+    end
+end
+
+function World:dropMedpack(x, y)
+    if #self.medpacks >= MAX_MEDPACKS then table.remove(self.medpacks, 1) end -- oldest goes
+    self.medpacks[#self.medpacks + 1] = { id = self.nextMedpackId, x = x, y = y,
+        born = self.time, expires = self.time + World.MEDPACK_LIFE }
+    self.nextMedpackId = self.nextMedpackId + 1
+end
+
+-- Hurt players (not bots) pick up medpacks they touch; old ones disappear
+local function updateMedpacks(self)
+    local packs = self.medpacks
+    for i = #packs, 1, -1 do
+        local m, taken = packs[i], false
+        for _, e in ipairs(self.entities) do
+            if not e.isBot and not e.dead and e.hp < e.maxHp then
+                local r = e.radius + MEDPACK_REACH
+                if (e.x - m.x) ^ 2 + (e.y - m.y) ^ 2 < r * r then
+                    local amount = math.min(e.maxHp - e.hp, math.ceil(e.maxHp * World.MEDPACK_HEAL))
+                    e.hp = e.hp + amount
+                    self:emit("heal", { id = e.id, x = e.x, y = e.y, amount = amount })
+                    taken = true
+                    break
+                end
+            end
+        end
+        if taken or self.time >= m.expires then table.remove(packs, i) end
     end
 end
 
@@ -282,6 +320,7 @@ function World:update(dt, inputs)
     end
     newBullets(self)
     updateBullets(self, dt)
+    updateMedpacks(self)
     if self.mode.waves then updateWaves(self, dt) end
     self.time = self.time + dt
 end

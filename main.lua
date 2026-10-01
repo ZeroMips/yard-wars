@@ -16,6 +16,7 @@ local Menu     = require("src.menu")
 local Join     = require("src.join")
 local Net      = require("src.net")
 local Replica  = require("src.replica")
+local Medpack  = require("src.medpack")
 
 -- Game modes.
 --   waves = false: the bots respawn after dying (endless duel; LAN: free-for-all)
@@ -190,6 +191,9 @@ local function playEvents(events)
             Effects.puff(ev.x, ev.y)
         elseif ev.kind == "impact" then
             Effects.sparks(ev.x, ev.y, 4, ev.color, 140) -- bullet hit a wall / crate
+        elseif ev.kind == "heal" then
+            Effects.heal(ev.x, ev.y)
+            Effects.ring(ev.x, ev.y, 40, { 0.4, 1, 0.4 })
         elseif ev.kind == "hit" then
             Effects.sparks(ev.x, ev.y, 7, { 1, 0.45, 0.3 }, 200)
             if ev.victim == localId then Camera.shake(5) end
@@ -392,6 +396,7 @@ function love.draw()
     Camera.attach()
     Arena.drawBelow()
     if input and input.aiming and not player.dead then player:drawAim() end
+    for _, m in ipairs(world.medpacks) do Medpack.draw(m, world.time) end
     Effects.drawBelow()
     for _, b in ipairs(world.bullets) do b:draw() end
     for _, e in ipairs(world.entities) do

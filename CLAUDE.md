@@ -38,8 +38,10 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   (comic / Kenney) for player and bots.
 - `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
   `id`/`team`/`def`/kills/deaths, bullets (sub-stepped, hit other teams), waves, bush
-  hiding (`isHiddenFrom`), `nearestOpponent`; `update(dt, inputs[id])`; things that happened
-  go to `world.events` (spawn/death/step/impact/hit) via `emit`, read with `takeEvents()`
+  hiding (`isHiddenFrom`), `nearestOpponent`, medpacks (every death drops one; hurt players,
+  not bots, heal `MEDPACK_HEAL` = 40% of max HP; gone after 15 s, max 24); `update(dt,
+  inputs[id])`; things that happened go to `world.events` (spawn/death/step/impact/hit/heal)
+  via `emit`, read with `takeEvents()`. Snapshots carry medpacks (`m`).
 - `src/net.lua` — discovery (`Net.newFinder`: query to broadcast + every address of the
   own /24 on UDP 27016 every 2 s, hosts answer with mode/players; one short-lived socket
   per 32 addresses because queries to absent hosts block the send buffer for ~3 s;
@@ -53,6 +55,7 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
 - `src/codec.lua` — message serializer (no loadstring; rejects malformed input)
 - `src/join.lua` — join screen: address field in the upper half (last address saved; phone
   keyboard opens only when the field is tapped), found games below as tap-to-join buttons
+- `src/medpack.lua` — medpack drawing (comic box + red cross, bob, pop-in, blinks last 3 s)
 - `src/menu.lua` — start screen with one button per mode (mouse, touch, keyboard)
 - `conf.lua` — identity "yard-wars", 1280x720 resizable window
 - `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
@@ -79,7 +82,7 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   states patrol/chase/strafe/retreat/flee/search, LOS +
   bush-reveal rules, aim spread, stuck detection (slides sideways)
 - `src/bullet.lua` — owner/team/damage/color; speed+range read from owner (default range 480)
-- `src/effects.lua` — particles: puff, sparks, burst, ring (`drawBelow`/`drawAbove` layers)
+- `src/effects.lua` — particles: puff, sparks, burst, ring, heal ("+" signs) (`drawBelow`/`drawAbove` layers)
 - `assets/images/` — `tilesheet.png` (Kenney), `characters/<name>_<pose>.png`,
   `comic/<name>.png`
 - `tools/make_comic_sprites.py` — AI image (white bg, facing up) → cut out, trimmed,

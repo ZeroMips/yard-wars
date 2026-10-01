@@ -40,8 +40,15 @@ local function decodeSnap(msg)
             if type(e.id) == "number" and Rowdies.byKey(e.key) then ents[e.id] = e end
         end
     end
+    local packs = {}
+    for _, m in pairs(type(msg.m) == "table" and msg.m or {}) do
+        if type(m) == "table" and tonumber(m[2]) and tonumber(m[3]) then
+            packs[#packs + 1] = { id = m[1], x = m[2], y = m[3],
+                born = tonumber(m[4]) or 0, expires = tonumber(m[5]) or 0 }
+        end
+    end
     return { t = tonumber(msg.t) or 0, wave = msg.wave, waveSize = msg.waveSize,
-        waveTimer = msg.waveTimer, ents = ents }
+        waveTimer = msg.waveTimer, ents = ents, medpacks = packs }
 end
 
 -- Feed the messages from Client:takeInbox()
@@ -159,6 +166,13 @@ function Replica:update()
     end
     table.sort(world.entities, function(a, b) return a.id < b.id end)
     world.wave, world.waveSize, world.waveTimer = newest.wave, newest.waveSize, newest.waveTimer
+
+    -- Medpacks as of the remote time (the newest snapshot not newer than that)
+    local at = self.snaps[1]
+    for _, s in ipairs(self.snaps) do
+        if s.t <= remoteT then at = s end
+    end
+    world.medpacks, world.time = at.medpacks, remoteT
 
     -- Bullets: straight lines from their spawn record
     world.bullets = {}

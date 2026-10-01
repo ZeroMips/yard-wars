@@ -171,8 +171,12 @@ local function snapshot(world)
         s[21] = e.isBot or false
         ents[#ents + 1] = s
     end
+    local packs = {}
+    for _, m in ipairs(world.medpacks) do
+        packs[#packs + 1] = { m.id, round(m.x, 10), round(m.y, 10), m.born, m.expires }
+    end
     return { type = "snap", t = world.time, wave = world.wave, waveSize = world.waveSize,
-        waveTimer = world.waveTimer, e = ents }
+        waveTimer = world.waveTimer, e = ents, m = packs }
 end
 
 -- Call after every world step with the events of that step

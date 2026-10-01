@@ -39,6 +39,17 @@ function Effects.burst(x, y, color, n)
     end
 end
 
+-- Healing: green "+" signs rising around (x, y)
+function Effects.heal(x, y)
+    for i = 1, 6 do
+        local a = i / 6 * math.pi * 2 + math.random() * 0.5
+        local l = 0.6 + math.random() * 0.3
+        add { kind = "plus", layer = "above", x = x + math.cos(a) * 16, y = y + math.sin(a) * 12,
+              vx = math.cos(a) * 15, vy = -55 - math.random() * 30,
+              life = l, max = l, size = 3.5 + math.random() * 2 }
+    end
+end
+
 -- Expanding ring (death, respawn)
 function Effects.ring(x, y, radius, color)
     add { kind = "ring", layer = "below", x = x, y = y, radius = radius,
@@ -80,6 +91,14 @@ local function draw(layer)
                 love.graphics.line(p.x, p.y, p.x - p.vx * 0.03, p.y - p.vy * 0.03)
                 love.graphics.setLineWidth(1)
                 love.graphics.setBlendMode("alpha")
+            elseif p.kind == "plus" then
+                local s, w = p.size, p.size * 0.45
+                love.graphics.setColor(0.1, 0.3, 0.1, k)
+                love.graphics.rectangle("fill", p.x - w - 1.5, p.y - s - 1.5, 2 * w + 3, 2 * s + 3)
+                love.graphics.rectangle("fill", p.x - s - 1.5, p.y - w - 1.5, 2 * s + 3, 2 * w + 3)
+                love.graphics.setColor(0.4, 1, 0.4, k)
+                love.graphics.rectangle("fill", p.x - w, p.y - s, 2 * w, 2 * s)
+                love.graphics.rectangle("fill", p.x - s, p.y - w, 2 * s, 2 * w)
             elseif p.kind == "blob" then
                 local c = p.color
                 love.graphics.setColor(c[1], c[2], c[3], k)
