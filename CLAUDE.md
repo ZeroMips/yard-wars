@@ -153,8 +153,8 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 
 ## Next-step ideas
 1. (done: super attack with charge meter + touch button; confirmed on the Pixel 2026-10-01)
-2. (done: rowdy choice, rounds with timer/kill target/lives, result screen, 2026-10-01;
-   not yet on a phone)
+2. (done: rowdy choice, rounds with timer/kill target/lives, result screen; confirmed on
+   the Pixel 2026-10-01)
 3. Sprite-frame animation system (legs walk cycle, torso pose, weapon layer)
 4. More rowdies, gadgets, arena variety, bot A* pathfinding for bigger maps
 5. Optional: multiplayer (enet), sound effects (jsfxr / Kenney audio)
