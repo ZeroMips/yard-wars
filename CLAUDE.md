@@ -25,7 +25,9 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
 - Opening `.love` files via Drive / Files "open with" fails (content:// URIs).
 - Working method: copy the unpacked game (main.lua at top level) via USB MTP to
   `/sdcard/Android/data/org.love2d.android/files/games/lovegame/`, force-stop LÖVE,
-  start it from its icon.
+  start it from its icon. Also write `version.txt` (`git log -1 --format='%h %cd'`, not in
+  git) into the game folder: the menu shows it bottom-left, so you can see which build runs
+  (LÖVE keeps running in the background unless force-stopped).
 
 ## Layout
 - `main.lua` — client: state (menu/join/game), roles local/host/client, `MENU` entries
