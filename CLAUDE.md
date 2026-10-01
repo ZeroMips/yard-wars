@@ -55,7 +55,8 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
 - `src/codec.lua` — message serializer (no loadstring; rejects malformed input)
 - `src/join.lua` — join screen: address field in the upper half (last address saved; phone
   keyboard opens only when the field is tapped), found games below as tap-to-join buttons
-- `src/medpack.lua` — medpack drawing (comic box + red cross, bob, pop-in, blinks last 3 s)
+- `src/medpack.lua` — medpack drawing (comic box + red cross, bob, pop-in, blinks last 3 s);
+  confirmed on the Pixel 2026-10-01
 - `src/menu.lua` — start screen with one button per mode (mouse, touch, keyboard)
 - `conf.lua` — identity "yard-wars", 1280x720 resizable window
 - `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
