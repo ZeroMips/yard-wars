@@ -51,7 +51,8 @@ local function decodeSnap(msg)
     return { t = tonumber(msg.t) or 0, wave = msg.wave, waveSize = msg.waveSize,
         waveTimer = msg.waveTimer, ents = ents, medpacks = packs,
         match = { over = m.over == true, timeLeft = tonumber(m.timeLeft),
-                  winner = tonumber(m.winner), wave = tonumber(m.wave) } }
+                  winner = tonumber(m.winner), winnerTeam = tonumber(m.winnerTeam),
+                  wave = tonumber(m.wave) } }
 end
 
 -- Feed the messages from Client:takeInbox()

@@ -19,6 +19,9 @@ World.TICK        = 1 / 60 -- seconds per simulation step
 World.MAX_BOTS    = 64     -- safety cap for the wave size
 World.HIDE_REVEAL = 150    -- an opponent in a bush is only visible this close
 World.TEAM_PLAYERS, World.TEAM_BOTS = 1, 2
+-- Team fight: blue (left side) against red (right side); bots fill both teams
+World.TEAM_BLUE, World.TEAM_RED = 1, 2
+World.TEAM_SIZE = 3
 
 -- Medpacks: a rowdy defeated by a player drops one (a reward for the winner - bots
 -- can't pick them up, so their kills drop nothing); a hurt player walking over it heals
@@ -28,8 +31,10 @@ local MEDPACK_REACH  = 24  -- picked up within rowdy radius + this
 local MAX_MEDPACKS   = 24
 
 -- Rounds. Duel: first to KILL_TARGET kills wins, or most kills when the time is up.
+-- Team fight: the same with the kills of each team (TEAM_KILL_TARGET).
 -- Waves: every player has LIVES; the round ends when all players are out.
 World.KILL_TARGET = 10
+World.TEAM_KILL_TARGET = 15
 World.TIME_LIMIT  = 180 -- seconds
 World.LIVES       = 3
 
@@ -197,6 +202,72 @@ local function botSpawnPoint(self, i)
     return sx, sy
 end
 
+-- Team fight: the three spawn spots of a team (blue = left, red = mirrored right)
+local function teamSpots(team)
+    local x, y = Arena.spawn.x, Arena.spawn.y
+    if team == World.TEAM_RED then x = Arena.width - x end
+    return { { x, y }, { x, y - 128 }, { x, y + 128 } }
+end
+
+-- A spawn spot of `team` nobody of that team uses yet (or the first one if all are)
+local function freeSpot(self, team)
+    local spots = teamSpots(team)
+    for _, s in ipairs(spots) do
+        local taken = false
+        for _, e in ipairs(self.entities) do
+            if e.team == team and e.spawnX == s[1] and e.spawnY == s[2] then taken = true end
+        end
+        if not taken then return s[1], s[2] end
+    end
+    return spots[1][1], spots[1][2]
+end
+
+local function addBot(self, team, x, y)
+    local def = Rowdies.bot
+    local e = self:add(Enemy.new(x, y, Assets.look(def), def.stats), team, def)
+    e:respawn() -- pop-in animation + spawn event
+    return e
+end
+
+-- Number of players (not bots) per team
+function World:playersPerTeam()
+    local n = {}
+    for _, e in ipairs(self.entities) do
+        if not e.isBot then n[e.team] = (n[e.team] or 0) + 1 end
+    end
+    return n
+end
+
+-- Team fight: a player joins the team with fewer players and takes a bot's place
+function World:addTeamPlayer(def)
+    local n = self:playersPerTeam()
+    local team = ((n[World.TEAM_RED] or 0) < (n[World.TEAM_BLUE] or 0)) and World.TEAM_RED
+        or World.TEAM_BLUE
+    local x, y
+    for _, e in ipairs(self.entities) do
+        if e.isBot and e.team == team then
+            x, y = e.spawnX, e.spawnY
+            self:remove(e)
+            break
+        end
+    end
+    if not x then x, y = freeSpot(self, team) end
+    return self:addPlayer(def, x, y, team)
+end
+
+-- A player leaves; in a team fight a bot takes over the empty place
+function World:removePlayer(p)
+    self:remove(p)
+    if self.mode.teams then addBot(self, p.team, p.spawnX, p.spawnY) end
+end
+
+-- Kills per team
+function World:teamScores()
+    local s = {}
+    for _, e in ipairs(self.entities) do s[e.team] = (s[e.team] or 0) + e.kills end
+    return s
+end
+
 function World:spawnBots(count)
     local def = Rowdies.bot
     for i = 1, count do
@@ -215,7 +286,19 @@ end
 
 -- Call after the players were added.
 function World:start()
-    if self.mode.waves then self:startWave() else self:spawnBots(1) end
+    if self.mode.teams then -- fill both teams with bots
+        for _, team in ipairs({ World.TEAM_BLUE, World.TEAM_RED }) do
+            local members = 0
+            for _, e in ipairs(self.entities) do
+                if e.team == team then members = members + 1 end
+            end
+            for _ = members + 1, World.TEAM_SIZE do addBot(self, team, freeSpot(self, team)) end
+        end
+    elseif self.mode.waves then
+        self:startWave()
+    else
+        self:spawnBots(1)
+    end
 end
 
 local function bulletHits(b, victim)
@@ -343,11 +426,13 @@ function World:livesLeft(e)
     return math.max(0, World.LIVES - e.deaths)
 end
 
-local function endMatch(self, winner)
+-- winner: entity (duel), winnerTeam: team id (team fight); both nil = draw
+local function endMatch(self, winner, winnerTeam)
     self.match.over = true
     self.match.winner = winner and winner.id
+    self.match.winnerTeam = winnerTeam
     self.match.wave = self.wave
-    self:emit("matchOver", { winner = self.match.winner })
+    self:emit("matchOver", { winner = self.match.winner, winnerTeam = winnerTeam })
 end
 
 -- Has the round been decided?
@@ -362,6 +447,18 @@ local function checkMatch(self, dt)
             end
         end
         if players > 0 and out == players then endMatch(self, nil) end
+        return
+    end
+    if self.mode.teams then -- a team reached the target, or the time is up
+        local s = self:teamScores()
+        local blue, red = s[World.TEAM_BLUE] or 0, s[World.TEAM_RED] or 0
+        if blue >= World.TEAM_KILL_TARGET then endMatch(self, nil, World.TEAM_BLUE) return end
+        if red >= World.TEAM_KILL_TARGET then endMatch(self, nil, World.TEAM_RED) return end
+        m.timeLeft = m.timeLeft - dt
+        if m.timeLeft <= 0 then
+            m.timeLeft = 0
+            endMatch(self, nil, (blue > red and World.TEAM_BLUE) or (red > blue and World.TEAM_RED) or nil)
+        end
         return
     end
     -- Duel: somebody reached the kill target, or the time is up (most kills wins)

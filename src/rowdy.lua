@@ -341,6 +341,18 @@ function Rowdy:draw()
     love.graphics.setColor(0, 0, 0, 0.25 * alpha)
     love.graphics.ellipse("fill", self.x, self.y + 6, self.radius * pop, self.radius * 0.8 * pop)
 
+    -- Team fight: ring in the team color (set by the renderer: allies blue, enemies red)
+    if self.teamColor then -- wider than the sprite, so it shows around it
+        local c = self.teamColor
+        local rx, ry = (self.radius + 14) * pop, (self.radius + 8) * pop
+        love.graphics.setColor(c[1], c[2], c[3], 0.25 * alpha)
+        love.graphics.ellipse("fill", self.x, self.y + 6, rx, ry)
+        love.graphics.setColor(c[1], c[2], c[3], 0.9 * alpha)
+        love.graphics.setLineWidth(3)
+        love.graphics.ellipse("line", self.x, self.y + 6, rx, ry)
+        love.graphics.setLineWidth(1)
+    end
+
     -- Super ready: pulsing gold ring under the rowdy (visible to everybody)
     if self:superReady() then
         local k = 0.5 + 0.5 * math.sin(t * 6)

@@ -30,8 +30,9 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   (LÖVE keeps running in the background unless force-stopped).
 
 ## Layout
-- `main.lua` — client: state (menu/pick/join/game), roles local/host/client, `MENU` entries
-  (Duel, Waves, Host LAN duel = free-for-all, Host LAN waves = co-op, Join); every entry
+- `main.lua` — client: state (menu/pick/join/game), roles local/host/client, `MENUS` pages:
+  main (Duel, Team fight, Waves, LAN game) and lan (Host duel = free-for-all, Host team
+  fight, Host waves = co-op, Join, Back); every game entry
   first opens the rowdy choice; result screen (Play again / Rowdy / Menu; LAN clients:
   Rowdy / Leave, the host starts the next round), fixed-step loop (`World.TICK` = 1/60, a shot from the
   controls is kept until a step uses it), local player by id (`localId`), world events →
@@ -42,7 +43,10 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   `id`/`team`/`def`/kills/deaths, bullets (sub-stepped, hit other teams), waves, bush
   hiding (`isHiddenFrom`), `nearestOpponent`, medpacks (dropped when a player makes a kill, not
   by bot kills; hurt players, not bots, heal `MEDPACK_HEAL` = 40% of max HP; gone after 15 s, max 24); `update(dt,
-  inputs[id])`; rounds (`world.match`): duel = first to `KILL_TARGET` 10 or most kills after
+  inputs[id])`; team fight (`mode.teams`): blue (left, `TEAM_BLUE`) vs red (right), 3 spawn
+  spots per side, bots fill to `TEAM_SIZE` 3, `addTeamPlayer` (team with fewer players,
+  replaces a bot), `removePlayer` (bot refills), `teamScores`, first team to
+  `TEAM_KILL_TARGET` 15; rounds (`world.match`): duel = first to `KILL_TARGET` 10 or most kills after
   `TIME_LIMIT` 180 s (tie = draw), waves = `LIVES` 3 per player (`out` = no respawn), over
   when all players are out; `restartMatch()`; the world stands still while over; things
   that happened go to `world.events` (also shot/superReady/matchStart/matchOver for sounds) (spawn/death/step/impact/hit/heal)
@@ -114,6 +118,8 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   love.graphics, Effects, Camera or Controls (multiplayer: see Multiplayer plan below).
 - World units: 1 tile = 64px. HUD is laid out for a 720px short screen side and scaled
   by `uiScale = min(w,h)/720`; fonts use dpiscale.
+- Colors are relative to the viewer: own health bar green, allies blue, enemy bots red,
+  enemy players orange (team fight: enemies red); team fight adds a ring in that color.
 - Rowdy stats live in `src/rowdies.lua`; bullets read range/bulletSpeed/damage from owner.
 - Tile art uses nearest filtering to avoid bleeding when scaled.
 
@@ -163,4 +169,5 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
    the Pixel 2026-10-01)
 3. Sprite-frame animation system (legs walk cycle, torso pose, weapon layer)
 4. More rowdies, gadgets, arena variety, bot A* pathfinding for bigger maps
+   (done: team fight 3v3 with bots, local + LAN, 2026-10-01; not yet on a phone)
 5. (done: LAN multiplayer; synthesized sound effects 2026-10-01, not yet on a phone)

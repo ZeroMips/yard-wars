@@ -26,29 +26,42 @@ local Sound    = require("src.sound")
 --                  3 minutes wins (LAN: free-for-all)
 --   waves = true : killed bots stay dead; clearing a wave starts a bigger one; 3 lives
 --                  per player (LAN: co-op)
+--   teams = true : team fight - 3 vs 3, bots fill the empty places; first team to 15 kills
 local MODES = {
     duel  = { name = "Duel",  waves = false },
+    team  = { name = "Team fight", waves = false, teams = true },
     waves = { name = "Waves", waves = true },
 }
 
--- Start screen buttons
-local MENU = {
-    { name = "Duel", description = "1 vs 1 against a bot - first to 10 kills",
-      mode = MODES.duel },
-    { name = "Waves", description = "Survive waves with 3 lives - each wave one more bot",
-      mode = MODES.waves },
-    { name = "Host LAN duel", description = "Free-for-all with friends in your Wi-Fi",
-      mode = MODES.duel, host = true },
-    { name = "Host LAN waves", description = "Survive waves together with friends",
-      mode = MODES.waves, host = true },
-    { name = "Join LAN game", description = "Play in a game hosted in your Wi-Fi",
-      join = true },
+-- Start screen buttons: the main page, and the LAN page behind "LAN game"
+local MENUS = {
+    main = {
+        { name = "Duel", description = "1 vs 1 against a bot - first to 10 kills",
+          mode = MODES.duel },
+        { name = "Team fight", description = "You + 2 bots vs 3 bots - first team to 15 kills",
+          mode = MODES.team },
+        { name = "Waves", description = "3 lives - every wave brings one more bot",
+          mode = MODES.waves },
+        { name = "LAN game", description = "Play with friends in your Wi-Fi", page = "lan" },
+    },
+    lan = {
+        { name = "Host duel", description = "Free-for-all - everybody against everybody",
+          mode = MODES.duel, host = true },
+        { name = "Host team fight", description = "Teams of 3 - bots fill the empty places",
+          mode = MODES.team, host = true },
+        { name = "Host waves", description = "Survive waves together",
+          mode = MODES.waves, host = true },
+        { name = "Join", description = "Play in a game hosted in your Wi-Fi", join = true },
+        { name = "Back", description = "", page = "main" },
+    },
 }
+local MENU = MENUS.main -- the page shown
 
 local MAX_STEPS = 5 -- simulation steps per frame at most (after a hitch: slow down instead)
 local MUTE_SIZE = 44 -- touch mute button in the top right corner (HUD units)
 local OPPONENT_COLOR = { 1, 0.5, 0.15 } -- health bar of other players
 local TEAMMATE_COLOR = { 0.3, 0.6, 1 }
+local ENEMY_TEAM_COLOR = { 1, 0.3, 0.25 } -- team fight: enemies (bots and players)
 
 local state = "menu" -- "menu", "pick" (rowdy choice), "join" or "game"
 local pickFor        -- what the rowdy choice is for: a MENU entry, or "between" rounds
@@ -92,6 +105,7 @@ local function openMenu(message)
     closeFinder()
     server, client, replica = nil, nil, nil
     state, role = "menu", nil
+    MENU = MENUS.main
     Menu.message = message
     Controls.reset()
 end
@@ -108,7 +122,11 @@ local function newGame(mode, host)
     end
     state, role = "game", host and "host" or "local"
     Menu.message = nil
-    player = world:addPlayer(Rowdies[rowdyIndex], Arena.spawn.x, Arena.spawn.y)
+    if mode.teams then
+        player = world:addTeamPlayer(Rowdies[rowdyIndex])
+    else
+        player = world:addPlayer(Rowdies[rowdyIndex], Arena.spawn.x, Arena.spawn.y)
+    end
     localId = player.id
     world:start()
     world:takeEvents() -- the bots' spawn sounds would all play at once
@@ -177,8 +195,15 @@ local function cancelPick()
 end
 
 local function startMenuEntry(i)
+    local entry = MENU[i]
+    if entry.page then -- switch between the main and the LAN page
+        Sound.play("click")
+        MENU = MENUS[entry.page]
+        Menu.selected = 1
+        return
+    end
     Menu.selected = i
-    openPicker(MENU[i])
+    openPicker(entry)
 end
 
 -- Is the player steering their rowdy right now (not in a menu or between rounds)?
@@ -192,12 +217,12 @@ function love.load(args)
     Sound.load()
     love.resize()
     openMenu()
-    -- Testing shortcuts: love . [--rowdy N] --host [waves] | --join <address> | --find
+    -- Testing shortcuts: love . [--rowdy N] --host [team|waves] | --join <address> | --find
     for i, a in ipairs(args or {}) do
         if a == "--rowdy" then rowdyIndex = Rowdies[tonumber(args[i + 1])] and tonumber(args[i + 1]) or 1 end
         if a == "--find" then openJoin() end
         if a == "--host" then
-            newGame(args[i + 1] == "waves" and MODES.waves or MODES.duel, true)
+            newGame(MODES[args[i + 1]] or MODES.duel, true) -- duel / team / waves
         elseif a == "--join" and args[i + 1] then
             Join.address = args[i + 1]
             joinGame()
@@ -259,6 +284,10 @@ local function playEvents(events)
             Sound.play("roundStart")
         elseif ev.kind == "matchOver" then
             if world.mode.waves then Sound.play("defeat")
+            elseif world.mode.teams then
+                if not ev.winnerTeam then Sound.play("draw")
+                elseif player and ev.winnerTeam == player.team then Sound.play("victory")
+                else Sound.play("defeat") end
             elseif not ev.winner then Sound.play("draw")
             elseif ev.winner == localId then Sound.play("victory")
             else Sound.play("defeat") end
@@ -430,7 +459,34 @@ local function resultInfo()
     end
 
     local info = { lines = lines }
-    if world.mode.waves then
+    if world.mode.teams then
+        -- scoreboard: own team first
+        table.sort(list, function(a, b)
+            local ma, mb = a.team == player.team, b.team == player.team
+            if ma ~= mb then return ma end
+            if a.kills ~= b.kills then return a.kills > b.kills end
+            return a.id < b.id
+        end)
+        lines = {}
+        for _, e in ipairs(list) do
+            lines[#lines + 1] = { string.format("%s  %s (%s)   %d kills   %d deaths",
+                e.team == player.team and "[Your team]" or "[Enemies]", nameOf(e),
+                e.def and e.def.name or "?", e.kills, e.deaths), e.id == localId }
+        end
+        info.lines = lines
+        if not m.winnerTeam then
+            info.title, info.color = "Draw", { 1, 1, 1 }
+        elseif m.winnerTeam == player.team then
+            info.title, info.color = "Victory!", { 1, 0.82, 0.1 }
+        else
+            info.title, info.color = "Defeat", { 1, 0.35, 0.3 }
+        end
+        local s = world:teamScores()
+        local own, other = s[player.team] or 0, 0
+        for team, k in pairs(s) do if team ~= player.team then other = other + k end end
+        info.subtitle = ((m.timeLeft and m.timeLeft <= 0) and "Time is up" or "Kill target reached")
+            .. "   -   Your team " .. own .. " : " .. other .. " Enemies"
+    elseif world.mode.waves then
         info.title, info.color = "Game over", { 1, 0.55, 0.3 }
         info.subtitle = "You reached wave " .. (m.wave or world.wave)
     else
@@ -493,7 +549,13 @@ local function drawHud()
     elseif role == "client" then
         love.graphics.print("Ping: " .. client:ping() .. " ms", 10, 32)
     end
-    if role == "local" then
+    if world.mode.teams then
+        local s = world:teamScores()
+        local own, other = s[player.team] or 0, 0
+        for team, k in pairs(s) do if team ~= player.team then other = other + k end end
+        love.graphics.printf("Your team " .. own .. " : " .. other .. " Enemies",
+            0, 10, sw, "center")
+    elseif role == "local" then
         love.graphics.printf("You " .. player.kills .. " : " .. player.deaths .. " Bot",
             0, 10, sw, "center")
     else
@@ -505,7 +567,8 @@ local function drawHud()
             "   Lives: " .. world:livesLeft(player), 0, 32, sw, "center")
     else
         love.graphics.printf(formatTime(world.match.timeLeft) .. "   -   first to " ..
-            World.KILL_TARGET .. " kills", 0, 32, sw, "center")
+            (world.mode.teams and (World.TEAM_KILL_TARGET .. " team kills")
+                or (World.KILL_TARGET .. " kills")), 0, 32, sw, "center")
     end
     if world.match.over then
         -- the result screen says it all
@@ -524,12 +587,17 @@ local function drawHud()
 end
 
 local function drawGame()
-    -- Health bars: own and bots in their own colors, other players by team
+    -- Health bars: own green; allies blue; enemy bots red, enemy players orange.
+    -- Team fight: everybody else blue/red by team, plus a ring in that color.
     for _, e in ipairs(world.entities) do
         e.showAmmo = (e == player)
-        if e == player or e.isBot then e.hudColor = nil
-        elseif world:isOpponent(e, player) then e.hudColor = OPPONENT_COLOR
-        else e.hudColor = TEAMMATE_COLOR end
+        local ally = not world:isOpponent(e, player)
+        if e == player then e.hudColor = nil
+        elseif ally then e.hudColor = TEAMMATE_COLOR
+        elseif world.mode.teams then e.hudColor = ENEMY_TEAM_COLOR
+        elseif e.isBot then e.hudColor = nil
+        else e.hudColor = OPPONENT_COLOR end
+        e.teamColor = world.mode.teams and (ally and TEAMMATE_COLOR or ENEMY_TEAM_COLOR) or nil
     end
 
     -- World (moves with the camera)
@@ -687,7 +755,11 @@ end
 function love.keypressed(key)
     if key == "m" and state ~= "join" then Sound.toggleMute() return end
     if state == "menu" then
-        if key == "escape" then love.event.quit() return end
+        if key == "escape" then
+            if MENU ~= MENUS.main then MENU, Menu.selected = MENUS.main, 1 -- LAN page -> main
+            else love.event.quit() end
+            return
+        end
         local i = Menu.keypressed(MENU, key)
         if i then startMenuEntry(i) end
         return

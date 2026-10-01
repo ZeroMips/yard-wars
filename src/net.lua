@@ -111,14 +111,18 @@ local function receive(self, peer, msg)
     if not c or type(msg) ~= "table" then return end
     if msg.type == "hello" and not c.id then
         local def = Rowdies[tonumber(msg.rowdy)] or Rowdies[1]
-        -- Waves: everybody against the bots; duel: free-for-all
-        local team = (not world.mode.waves) and world:newTeam() or nil
-        local x, y = world:playerSpawn()
-        local p = world:addPlayer(def, x, y, team)
+        local p
+        if world.mode.teams then -- the team with fewer players, in place of a bot
+            p = world:addTeamPlayer(def)
+        else -- waves: everybody against the bots; duel: free-for-all
+            local team = (not world.mode.waves) and world:newTeam() or nil
+            local x, y = world:playerSpawn()
+            p = world:addPlayer(def, x, y, team)
+        end
         p:respawn() -- pop-in + spawn event
         c.id, c.fireSeen = p.id, 0
-        send(peer, { type = "welcome", id = p.id,
-            mode = { name = world.mode.name, waves = world.mode.waves } }, true)
+        send(peer, { type = "welcome", id = p.id, mode = { name = world.mode.name,
+            waves = world.mode.waves, teams = world.mode.teams } }, true)
     elseif msg.type == "input" and c.id then
         c.input = msg
     elseif msg.type == "rowdy" and c.id then
@@ -142,7 +146,7 @@ function Server:service()
         elseif ev.type == "disconnect" then
             local c = self.clients[ev.peer]
             local p = c and c.id and self.world:get(c.id)
-            if p then self.world:remove(p) end
+            if p then self.world:removePlayer(p) end
             self.clients[ev.peer] = nil
         end
     end
@@ -184,7 +188,7 @@ local function snapshot(world)
     return { type = "snap", t = world.time, wave = world.wave, waveSize = world.waveSize,
         waveTimer = world.waveTimer, e = ents, m = packs,
         match = { over = m.over, timeLeft = m.timeLeft and round(m.timeLeft, 10),
-                  winner = m.winner, wave = m.wave } }
+                  winner = m.winner, winnerTeam = m.winnerTeam, wave = m.wave } }
 end
 
 -- Call after every world step with the events of that step
