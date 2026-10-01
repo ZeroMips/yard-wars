@@ -144,7 +144,7 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 >60 Hz desktop monitors; Pixel 6a runs at 60 Hz).
 
 ## Next-step ideas
-1. (done: super attack with charge meter + touch button, 2026-10-01; not yet on a phone)
+1. (done: super attack with charge meter + touch button; confirmed on the Pixel 2026-10-01)
 2. Start screen with rowdy picker + match timer / game over
 3. Sprite-frame animation system (legs walk cycle, torso pose, weapon layer)
 4. More rowdies, gadgets, arena variety, bot A* pathfinding for bigger maps
