@@ -127,7 +127,8 @@ Server-authoritative, host device = server, LAN first (enet is built into LÖVE 
    co-op. Checked: PvP kills/deaths agree on both sides, rowdy switch from a client,
    no friendly fire in co-op, disconnect removes the player / client returns to the menu.
    Confirmed phone <-> phone (Pixel 6a + moto g67, 2026-09-30).
-3. DONE: LAN discovery (join screen lists hosts; desktop-tested 2026-10-01, not yet on phones).
+3. DONE: LAN discovery (join screen lists hosts). Confirmed Pixel 6a finding a desktop host
+   (2026-10-01); a phone as discovery host not tried yet. moto g67 still has an older build.
    Open: own-player prediction/reconciliation, team mode, lobby/ready, player names.
 4. Optional: internet play via a dedicated headless server on a VPS.
 Not done yet: render interpolation between steps (60 Hz sim looks slightly uneven on
