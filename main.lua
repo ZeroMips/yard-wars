@@ -27,7 +27,8 @@ local Sound    = require("src.sound")
 --                  3 minutes wins (LAN: free-for-all)
 --   waves = true : killed bots stay dead; clearing a wave starts a bigger one; 3 lives
 --                  per player (LAN: co-op)
---   teams = true : team fight - 3 vs 3, bots fill the empty places; first team to 15 kills
+--   teams = true : team fight - 3 vs 3, the players together, bots fill the empty places;
+--                  first team to 15 kills
 local MODES = {
     duel  = { name = "Duel",  waves = false },
     team  = { name = "Team fight", waves = false, teams = true },
@@ -48,7 +49,7 @@ local MENUS = {
     lan = {
         { name = "Host duel", description = "Free-for-all - everybody against everybody",
           mode = MODES.duel, host = true },
-        { name = "Host team fight", description = "Teams of 3 - bots fill the empty places",
+        { name = "Host team fight", description = "Play together - 3 vs 3 with bots",
           mode = MODES.team, host = true },
         { name = "Host waves", description = "Survive waves together",
           mode = MODES.waves, host = true },

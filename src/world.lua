@@ -238,11 +238,12 @@ function World:playersPerTeam()
     return n
 end
 
--- Team fight: a player joins the team with fewer players and takes a bot's place
+-- Team fight: the humans play together against the bots - a player joins blue and
+-- takes a bot's place (red only once blue has no bots left)
 function World:addTeamPlayer(def)
     local n = self:playersPerTeam()
-    local team = ((n[World.TEAM_RED] or 0) < (n[World.TEAM_BLUE] or 0)) and World.TEAM_RED
-        or World.TEAM_BLUE
+    local team = ((n[World.TEAM_BLUE] or 0) < World.TEAM_SIZE) and World.TEAM_BLUE
+        or World.TEAM_RED
     local x, y
     for _, e in ipairs(self.entities) do
         if e.isBot and e.team == team then

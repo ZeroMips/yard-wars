@@ -112,7 +112,7 @@ local function receive(self, peer, msg)
     if msg.type == "hello" and not c.id then
         local def = Rowdies[tonumber(msg.rowdy)] or Rowdies[1]
         local p
-        if world.mode.teams then -- the team with fewer players, in place of a bot
+        if world.mode.teams then -- with the other players, in place of a bot
             p = world:addTeamPlayer(def)
         else -- waves: everybody against the bots; duel: free-for-all
             local team = (not world.mode.waves) and world:newTeam() or nil

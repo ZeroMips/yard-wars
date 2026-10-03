@@ -44,8 +44,8 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   hiding (`isHiddenFrom`), `nearestOpponent`, medpacks (dropped when a player makes a kill, not
   by bot kills; hurt players, not bots, heal `MEDPACK_HEAL` = 40% of max HP; gone after 15 s, max 24); `update(dt,
   inputs[id])`; team fight (`mode.teams`): blue (left, `TEAM_BLUE`) vs red (right), 3 spawn
-  spots per side, bots fill to `TEAM_SIZE` 3, `addTeamPlayer` (team with fewer players,
-  replaces a bot), `removePlayer` (bot refills), `teamScores`, first team to
+  spots per side, bots fill to `TEAM_SIZE` 3, `addTeamPlayer` (humans together on blue,
+  red only when blue is full; replaces a bot), `removePlayer` (bot refills), `teamScores`, first team to
   `TEAM_KILL_TARGET` 15; rounds (`world.match`): duel = first to `KILL_TARGET` 10 or most kills after
   `TIME_LIMIT` 180 s (tie = draw), waves = `LIVES` 3 per player (`out` = no respawn), over
   when all players are out; `restartMatch()`; the world stands still while over; things
