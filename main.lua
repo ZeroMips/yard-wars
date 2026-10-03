@@ -19,6 +19,7 @@ local Replica  = require("src.replica")
 local Medpack  = require("src.medpack")
 local Picker   = require("src.picker")
 local Result   = require("src.result")
+local Scoreboard = require("src.scoreboard")
 local Sound    = require("src.sound")
 
 -- Game modes (round rules: see World.KILL_TARGET / TIME_LIMIT / LIVES).
@@ -82,6 +83,9 @@ local rowdyIndex = 1
 local input -- last controls reading
 local muteTouch -- id of the touch that pressed the mute button (its release is ignored)
 local hudFont
+local boardFonts -- scoreboard: { small, big, banner }
+local watch = {} -- last frame's round state, to notice what is worth a banner
+local watchMatch -- (defined with the HUD below; called from love.update)
 
 -- HUD is laid out for a 720px screen (short side) and scaled on bigger/denser screens
 local function uiScale() return math.min(love.graphics.getDimensions()) / 720 end
@@ -91,6 +95,8 @@ local function resetGame()
     world, player, localId = nil, nil, nil
     Effects.clear()
     Controls.reset()
+    Scoreboard.clear()
+    watch = {}
 end
 
 local function closeFinder()
@@ -234,6 +240,11 @@ function love.resize()
     local dpi = math.max(1, uiScale())
     hudFont = love.graphics.newFont(16, "normal", dpi)
     Controls.font = hudFont
+    boardFonts = {
+        small  = love.graphics.newFont(12, "normal", dpi),
+        big    = love.graphics.newFont(24, "normal", dpi),
+        banner = love.graphics.newFont(40, "normal", dpi),
+    }
     menuFonts = {
         title  = love.graphics.newFont(56, "normal", dpi),
         button = love.graphics.newFont(26, "normal", dpi),
@@ -368,18 +379,25 @@ function love.update(dt)
     if state == "menu" then return end -- connection lost
 
     Effects.update(dt)
+    Scoreboard.update(dt)
+    if player and world then watchMatch() end
     if player then
         Camera.update(dt, player.x, player.y, Arena.width, Arena.height)
         Sound.setListener(player.x, player.y)
     end
 end
 
-local function drawMinimap(screenW)
+-- Minimap position and size (HUD units): top right, left of the mute button on touch
+local function minimapRect(screenW)
     local mw = 200
-    local s = mw / Arena.width
-    local mh = Arena.height * s
-    local x0, y0 = screenW - mw - 12, 12
+    local x0 = screenW - mw - 12
     if Controls.touchMode then x0 = x0 - MUTE_SIZE - 12 end -- room for the mute button
+    return x0, 12, mw, Arena.height * mw / Arena.width
+end
+
+local function drawMinimap(screenW)
+    local x0, y0, mw, mh = minimapRect(screenW)
+    local s = mw / Arena.width
     local T = 64 * s
 
     love.graphics.setColor(0, 0, 0, 0.55)
@@ -428,11 +446,6 @@ local function drawWaiting(text)
         0, sh / 2 + 10, sw, "center")
     love.graphics.pop()
     love.graphics.setColor(1, 1, 1)
-end
-
-local function formatTime(t)
-    t = math.max(0, math.ceil(t or 0))
-    return string.format("%d:%02d", math.floor(t / 60), t % 60)
 end
 
 local function nameOf(e)
@@ -528,9 +541,72 @@ local function resultAction(id)
     end
 end
 
+local OWN_COLOR, BOT_COLOR = { 0.25, 0.7, 0.35 }, { 0.85, 0.25, 0.25 }
+
+-- What the scoreboard shows (src/scoreboard.lua). Duel: you against whoever of the
+-- others has the most kills (the bot, or the leading player in a LAN game).
+local function scoreboardInfo()
+    local m = world.match
+    if world.mode.waves then
+        return { kind = "waves", wave = world.wave, bots = world:countBots(),
+                 lives = world:livesLeft(player), maxLives = World.LIVES }
+    end
+    local info = { kind = "versus", timeLeft = m.timeLeft }
+    if world.mode.teams then
+        local s = world:teamScores()
+        local other = 0
+        for team, k in pairs(s) do if team ~= player.team then other = other + k end end
+        info.left = { name = "YOUR TEAM", score = s[player.team] or 0, color = TEAMMATE_COLOR }
+        info.right = { name = "ENEMIES", score = other, color = ENEMY_TEAM_COLOR }
+        info.target = World.TEAM_KILL_TARGET
+        return info
+    end
+    local best
+    for _, e in ipairs(world.entities) do
+        if e ~= player and (not best or e.kills > best.kills) then best = e end
+    end
+    info.left = { name = "YOU", score = player.kills, color = OWN_COLOR }
+    info.right = { name = best and nameOf(best):upper() or "-", who = best and nameOf(best),
+                   score = best and best.kills or 0,
+                   color = (best and not best.isBot) and OPPONENT_COLOR or BOT_COLOR }
+    info.target = World.KILL_TARGET
+    return info
+end
+
+-- Banners for things that just happened: time marks, a new wave, a lost life,
+-- one kill to win (compares with the last frame, so it works on LAN clients too)
+function watchMatch()
+    if world.match.over then watch = {} return end
+    local now = {}
+    if world.mode.waves then
+        now.wave, now.lives = world.wave, world:livesLeft(player)
+        if now.wave > (watch.wave or 0) then Scoreboard.flash("Wave " .. now.wave) end
+        if watch.lives and now.lives < watch.lives and now.lives > 0 then
+            Scoreboard.flash(now.lives == 1 and "Last life!" or (now.lives .. " lives left"),
+                { 1, 0.45, 0.45 })
+        end
+    else
+        local info = scoreboardInfo()
+        now.time, now.left, now.right = info.timeLeft, info.left.score, info.right.score
+        for _, mark in ipairs({ { 60, "1 minute left" }, { 30, "30 seconds left!" }, { 10, "10 seconds!" } }) do
+            if watch.time and watch.time > mark[1] and now.time <= mark[1] then
+                Scoreboard.flash(mark[2], mark[1] <= 30 and { 1, 0.45, 0.45 } or nil)
+            end
+        end
+        local need = info.target - 1
+        if watch.left and watch.left < need and now.left >= need then
+            Scoreboard.flash("1 kill to win!", { 0.5, 1, 0.5 })
+        elseif watch.right and watch.right < need and now.right >= need then
+            Scoreboard.flash(world.mode.teams and "Enemies need 1 more kill!"
+                or (info.right.who .. " needs 1 more kill!"), { 1, 0.45, 0.45 })
+        end
+    end
+    watch = now
+end
+
 local function drawHud()
     local ui = uiScale()
-    local sw = love.graphics.getWidth() / ui
+    local sw, sh = love.graphics.getWidth() / ui, love.graphics.getHeight() / ui
     love.graphics.push()
     love.graphics.scale(ui)
     love.graphics.setFont(hudFont)
@@ -540,48 +616,50 @@ local function drawHud()
         superInfo = "   [RMB/E] " .. player.super.name .. ": " ..
             (player.charge >= 1 and "READY" or (math.floor(player.charge * 100) .. "%"))
     end
-    love.graphics.print("FPS: " .. love.timer.getFPS() .. "   " ..
-        (player.def and player.def.name or "") .. superInfo, 10, 10)
+    local topText = "FPS: " .. love.timer.getFPS() .. "   " ..
+        (player.def and player.def.name or "") .. superInfo
+    love.graphics.print(topText, 10, 10)
+    -- Network details at the bottom left (out of the scoreboard's way)
+    local net
     if role == "host" then
-        love.graphics.print("Hosting at " .. hostAddress .. "   players joined: " ..
+        net = "Hosting at " .. hostAddress .. "   players joined: " ..
             server:playerCount() .. "   searches answered: " .. (server.queries or 0) ..
-            (server.lastQueryFrom and (" (last from " .. server.lastQueryFrom .. ")") or ""), 10, 32)
+            (server.lastQueryFrom and (" (last from " .. server.lastQueryFrom .. ")") or "")
     elseif role == "client" then
-        love.graphics.print("Ping: " .. client:ping() .. " ms", 10, 32)
+        net = "Ping: " .. client:ping() .. " ms"
     end
-    if world.mode.teams then
-        local s = world:teamScores()
-        local own, other = s[player.team] or 0, 0
-        for team, k in pairs(s) do if team ~= player.team then other = other + k end end
-        love.graphics.printf("Your team " .. own .. " : " .. other .. " Enemies",
-            0, 10, sw, "center")
-    elseif role == "local" then
-        love.graphics.printf("You " .. player.kills .. " : " .. player.deaths .. " Bot",
-            0, 10, sw, "center")
-    else
-        love.graphics.printf("Kills " .. player.kills .. "   Deaths " .. player.deaths,
-            0, 10, sw, "center")
+    if net then
+        love.graphics.setColor(1, 1, 1, 0.7)
+        love.graphics.print(net, 10, sh - 26)
+        love.graphics.setColor(1, 1, 1)
     end
-    if world.mode.waves then
-        love.graphics.printf("Wave " .. world.wave .. "   Bots left: " .. world:countBots() ..
-            "   Lives: " .. world:livesLeft(player), 0, 32, sw, "center")
-    else
-        love.graphics.printf(formatTime(world.match.timeLeft) .. "   -   first to " ..
-            (world.mode.teams and (World.TEAM_KILL_TARGET .. " team kills")
-                or (World.KILL_TARGET .. " kills")), 0, 32, sw, "center")
+
+    -- Scoreboard top centre; below the minimap when it doesn't fit next to it
+    -- (portrait / narrow windows)
+    local mx, my, _, mh = minimapRect(sw)
+    local W = Scoreboard.WIDTH
+    local cx, top = sw / 2, 10
+    if cx - W / 2 < 20 + hudFont:getWidth(topText) or cx + W / 2 > mx - 12 then
+        top = my + mh + 16
     end
+    Scoreboard.draw(scoreboardInfo(), boardFonts, cx, top, love.timer.getTime())
+
+    love.graphics.setFont(hudFont)
+    love.graphics.setColor(1, 1, 1)
+    local y = top + Scoreboard.HEIGHT + 14
     if world.match.over then
         -- the result screen says it all
     elseif player.out then
-        love.graphics.printf("Out of lives - watching your team", 0, 60, sw, "center")
+        love.graphics.printf("Out of lives - watching your team", 0, y, sw, "center")
     elseif player.dead then
         love.graphics.printf(string.format("You were defeated - respawn in %.1f",
-            math.max(0, player.respawnTimer)), 0, 60, sw, "center")
+            math.max(0, player.respawnTimer)), 0, y, sw, "center")
     elseif world.mode.waves and world:countBots() == 0 then
         love.graphics.printf(string.format("Wave cleared! %d bots incoming in %.1f",
             math.min(world.waveSize + 1, World.MAX_BOTS), math.max(0, world.waveTimer)),
-            0, 60, sw, "center")
+            0, y, sw, "center")
     end
+    Scoreboard.drawBanner(boardFonts.banner, sw, sh * 0.3)
     drawMinimap(sw)
     love.graphics.pop()
 end

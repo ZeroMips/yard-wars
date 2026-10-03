@@ -108,6 +108,9 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   `Sound.play(name, x, y)`: quieter with distance from the own rowdy, panned; same sound
   not faster than 35 ms; M mutes (touch: speaker button top right on every screen, the
   minimap moves left for it); the setting is saved in `sound.txt`. ~70 ms to build on desktop (~220 ms without JIT).
+- `src/scoreboard.lua` — in-game scoreboard top centre (duel/team: scores with bars to the kill
+  target + timer, red in the last 30 s; waves: wave, lives as hearts, bots left; below the
+  minimap on narrow screens) and banners (time marks, new wave, lost life, 1 kill to win)
 - `src/effects.lua` — particles: puff, sparks, burst, ring, heal ("+" signs) (`drawBelow`/`drawAbove` layers)
 - `assets/images/` — `tilesheet.png` (Kenney), `characters/<name>_<pose>.png`,
   `comic/<name>.png`
