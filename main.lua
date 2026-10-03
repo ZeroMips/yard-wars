@@ -17,6 +17,8 @@ local Join     = require("src.join")
 local Net      = require("src.net")
 local Replica  = require("src.replica")
 local Medpack  = require("src.medpack")
+local Loot     = require("src.loot")
+local Profile  = require("src.profile")
 local Picker   = require("src.picker")
 local Result   = require("src.result")
 local Scoreboard = require("src.scoreboard")
@@ -81,6 +83,8 @@ local hudFont
 local boardFonts -- scoreboard: { small, big, banner }
 local watch = {} -- last frame's round state, to notice what is worth a banner
 local watchMatch -- (defined with the HUD below; called from love.update)
+local roundCoins = 0 -- coins the own rowdy picked up this round
+local roundReward    -- coins for the finished round: { outcome, coins } (result screen)
 
 -- HUD is laid out for a 720px screen (short side) and scaled on bigger/denser screens
 local function uiScale() return math.min(love.graphics.getDimensions()) / 720 end
@@ -92,6 +96,7 @@ local function resetGame()
     Controls.reset()
     Scoreboard.clear()
     watch = {}
+    roundCoins, roundReward = 0, nil
 end
 
 local function closeFinder()
@@ -107,7 +112,7 @@ local function openMenu(message)
     server, client, replica = nil, nil, nil
     state, role = "menu", nil
     Menu.modesOpen = false
-    Menu.message = message
+    Menu.message, Menu.notice = message, nil
     Controls.reset()
 end
 
@@ -160,11 +165,22 @@ local function joinGame(address)
     Menu.message = nil
 end
 
+-- Buy a rowdy with coins (src/profile.lua). Returns the message to show.
+local function buy(def)
+    if Profile.unlock(def) then
+        Sound.play("unlock")
+        return def.name .. " unlocked!"
+    end
+    Sound.play("click")
+    return "Not enough coins - win rounds and break boxes"
+end
+
 -- Rowdy choice from the start screen ("lobby") or between rounds ("between")
 local function openPicker(forWhat)
     Sound.play("click")
     state, pickFor = "pick", forWhat
     Picker.selected = Menu.rowdy
+    Picker.message = nil
     if forWhat == "between" then
         Picker.confirmLabel = (role == "client") and "OK" or "Play"
     else
@@ -173,6 +189,10 @@ local function openPicker(forWhat)
 end
 
 local function confirmPick()
+    if Picker.locked() then
+        Picker.message = buy(Rowdies[Picker.selected])
+        return
+    end
     Sound.play("click")
     Menu.rowdy = Picker.selected
     Menu.save()
@@ -196,6 +216,10 @@ end
 
 -- PLAY on the start screen: the chosen mode with the chosen rowdy
 local function play()
+    if Menu.locked() then
+        Menu.notice = buy(Rowdies[Menu.rowdy])
+        return
+    end
     Sound.play("click")
     Menu.save()
     local entry = Menu.entry()
@@ -208,6 +232,7 @@ local function menuAction(what, i)
     elseif what == "rowdies" then openPicker("lobby")
     elseif what == "prev" or what == "next" then
         Sound.play("click")
+        Menu.notice = nil
         Menu.rowdy = (Menu.rowdy - 1 + (what == "next" and 1 or -1)) % #Rowdies + 1
         Menu.save()
     elseif what == "mode" then Sound.play("click"); Menu.modesOpen = true
@@ -227,11 +252,14 @@ function love.load(args)
     love.graphics.setBackgroundColor(0.05, 0.15, 0.08)
     Assets.load()
     Sound.load()
+    Profile.load()
     Menu.load()
     love.resize()
     openMenu()
-    -- Testing shortcuts: love . [--rowdy N] --host [team|waves] | --join <address> | --find
+    -- Testing shortcuts: love . [--rowdy N] [--coins N] --host [team|waves] |
+    -- --join <address> | --find   (--coins adds to the saved coins)
     for i, a in ipairs(args or {}) do
+        if a == "--coins" then Profile.addCoins(tonumber(args[i + 1]) or 0) end
         if a == "--rowdy" then Menu.rowdy = Rowdies[tonumber(args[i + 1])] and tonumber(args[i + 1]) or 1 end
         if a == "--find" then openJoin() end
         if a == "--host" then
@@ -260,6 +288,21 @@ function love.resize()
 end
 
 local function hidden(e) return world:isHiddenFrom(e, player) end
+
+-- How the finished round went for this device's player: "win", "draw", "loss" or
+-- "waves" (no winner in co-op)
+local function outcomeOf(ev)
+    if world.mode.waves then return "waves" end
+    if world.mode.teams then
+        if not ev.winnerTeam then return "draw" end
+        return (player and ev.winnerTeam == player.team) and "win" or "loss"
+    end
+    if not ev.winner then return "draw" end
+    return ev.winner == localId and "win" or "loss"
+end
+
+local WOOD = { 0.6, 0.3, 0.15 }
+local GOLD = { 1, 0.82, 0.2 }
 
 -- Turn simulation events into particles, screen shake and sounds
 local function playEvents(events)
@@ -298,17 +341,38 @@ local function playEvents(events)
             else
                 Sound.play("hit", ev.x, ev.y)
             end
+        elseif ev.kind == "box" then
+            Effects.ring(ev.x, ev.y, 50, GOLD)
+            Sound.play("box", ev.x, ev.y)
+        elseif ev.kind == "boxHit" then
+            Effects.sparks(ev.x, ev.y, 5, WOOD, 160)
+            Sound.play("boxHit", ev.x, ev.y)
+        elseif ev.kind == "boxBreak" then
+            Effects.burst(ev.x, ev.y, WOOD, 14)
+            Effects.sparks(ev.x, ev.y, 12, GOLD, 240)
+            Effects.ring(ev.x, ev.y, 60, GOLD)
+            Sound.play("boxBreak", ev.x, ev.y)
+        elseif ev.kind == "coin" then
+            Effects.sparks(ev.x, ev.y, 6, GOLD, 150)
+            if ev.id == localId then -- ours: the coins go to this device's profile
+                local value = tonumber(ev.value) or 0
+                roundCoins = roundCoins + value
+                Profile.addCoins(value)
+                Sound.play("coin")
+            else
+                Sound.play("coin", ev.x, ev.y, 0.5)
+            end
         elseif ev.kind == "matchStart" then
+            roundCoins, roundReward = 0, nil
             Sound.play("roundStart")
         elseif ev.kind == "matchOver" then
-            if world.mode.waves then Sound.play("defeat")
-            elseif world.mode.teams then
-                if not ev.winnerTeam then Sound.play("draw")
-                elseif player and ev.winnerTeam == player.team then Sound.play("victory")
-                else Sound.play("defeat") end
-            elseif not ev.winner then Sound.play("draw")
-            elseif ev.winner == localId then Sound.play("victory")
-            else Sound.play("defeat") end
+            local outcome = outcomeOf(ev)
+            Sound.play((outcome == "win" and "victory") or (outcome == "draw" and "draw")
+                or "defeat")
+            if player then
+                roundReward = { outcome = outcome, coins = Profile.roundReward(outcome, ev.wave) }
+                Profile.addCoins(roundReward.coins)
+            end
         end
     end
 end
@@ -419,6 +483,10 @@ local function drawMinimap(screenW)
     for _, w in ipairs(Arena.walls) do
         love.graphics.rectangle("fill", x0 + w.x * T, y0 + w.y * T, w.w * T, w.h * T)
     end
+    love.graphics.setColor(1, 0.8, 0.15, 1)
+    for _, b in ipairs(world.boxes) do
+        love.graphics.rectangle("fill", x0 + b.x * s - 3.5, y0 + b.y * s - 3.5, 7, 7)
+    end
     for _, e in ipairs(world.entities) do
         if e ~= player and not e.dead and not hidden(e) then
             if world:isOpponent(e, player) then love.graphics.setColor(0.95, 0.25, 0.25, 1)
@@ -524,6 +592,17 @@ local function resultInfo()
             info.subtitle = nameOf(winner) .. " reached " .. World.KILL_TARGET .. " kills"
         end
     end
+    if roundReward then
+        local parts = {}
+        if roundReward.coins > 0 then
+            local what = { win = "victory", draw = "draw", loss = "round", waves = "waves" }
+            parts[#parts + 1] = what[roundReward.outcome] .. " " .. roundReward.coins
+        end
+        if roundCoins > 0 then parts[#parts + 1] = "boxes " .. roundCoins end
+        local total = roundReward.coins + roundCoins
+        info.reward = "+" .. total .. (#parts > 0 and ("  (" .. table.concat(parts, " + ") .. ")") or "")
+            .. "   -   you have " .. Profile.coins
+    end
     if role == "client" then
         info.buttons = { { "rowdy", "Rowdy" }, { "menu", "Leave" } }
         info.note = "Waiting for the host to start the next round"
@@ -626,6 +705,7 @@ local function drawHud()
     local topText = "FPS: " .. love.timer.getFPS() .. "   " ..
         (player.def and player.def.name or "") .. superInfo
     love.graphics.print(topText, 10, 10)
+    if roundCoins > 0 then Loot.drawCounter("+" .. roundCoins, hudFont, 10, 52, 32) end
     -- Network details at the bottom left (out of the scoreboard's way)
     local net
     if role == "host" then
@@ -693,6 +773,8 @@ local function drawGame()
         elseif input.aiming then player:drawAim() end
     end
     for _, m in ipairs(world.medpacks) do Medpack.draw(m, world.time) end
+    for _, c in ipairs(world.coins) do Loot.drawGroundCoin(c, world.time) end
+    for _, b in ipairs(world.boxes) do Loot.drawBox(b, world.time) end
     Effects.drawBelow()
     for _, b in ipairs(world.bullets) do b:draw() end
     for _, e in ipairs(world.entities) do
@@ -785,7 +867,12 @@ local function press(x, y)
     elseif state == "pick" then
         local what, i = Picker.hit(x, y)
         if what == "card" then
-            if Picker.selected == i then confirmPick() else Picker.selected = i; Sound.play("click") end
+            -- a second tap selects (not buys: that takes the Unlock button)
+            if Picker.selected == i and not Picker.locked() then confirmPick()
+            elseif Picker.selected ~= i then
+                Picker.selected, Picker.message = i, nil
+                Sound.play("click")
+            end
         elseif what == "confirm" then confirmPick()
         elseif what == "back" then cancelPick() end
     elseif state == "game" and world and world.match.over then
@@ -843,11 +930,14 @@ function love.keypressed(key)
         menuAction(Menu.keypressed(key))
         if state == "menu" and Menu.rowdy .. " " .. Menu.mode ~= before then
             Sound.play("click")
+            Menu.notice = nil
             Menu.save()
         end
         return
     elseif state == "pick" then
+        local before = Picker.selected
         local action = Picker.keypressed(key)
+        if Picker.selected ~= before then Picker.message = nil end
         if action == "confirm" then confirmPick()
         elseif action == "back" then cancelPick() end
         return

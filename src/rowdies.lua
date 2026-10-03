@@ -1,6 +1,7 @@
 -- Playable rowdies. To add one: add an entry.
 --   character  sprite set (see Assets.characterNames)
 --   role       short description for the rowdy choice screen
+--   price      coins to unlock it (src/profile.lua); none = free from the start
 --   weapon     pose the character holds: "gun", "machine" or "silencer"
 --   comic      look for the comic art style (Assets.style = "comic"):
 --                image   assets/images/comic/<image>.png (art faces UP)
@@ -26,7 +27,7 @@
 --                  crates, default radius) and pierce (flies through rowdies)
 local Rowdies = {
     {
-        name = "Gunner", role = "All-rounder", character = "manBlue", weapon = "gun",
+        name = "Gunner", role = "All-rounder", character = "manBlue", weapon = "gun", price = 150,
         comic = { image = "gunner", origin = { 46, 65 }, muzzle = { 63, 0 } },
         stats = { speed = 250, hp = 100, damage = 20, range = 480, bulletSpeed = 600,
                   reload = 0.3, maxAmmo = 3, ammoRefill = 1.2,
@@ -52,7 +53,7 @@ local Rowdies = {
                             wallRadius = 16 } },
     },
     {
-        name = "Sniper", role = "Long range, fragile", character = "manBrown",
+        name = "Sniper", role = "Long range, fragile", character = "manBrown", price = 300,
         weapon = "silencer",
         comic = { image = "sniper", origin = { 46, 89 }, muzzle = { 87, 0 } },
         stats = { speed = 225, hp = 80, damage = 50, range = 720, bulletSpeed = 1100,

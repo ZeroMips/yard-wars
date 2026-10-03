@@ -47,9 +47,23 @@ local function decodeSnap(msg)
                 born = tonumber(m[4]) or 0, expires = tonumber(m[5]) or 0 }
         end
     end
+    local boxes, coins = {}, {}
+    for _, x in pairs(type(msg.b) == "table" and msg.b or {}) do
+        if type(x) == "table" and tonumber(x[2]) and tonumber(x[3]) then
+            boxes[#boxes + 1] = { id = x[1], x = x[2], y = x[3], hp = tonumber(x[4]) or 1,
+                born = tonumber(x[5]) or 0, hitAt = tonumber(x[6]) }
+        end
+    end
+    for _, c in pairs(type(msg.c) == "table" and msg.c or {}) do
+        if type(c) == "table" and tonumber(c[2]) and tonumber(c[3]) then
+            coins[#coins + 1] = { id = c[1], x = c[2], y = c[3], ox = tonumber(c[4]) or c[2],
+                oy = tonumber(c[5]) or c[3], born = tonumber(c[6]) or 0,
+                expires = tonumber(c[7]) or 0 }
+        end
+    end
     local m = type(msg.match) == "table" and msg.match or {}
     return { t = tonumber(msg.t) or 0, wave = msg.wave, waveSize = msg.waveSize,
-        waveTimer = msg.waveTimer, ents = ents, medpacks = packs,
+        waveTimer = msg.waveTimer, ents = ents, medpacks = packs, boxes = boxes, coins = coins,
         match = { over = m.over == true, timeLeft = tonumber(m.timeLeft),
                   winner = tonumber(m.winner), winnerTeam = tonumber(m.winnerTeam),
                   wave = tonumber(m.wave) } }
@@ -88,8 +102,9 @@ function Replica:addEvent(ev)
             t0 = ev.t, tEnd = ev.t + (ev.life or 1), radius = ev.radius, super = ev.super }
         return
     end
-    -- A hit ends the bullet, unless it pierces (flies on through rowdies)
-    if (ev.kind == "impact" or (ev.kind == "hit" and not ev.pierce)) and self.bullets[ev.bullet] then
+    -- A hit ends the bullet, unless it pierces (flies on through rowdies and boxes)
+    local hit = ev.kind == "hit" or ev.kind == "boxHit"
+    if (ev.kind == "impact" or (hit and not ev.pierce)) and self.bullets[ev.bullet] then
         local b = self.bullets[ev.bullet]
         b.tEnd = math.min(b.tEnd, ev.t)
     end
@@ -174,12 +189,13 @@ function Replica:update()
     world.wave, world.waveSize, world.waveTimer = newest.wave, newest.waveSize, newest.waveTimer
     world.match = newest.match
 
-    -- Medpacks as of the remote time (the newest snapshot not newer than that)
+    -- Medpacks, loot boxes and coins as of the remote time (the newest snapshot not
+    -- newer than that)
     local at = self.snaps[1]
     for _, s in ipairs(self.snaps) do
         if s.t <= remoteT then at = s end
     end
-    world.medpacks, world.time = at.medpacks, remoteT
+    world.medpacks, world.boxes, world.coins, world.time = at.medpacks, at.boxes, at.coins, remoteT
 
     -- Bullets: straight lines from their spawn record
     world.bullets = {}

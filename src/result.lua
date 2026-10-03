@@ -1,8 +1,10 @@
 -- End-of-round screen, drawn over the frozen game: big title (Victory / Defeat /
 -- Draw / Game over), a subtitle, the scoreboard and a row of buttons.
 -- info = { title, color, subtitle, lines = { {text, highlight} }, note,
---          buttons = { {id, label} } }
+--          reward (coins line, gold, with a coin icon), buttons = { {id, label} } }
 -- Laid out in HUD units (720 along the short screen side), like the menu.
+local Loot = require("src.loot")
+
 local Result = {}
 
 Result.selected = 1 -- button chosen with the keyboard (left/right)
@@ -17,7 +19,7 @@ local function buttonRects(info)
     local n = #info.buttons
     local w = math.min(BTN_W, (sw - 40 - (n - 1) * GAP) / n)
     local x0 = (sw - (n * w + (n - 1) * GAP)) / 2
-    local y = 150 + 28 * math.min(#info.lines, 8) + 50
+    local y = 150 + 28 * math.min(#info.lines, 8) + 50 + (info.reward and 40 or 0)
     local rects = {}
     for i = 1, n do rects[i] = { x = x0 + (i - 1) * (w + GAP), y = y, w = w, h = BTN_H } end
     return rects, sw
@@ -72,6 +74,17 @@ function Result.draw(info, fonts)
         if i > 8 then break end
         if line[2] then love.graphics.setColor(1, 0.8, 0.3) else love.graphics.setColor(1, 1, 1, 0.8) end
         love.graphics.printf(line[1], 0, 150 + (i - 1) * 28, sw, "center")
+    end
+
+    if info.reward then
+        local font = fonts.button
+        local y = 150 + 28 * math.min(#info.lines, 8) + 14
+        local w = 36 + font:getWidth(info.reward)
+        local x = (sw - w) / 2
+        Loot.drawCoin(x + 13, y + font:getHeight() / 2, 13)
+        love.graphics.setFont(font)
+        love.graphics.setColor(1, 0.85, 0.3)
+        love.graphics.print(info.reward, x + 36, y)
     end
 
     for i, r in ipairs(rects) do

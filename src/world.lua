@@ -30,6 +30,22 @@ World.MEDPACK_LIFE   = 15  -- seconds until it disappears (blinks before, see ma
 local MEDPACK_REACH  = 24  -- picked up within rowdy radius + this
 local MAX_MEDPACKS   = 24
 
+-- Loot boxes: one appears at a random free spot every BOX_EVERY seconds (BOX_FIRST
+-- after the round starts, at most MAX_BOXES at a time). They block bullets and rowdies;
+-- anybody's bullets break them (bots' too), and a broken box scatters BOX_COINS coins
+-- that only players pick up. The world doesn't keep anybody's money: a "coin" event
+-- tells that player's device to add it (src/profile.lua).
+World.BOX_HP     = 120
+World.BOX_HALF   = 22   -- half the side of the (square) box, px
+World.BOX_FIRST  = 8    -- seconds
+World.BOX_EVERY  = 20
+World.BOX_COINS  = 4
+World.COIN_VALUE = 5
+World.COIN_LIFE  = 12   -- seconds until a coin disappears (blinks before)
+local MAX_BOXES  = 3
+local COIN_REACH = 20   -- picked up within rowdy radius + this
+local BOX_MIN_DIST = 160 -- a box never appears this close to a rowdy (or 2x to a box)
+
 -- Rounds. Duel: first to KILL_TARGET kills wins, or most kills when the time is up.
 -- Team fight: the same with the kills of each team (TEAM_KILL_TARGET).
 -- Waves: every player has LIVES; the round ends when all players are out.
@@ -54,6 +70,10 @@ function World.new(mode)
         nextBulletId = 1,
         medpacks = {}, -- { id, x, y, born, expires }
         nextMedpackId = 1,
+        boxes = {},    -- { id, x, y, hp, born, hitAt }
+        coins = {},    -- { id, x, y, ox, oy (flies out from there), born, expires }
+        nextLootId = 1,
+        boxTimer = World.BOX_FIRST,
         nextTeam = 3, -- free-for-all: every player gets a team of their own
         time = 0,     -- simulated seconds since the start
         wave = 0, waveSize = 0,
@@ -74,6 +94,8 @@ end
 --   heal {id, amount} (picked up a medpack)  super {id} (fired a super, at the muzzle)
 --   matchOver {winner}  matchStart  shot {id} (normal attack, at the muzzle)
 --   superReady {id} (super meter just filled up)
+--   box {box} (a loot box appeared)  boxHit {box, bullet, owner, pierce}
+--   boxBreak {box}  coin {id, value} (player `id` picked up a coin)
 function World:emit(kind, data)
     data.kind = kind
     data.t = self.time
@@ -320,6 +342,17 @@ local function updateBullets(self, dt)
 
         for _ = 1, steps do
             b:update(dt / steps)
+            local box = self:boxAt(b.x, b.y, b.wallRadius or b.radius)
+            if box and not (b.hitBoxes and b.hitBoxes[box.id]) then
+                self:hitBox(box, b)
+                if b.pierce then
+                    b.hitBoxes = b.hitBoxes or {}
+                    b.hitBoxes[box.id] = true
+                else
+                    remove = true
+                    break
+                end
+            end
             if Arena.hitsSolid(b.x, b.y, b.wallRadius or b.radius) then
                 self:emit("impact", { x = b.x, y = b.y, color = b.color, -- wall / crate
                     bullet = b.id, owner = b.owner.id })
@@ -409,6 +442,112 @@ local function updateMedpacks(self)
     end
 end
 
+-- Distance check of a circle against a box: returns the push-out direction and
+-- overlap (dx, dy, depth) or nil
+local function boxOverlap(box, x, y, r)
+    local h = World.BOX_HALF
+    local cx = math.max(box.x - h, math.min(x, box.x + h))
+    local cy = math.max(box.y - h, math.min(y, box.y + h))
+    local dx, dy = x - cx, y - cy
+    local d2 = dx * dx + dy * dy
+    if d2 >= r * r then return nil end
+    if d2 == 0 then -- centre inside the box: out the nearest side
+        local ox, oy = x - box.x, y - box.y
+        if math.abs(ox) > math.abs(oy) then
+            return (ox < 0 and -1 or 1), 0, h - math.abs(ox) + r
+        end
+        return 0, (oy < 0 and -1 or 1), h - math.abs(oy) + r
+    end
+    local d = math.sqrt(d2)
+    return dx / d, dy / d, r - d
+end
+
+-- The box a circle touches, or nil
+function World:boxAt(x, y, r)
+    for _, box in ipairs(self.boxes) do
+        if boxOverlap(box, x, y, r) then return box end
+    end
+end
+
+-- A bullet hits a box: damage, and at 0 HP it breaks and scatters coins
+function World:hitBox(box, b)
+    box.hp, box.hitAt = box.hp - b.damage, self.time
+    self:emit("boxHit", { x = b.x, y = b.y, box = box.id, bullet = b.id, owner = b.owner.id,
+        pierce = b.pierce })
+    if box.hp > 0 then return end
+    for i, other in ipairs(self.boxes) do
+        if other == box then table.remove(self.boxes, i) break end
+    end
+    self:emit("boxBreak", { x = box.x, y = box.y, box = box.id })
+    local turn = math.random() * math.pi * 2
+    for i = 1, World.BOX_COINS do
+        local a = turn + i / World.BOX_COINS * math.pi * 2
+        local d = 34 + math.random() * 22
+        local x, y = box.x + math.cos(a) * d, box.y + math.sin(a) * d
+        if Arena.hitsSolid(x, y, 8) then x, y = box.x, box.y end
+        self.coins[#self.coins + 1] = { id = self.nextLootId, x = x, y = y, ox = box.x,
+            oy = box.y, born = self.time, expires = self.time + World.COIN_LIFE }
+        self.nextLootId = self.nextLootId + 1
+    end
+end
+
+-- A free spot for a new box: open ground, not in a bush, away from rowdies and boxes
+local function boxSpot(self)
+    for _ = 1, 30 do
+        local x, y = Arena.randomOpenPoint()
+        -- room for a rowdy to walk between the box and any wall (no getting squeezed)
+        local ok = not Arena.hitsSolid(x, y, World.BOX_HALF * 1.42 + 48) and not Arena.inBush(x, y)
+        for _, e in ipairs(self.entities) do
+            if (e.x - x) ^ 2 + (e.y - y) ^ 2 < BOX_MIN_DIST ^ 2 then ok = false end
+        end
+        for _, box in ipairs(self.boxes) do
+            if (box.x - x) ^ 2 + (box.y - y) ^ 2 < (2 * BOX_MIN_DIST) ^ 2 then ok = false end
+        end
+        if ok then return x, y end
+    end
+end
+
+-- New boxes now and then; rowdies can't walk through them; players collect coins
+local function updateLoot(self, dt)
+    self.boxTimer = self.boxTimer - dt
+    if self.boxTimer <= 0 then
+        self.boxTimer = World.BOX_EVERY
+        local x, y
+        if #self.boxes < MAX_BOXES then x, y = boxSpot(self) end
+        if x then
+            self.boxes[#self.boxes + 1] = { id = self.nextLootId, x = x, y = y,
+                hp = World.BOX_HP, born = self.time }
+            self.nextLootId = self.nextLootId + 1
+            self:emit("box", { x = x, y = y, box = self.nextLootId - 1 })
+        end
+    end
+    for _, e in ipairs(self.entities) do
+        if not e.dead then
+            for _, box in ipairs(self.boxes) do
+                local nx, ny, depth = boxOverlap(box, e.x, e.y, e.radius)
+                if nx then
+                    e.x, e.y = Arena.resolveCircle(e.x + nx * depth, e.y + ny * depth, e.radius)
+                end
+            end
+        end
+    end
+    local coins = self.coins
+    for i = #coins, 1, -1 do
+        local c, taken = coins[i], false
+        for _, e in ipairs(self.entities) do
+            if not e.isBot and not e.dead then
+                local r = e.radius + COIN_REACH
+                if (e.x - c.x) ^ 2 + (e.y - c.y) ^ 2 < r * r then
+                    self:emit("coin", { id = e.id, x = c.x, y = c.y, value = World.COIN_VALUE })
+                    taken = true
+                    break
+                end
+            end
+        end
+        if taken or self.time >= c.expires then table.remove(coins, i) end
+    end
+end
+
 -- Give bullets fired in this step an id and announce them. A bullet flies in a straight
 -- line, so a client can draw it from this alone: position(t) = x0 + vx * (t - t0).
 local function newBullets(self)
@@ -433,7 +572,8 @@ local function endMatch(self, winner, winnerTeam)
     self.match.winner = winner and winner.id
     self.match.winnerTeam = winnerTeam
     self.match.wave = self.wave
-    self:emit("matchOver", { winner = self.match.winner, winnerTeam = winnerTeam })
+    self:emit("matchOver", { winner = self.match.winner, winnerTeam = winnerTeam,
+        wave = self.wave })
 end
 
 -- Has the round been decided?
@@ -482,7 +622,8 @@ function World:restartMatch()
         local e = self.entities[i]
         if e.isBot then self:remove(e) end
     end
-    self.bullets, self.medpacks = {}, {}
+    self.bullets, self.medpacks, self.boxes, self.coins = {}, {}, {}, {}
+    self.boxTimer = World.BOX_FIRST
     self.wave, self.waveSize, self.waveTimer = 0, 0, 0
     for _, e in ipairs(self.entities) do
         e.kills, e.deaths, e.out, e.charge = 0, 0, false, 0
@@ -511,6 +652,7 @@ function World:update(dt, inputs)
     newBullets(self)
     updateBullets(self, dt)
     updateMedpacks(self)
+    updateLoot(self, dt)
     if self.mode.waves then updateWaves(self, dt) end
     checkMatch(self, dt)
     self.time = self.time + dt

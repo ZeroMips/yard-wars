@@ -11,6 +11,7 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
 - Quick smoke test (no errors on load/first frames): `timeout 6 love .` — LÖVE prints
   error tracebacks to stdout; exit code 124 means it ran until the timeout.
 - Packed build: `zip -9 -r ../yard-wars.love . -x '.git/*'`
+- Test coins: `love . --coins 300` (adds to the saved coins in `profile.txt`).
 - LAN test on one machine: `love . --host` (or `--host waves`) and `love . --join 127.0.0.1`
   (or `love . --find` for the join screen with discovery) in a second terminal.
   UDP ports 27015 (game) + 27016 (discovery); if a phone can't connect/find the desktop:
@@ -44,7 +45,11 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
 - `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
   `id`/`team`/`def`/kills/deaths, bullets (sub-stepped, hit other teams), waves, bush
   hiding (`isHiddenFrom`), `nearestOpponent`, medpacks (dropped when a player makes a kill, not
-  by bot kills; hurt players, not bots, heal `MEDPACK_HEAL` = 40% of max HP; gone after 15 s, max 24); `update(dt,
+  by bot kills; hurt players, not bots, heal `MEDPACK_HEAL` = 40% of max HP; gone after 15 s, max 24);
+  loot boxes (`world.boxes`: first after `BOX_FIRST` 8 s, then every `BOX_EVERY` 20 s, max 3,
+  away from rowdies/walls/bushes; block bullets and rowdies, `BOX_HP` 120, anybody's bullets
+  break them) scatter `BOX_COINS` 4 coins (`world.coins`, `COIN_VALUE` 5, gone after 12 s) that
+  only players collect -> `coin` event {id, value} (the world keeps no money); `update(dt,
   inputs[id])`; team fight (`mode.teams`): blue (left, `TEAM_BLUE`) vs red (right), 3 spawn
   spots per side, bots fill to `TEAM_SIZE` 3, `addTeamPlayer` (humans together on blue,
   red only when blue is full; replaces a bot), `removePlayer` (bot refills), `teamScores`, first team to
@@ -52,7 +57,8 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   `TIME_LIMIT` 180 s (tie = draw), waves = `LIVES` 3 per player (`out` = no respawn), over
   when all players are out; `restartMatch()`; the world stands still while over; things
   that happened go to `world.events` (also shot/superReady/matchStart/matchOver for sounds) (spawn/death/step/impact/hit/heal)
-  via `emit`, read with `takeEvents()`. Snapshots carry medpacks (`m`).
+  via `emit`, read with `takeEvents()`; also box/boxHit/boxBreak/coin. Snapshots carry medpacks
+  (`m`), boxes (`b`) and coins (`c`).
 - `src/net.lua` — discovery (`Net.newFinder`: query to broadcast + every address of the
   own /24 on UDP 27016 every 2 s, hosts answer with mode/players; one short-lived socket
   per 32 addresses because queries to absent hosts block the send buffer for ~3 s;
@@ -66,14 +72,23 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
 - `src/codec.lua` — message serializer (no loadstring; rejects malformed input)
 - `src/join.lua` — join screen: address field in the upper half (last address saved; phone
   keyboard opens only when the field is tapped), found games below as tap-to-join buttons
+- `src/profile.lua` — progress on this device (`profile.txt`): coins + bought rowdies (by
+  name). Start: only the Shotgunner (`STARTER`, no `price`); Gunner 150, Sniper 300
+  (`price` in `src/rowdies.lua`). Coins: own `coin` events (boxes) + round reward on
+  `matchOver` (`REWARD`: win 30, draw 10, loss 5, waves 5 per cleared wave), added in
+  main.lua's `playEvents` — so LAN clients earn on their own device too.
+- `src/loot.lua` — drawing of loot boxes (treasure chest, shake/flash on hit, HP bar), coins
+  (fly out, spin, blink), coin icon/counter and padlock for the menus
 - `src/medpack.lua` — medpack drawing (comic box + red cross, bob, pop-in, blinks last 3 s);
   confirmed on the Pixel 2026-10-01
 - `src/picker.lua` — rowdy choice screen (cards: picture, role, HP, attack, super), from the
-  lobby (ROWDIES) or between rounds
+  lobby (ROWDIES) or between rounds; locked cards dark with padlock + price, confirm button
+  becomes "Unlock" (a second tap on a locked card doesn't buy)
 - `src/result.lua` — end-of-round screen (title, scoreboard, buttons)
 - `src/menu.lua` — start screen in mobile-game lobby style: chosen rowdy big on a pedestal
   (arrows switch, ROWDIES opens the card picker), mode card bottom right (tap: list of all
-  modes, solo + LAN), PLAY button; landscape + portrait layouts; last rowdy + mode saved
+  modes, solo + LAN), PLAY button (UNLOCK + price for a locked rowdy, grey if too few coins),
+  coin counter next to the logo; landscape + portrait layouts; last rowdy + mode saved
   in `lobby.txt`. Keys: left/right rowdy, up/down mode, Enter play, B cards
 - `conf.lua` — title "Yard Wars", identity "yard-wars" (save folder, keep), 1280x720 resizable window
 - `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
@@ -110,7 +125,8 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
 - `src/bullet.lua` — owner/team/damage/color; speed+range read from owner (default range 480)
 - `src/sound.lua` — sound effects synthesized at startup (sfxr-style layers: square/saw/
   sine/triangle/noise with pitch slides + envelopes; no files): per-rowdy shots, hit/hurt,
-  impact, death, spawn, super, superReady chime, heal, round start, victory/defeat/draw, click.
+  impact, death, spawn, super, superReady chime, heal, round start, victory/defeat/draw, click,
+  box/boxHit/boxBreak, coin, unlock.
   `Sound.play(name, x, y)`: quieter with distance from the own rowdy, panned; same sound
   not faster than 35 ms; M mutes (touch: speaker button top right on every screen, the
   minimap moves left for it); the setting is saved in `sound.txt`. ~70 ms to build on desktop (~220 ms without JIT).

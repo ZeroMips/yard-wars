@@ -2,10 +2,14 @@
 -- middle (arrows to switch, ROWDIES opens the card overview), the chosen mode on a
 -- card at the bottom right (tap: list of all modes) and a big PLAY button.
 -- Works with mouse, touch and keyboard (left/right rowdy, up/down mode, Enter play).
+-- A rowdy that isn't bought yet (src/profile.lua) is shown dark with its price, and
+-- PLAY turns into an UNLOCK button; the coins are shown next to the logo.
 -- Laid out in HUD units (720 along the short screen side), like the in-game HUD;
 -- landscape and portrait have their own layout.
 local Assets   = require("src.assets")
 local Rowdies = require("src.rowdies")
+local Loot     = require("src.loot")
+local Profile  = require("src.profile")
 
 local Menu = {}
 
@@ -16,6 +20,7 @@ Menu.rowdy = 1        -- index into Rowdies
 Menu.modesOpen = false  -- the mode list is shown over the lobby
 Menu.hover = nil        -- what the mouse is over (highlighted)
 Menu.message = nil      -- shown under the title (e.g. "Connection lost")
+Menu.notice = nil       -- shown under the rowdy's stats (e.g. "Gunner unlocked!")
 
 -- Build shown in the corner: version.txt is written when the game is copied to a
 -- device (commit + date), so it's easy to see which code a phone runs.
@@ -32,6 +37,9 @@ local MODE_COLORS = {
 }
 local PLAY_COLOR     = { 1, 0.78, 0.1 }
 local ROWDIES_COLOR = { 0.2, 0.5, 0.9 }
+local UNLOCK_COLOR   = { 0.3, 0.75, 0.3 }
+local LOCKED_COLOR   = { 0.42, 0.44, 0.5 }
+local LOCKED_TINT    = { 0.12, 0.12, 0.18 }
 
 local function uiScale() return math.min(love.graphics.getDimensions()) / 720 end
 
@@ -42,13 +50,24 @@ local tint = love.graphics.newMesh({
     { 1, 1, 0, 0, 0.03, 0.06, 0.2, 0.8 }, { 0, 1, 0, 0, 0.03, 0.06, 0.2, 0.8 },
 }, "fan", "static")
 
+-- Call after Profile.load(): a saved rowdy that isn't unlocked gives way to the starter
 function Menu.load()
     local s = love.filesystem.getInfo(SAVE_FILE) and love.filesystem.read(SAVE_FILE) or ""
     local b, id = s:match("^(%d+)%s+(%S+)")
     if Rowdies[tonumber(b)] then Menu.rowdy = tonumber(b) end
+    if not Profile.isUnlocked(Rowdies[Menu.rowdy]) then
+        for i, def in ipairs(Rowdies) do
+            if def.name == Profile.STARTER then Menu.rowdy = i end
+        end
+    end
     for i, e in ipairs(Menu.entries) do
         if e.id == id then Menu.mode = i end
     end
+end
+
+-- The rowdy shown in the lobby isn't bought yet (PLAY becomes UNLOCK)
+function Menu.locked()
+    return not Profile.isUnlocked(Rowdies[Menu.rowdy])
 end
 
 function Menu.save()
@@ -262,6 +281,7 @@ end
 -- The chosen rowdy on a lit pedestal, name and role above, stats below
 local function drawStage(L, fonts, t)
     local def = Rowdies[Menu.rowdy]
+    local locked = not Profile.isUnlocked(def)
     local cx, cy, k = L.cx, L.cy, L.k
     -- spotlight
     for i = 8, 1, -1 do
@@ -282,11 +302,16 @@ local function drawStage(L, fonts, t)
     local bob = math.sin(t * 2.2) * 6 * k
     love.graphics.setColor(0, 0, 0, 0.35)
     love.graphics.ellipse("fill", cx, py, (70 - bob * 0.6) * k, 18 * k)
-    Assets.drawPortrait(def, cx, cy - 20 * k + bob, 260 * k, math.sin(t * 1.3) * 0.05)
+    Assets.drawPortrait(def, cx, cy - 20 * k + bob, 260 * k, math.sin(t * 1.3) * 0.05,
+        locked and LOCKED_TINT or nil)
+    if locked then Loot.drawLock(cx, cy - 20 * k, 1.4 * k) end
     -- name + role
     outlined(def.name:upper(), fonts.title, cx - 300, cy - 250 * k - 20, 600, "center", { 1, 1, 1 }, 3)
     outlined(def.role or "", fonts.text, cx - 300, cy - 250 * k + 46, 600, "center", { 1, 0.82, 0.3 })
     drawStats(def, cx, py + 62 * k, fonts.text)
+    if Menu.notice then
+        outlined(Menu.notice, fonts.text, cx - 320, py + 62 * k + 44, 640, "center", { 1, 0.85, 0.35 }, 1)
+    end
 end
 
 local function drawModeCard(r, e, fonts, hover, showHint)
@@ -344,6 +369,7 @@ function Menu.draw(fonts, touchMode)
     love.graphics.draw(tint, 0, 0, 0, L.sw, L.sh)
 
     outlined("YARD WARS", fonts.button, 24, 18, 400, "left", { 1, 0.8, 0.2 })
+    Loot.drawCounter(Profile.coins, fonts.text, 24 + fonts.button:getWidth("YARD WARS") + 24, 34, 36)
     if Menu.message then
         outlined(Menu.message, fonts.text, 24, 54, L.sw - 48, "left", { 1, 0.55, 0.3 }, 1)
     end
@@ -370,9 +396,22 @@ function Menu.draw(fonts, touchMode)
     love.graphics.translate(p.x + p.w / 2, p.y + p.h / 2)
     love.graphics.scale(s)
     love.graphics.translate(-(p.x + p.w / 2), -(p.y + p.h / 2))
-    block(p, PLAY_COLOR, Menu.hover == "play")
-    outlined(Menu.entry().join and "JOIN" or "PLAY", fonts.title, p.x, p.y + p.h / 2 - 36,
-        p.w, "center", { 1, 1, 1 }, 3)
+    if Menu.locked() then -- UNLOCK + price instead (grey while there are too few coins)
+        local def = Rowdies[Menu.rowdy]
+        local afford = Profile.canAfford(def)
+        block(p, afford and UNLOCK_COLOR or LOCKED_COLOR, Menu.hover == "play")
+        outlined("UNLOCK", fonts.button, p.x, p.y + 14, p.w, "center", { 1, 1, 1 })
+        local price = tostring(def.price)
+        local w = 34 + fonts.button:getWidth(price)
+        local x = p.x + (p.w - w) / 2
+        Loot.drawCoin(x + 13, p.y + 70, 12)
+        outlined(price, fonts.button, x + 34, p.y + 54, 200, "left",
+            afford and { 1, 1, 1 } or { 1, 0.75, 0.7 })
+    else
+        block(p, PLAY_COLOR, Menu.hover == "play")
+        outlined(Menu.entry().join and "JOIN" or "PLAY", fonts.title, p.x, p.y + p.h / 2 - 36,
+            p.w, "center", { 1, 1, 1 }, 3)
+    end
     love.graphics.pop()
 
     love.graphics.setFont(fonts.text)

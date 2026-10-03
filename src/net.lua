@@ -184,9 +184,17 @@ local function snapshot(world)
     for _, m in ipairs(world.medpacks) do
         packs[#packs + 1] = { m.id, round(m.x, 10), round(m.y, 10), m.born, m.expires }
     end
+    local boxes, coins = {}, {}
+    for _, x in ipairs(world.boxes) do
+        boxes[#boxes + 1] = { x.id, round(x.x, 10), round(x.y, 10), x.hp, x.born, x.hitAt }
+    end
+    for _, c in ipairs(world.coins) do
+        coins[#coins + 1] = { c.id, round(c.x, 10), round(c.y, 10), round(c.ox, 10),
+            round(c.oy, 10), c.born, c.expires }
+    end
     local m = world.match
     return { type = "snap", t = world.time, wave = world.wave, waveSize = world.waveSize,
-        waveTimer = world.waveTimer, e = ents, m = packs,
+        waveTimer = world.waveTimer, e = ents, m = packs, b = boxes, c = coins,
         match = { over = m.over, timeLeft = m.timeLeft and round(m.timeLeft, 10),
                   winner = m.winner, winnerTeam = m.winnerTeam, wave = m.wave } }
 end

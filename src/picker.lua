@@ -1,14 +1,24 @@
 -- Rowdy choice screen: one card per rowdy (picture, role, HP, attack, super)
 -- plus a confirm and a Back button. Mouse, touch (tap a card, then the button) and
 -- keyboard (left/right, Enter, Esc).
+-- Rowdies not bought yet (src/profile.lua) are dark with a lock and their price; the
+-- confirm button then says "Unlock" (main.lua buys it).
 -- Laid out in HUD units (720 along the short screen side), like the menu.
 local Assets   = require("src.assets")
 local Rowdies = require("src.rowdies")
+local Loot     = require("src.loot")
+local Profile  = require("src.profile")
 
 local Picker = {}
 
 Picker.selected = 1
 Picker.confirmLabel = "Play" -- e.g. "Next" before the join screen
+Picker.message = nil         -- shown under the title (e.g. "Gunner unlocked!")
+
+-- The selected rowdy isn't bought yet
+function Picker.locked()
+    return not Profile.isUnlocked(Rowdies[Picker.selected])
+end
 
 local CARD_H, GAP = 330, 16
 
@@ -74,7 +84,13 @@ function Picker.draw(fonts, title)
 
     love.graphics.setFont(fonts.button)
     love.graphics.setColor(1, 0.8, 0.2)
-    love.graphics.printf(title or "Choose your rowdy", 0, 36, sw, "center")
+    love.graphics.printf(title or "Choose your rowdy", 0, 30, sw, "center")
+    Loot.drawCounter(Profile.coins, fonts.text, sw - 140, 50, 36)
+    if Picker.message then
+        love.graphics.setFont(fonts.text)
+        love.graphics.setColor(1, 0.9, 0.5)
+        love.graphics.printf(Picker.message, 0, 68, sw, "center")
+    end
 
     for i, r in ipairs(rects.cards) do
         local def, selected = Rowdies[i], (i == Picker.selected)
@@ -85,7 +101,19 @@ function Picker.draw(fonts, title)
         love.graphics.rectangle("line", r.x, r.y, r.w, r.h, 12, 12)
         love.graphics.setLineWidth(1)
 
-        Assets.drawPortrait(def, r.x + r.w / 2, r.y + 78, 110)
+        local locked = not Profile.isUnlocked(def)
+        Assets.drawPortrait(def, r.x + r.w / 2, r.y + 78, 110, 0,
+            locked and { 0.12, 0.12, 0.18 } or nil)
+        if locked then
+            Loot.drawLock(r.x + r.w / 2, r.y + 70, 0.7)
+            local price = tostring(def.price)
+            love.graphics.setFont(fonts.button)
+            local w = 28 + fonts.button:getWidth(price)
+            local x = r.x + (r.w - w) / 2
+            Loot.drawCoin(x + 10, r.y + 120, 10)
+            love.graphics.setColor(Profile.canAfford(def) and { 1, 0.88, 0.35 } or { 1, 0.6, 0.55 })
+            love.graphics.print(price, x + 28, r.y + 120 - fonts.button:getHeight() / 2)
+        end
 
         love.graphics.setFont(fonts.button)
         love.graphics.setColor(1, 1, 1)
@@ -115,7 +143,9 @@ function Picker.draw(fonts, title)
         love.graphics.setLineWidth(1)
         love.graphics.setFont(fonts.button)
         love.graphics.setColor(1, 1, 1)
-        love.graphics.printf(name == "confirm" and Picker.confirmLabel or "Back", r.x, r.y + 16, r.w, "center")
+        local label = (name == "confirm") and Picker.confirmLabel or "Back"
+        if name == "confirm" and Picker.locked() then label = "Unlock" end
+        love.graphics.printf(label, r.x, r.y + 16, r.w, "center")
     end
 
     love.graphics.pop()
