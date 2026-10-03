@@ -56,24 +56,6 @@ function Picker.keypressed(key)
     end
 end
 
--- The rowdy's picture, facing up, fitted into a box of size `box`
-local function drawPortrait(def, cx, cy, box)
-    local look = Assets.look(def)
-    local img, angle, ox, oy
-    if look.style == "comic" then
-        img = Assets.comic[look.image]
-        angle = 0
-    else
-        img = Assets.characters[look.character][look.weapon] or Assets.characters[look.character].gun
-        angle = -math.pi / 2 -- Kenney art faces right
-    end
-    local w, h = img:getDimensions()
-    ox, oy = w / 2, h / 2
-    local k = box / math.max(w, h)
-    love.graphics.setColor(1, 1, 1)
-    love.graphics.draw(img, cx, cy, angle, k, k, ox, oy)
-end
-
 local function attackText(stats)
     local n = stats.pellets or 1
     local dmg = (n > 1) and (n .. " x " .. stats.damage) or tostring(stats.damage)
@@ -103,7 +85,7 @@ function Picker.draw(fonts, title)
         love.graphics.rectangle("line", r.x, r.y, r.w, r.h, 12, 12)
         love.graphics.setLineWidth(1)
 
-        drawPortrait(def, r.x + r.w / 2, r.y + 78, 110)
+        Assets.drawPortrait(def, r.x + r.w / 2, r.y + 78, 110)
 
         love.graphics.setFont(fonts.button)
         love.graphics.setColor(1, 1, 1)

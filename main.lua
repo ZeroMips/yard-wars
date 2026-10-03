@@ -35,29 +35,24 @@ local MODES = {
     waves = { name = "Waves", waves = true },
 }
 
--- Start screen buttons: the main page, and the LAN page behind "LAN game"
-local MENUS = {
-    main = {
-        { name = "Duel", description = "1 vs 1 against a bot - first to 10 kills",
-          mode = MODES.duel },
-        { name = "Team fight", description = "You + 2 bots vs 3 bots - first team to 15 kills",
-          mode = MODES.team },
-        { name = "Waves", description = "3 lives - every wave brings one more bot",
-          mode = MODES.waves },
-        { name = "LAN game", description = "Play with friends in your Wi-Fi", page = "lan" },
-    },
-    lan = {
-        { name = "Host duel", description = "Free-for-all - everybody against everybody",
-          mode = MODES.duel, host = true },
-        { name = "Host team fight", description = "Play together - 3 vs 3 with bots",
-          mode = MODES.team, host = true },
-        { name = "Host waves", description = "Survive waves together",
-          mode = MODES.waves, host = true },
-        { name = "Join", description = "Play in a game hosted in your Wi-Fi", join = true },
-        { name = "Back", description = "", page = "main" },
-    },
+-- Modes on the start screen (src/menu.lua): solo first, then the LAN ones.
+-- id: saved with the last choice; icon: picture on the mode card.
+Menu.entries = {
+    { id = "duel", name = "Duel", description = "1 vs 1 against a bot - first to 10 kills",
+      icon = "duel", mode = MODES.duel },
+    { id = "team", name = "Team fight", description = "You + 2 bots vs 3 bots - first team to 15 kills",
+      icon = "team", mode = MODES.team },
+    { id = "waves", name = "Waves", description = "3 lives - every wave brings one more bot",
+      icon = "waves", mode = MODES.waves },
+    { id = "hostDuel", name = "Host duel", description = "Free-for-all - everybody against everybody",
+      icon = "duel", mode = MODES.duel, host = true, lan = true },
+    { id = "hostTeam", name = "Host team fight", description = "Play together - 3 vs 3 with bots",
+      icon = "team", mode = MODES.team, host = true, lan = true },
+    { id = "hostWaves", name = "Host waves", description = "Survive waves together",
+      icon = "waves", mode = MODES.waves, host = true, lan = true },
+    { id = "join", name = "Join", description = "Play in a game hosted in your Wi-Fi",
+      icon = "join", join = true, lan = true },
 }
-local MENU = MENUS.main -- the page shown
 
 local MAX_STEPS = 5 -- simulation steps per frame at most (after a hitch: slow down instead)
 local MUTE_SIZE = 44 -- touch mute button in the top right corner (HUD units)
@@ -66,7 +61,7 @@ local TEAMMATE_COLOR = { 0.3, 0.6, 1 }
 local ENEMY_TEAM_COLOR = { 1, 0.3, 0.25 } -- team fight: enemies (bots and players)
 
 local state = "menu" -- "menu", "pick" (rowdy choice), "join" or "game"
-local pickFor        -- what the rowdy choice is for: a MENU entry, or "between" rounds
+local pickFor        -- what the rowdy choice is for: "lobby" or "between" rounds
 local role           -- "local", "host" or "client" while playing
 local menuTime = 0   -- drives the camera pan behind the menu
 local menuFonts
@@ -80,7 +75,6 @@ local finder              -- looks for LAN games while the join screen is open
 local accumulator = 0
 local pendingFire    -- a shot requested since the last simulation step
 local pendingSuper   -- same for the super attack
-local rowdyIndex = 1
 local input -- last controls reading
 local muteTouch -- id of the touch that pressed the mute button (its release is ignored)
 local hudFont
@@ -112,7 +106,7 @@ local function openMenu(message)
     closeFinder()
     server, client, replica = nil, nil, nil
     state, role = "menu", nil
-    MENU = MENUS.main
+    Menu.modesOpen = false
     Menu.message = message
     Controls.reset()
 end
@@ -130,9 +124,9 @@ local function newGame(mode, host)
     state, role = "game", host and "host" or "local"
     Menu.message = nil
     if mode.teams then
-        player = world:addTeamPlayer(Rowdies[rowdyIndex])
+        player = world:addTeamPlayer(Rowdies[Menu.rowdy])
     else
-        player = world:addPlayer(Rowdies[rowdyIndex], Arena.spawn.x, Arena.spawn.y)
+        player = world:addPlayer(Rowdies[Menu.rowdy], Arena.spawn.x, Arena.spawn.y)
     end
     localId = player.id
     world:start()
@@ -155,7 +149,7 @@ local function joinGame(address)
     address = Join.address
     if address == "" then Join.status = "Enter the host's address" return end
     local err
-    client, err = Net.newClient(address, rowdyIndex)
+    client, err = Net.newClient(address, Menu.rowdy)
     if not client then Join.status = err return end
     Join.save()
     Join.close()
@@ -166,33 +160,32 @@ local function joinGame(address)
     Menu.message = nil
 end
 
--- Rowdy choice before a game (forWhat = MENU entry) or between rounds ("between")
+-- Rowdy choice from the start screen ("lobby") or between rounds ("between")
 local function openPicker(forWhat)
     Sound.play("click")
     state, pickFor = "pick", forWhat
-    Picker.selected = rowdyIndex
+    Picker.selected = Menu.rowdy
     if forWhat == "between" then
         Picker.confirmLabel = (role == "client") and "OK" or "Play"
     else
-        Picker.confirmLabel = forWhat.join and "Next" or "Play"
+        Picker.confirmLabel = "Select"
     end
 end
 
 local function confirmPick()
     Sound.play("click")
-    rowdyIndex = Picker.selected
+    Menu.rowdy = Picker.selected
+    Menu.save()
     if pickFor == "between" then
         state = "game"
         if client then
-            client:selectRowdy(rowdyIndex) -- the host switches us before its next round
+            client:selectRowdy(Menu.rowdy) -- the host switches us before its next round
         else
-            world:setRowdy(player, Rowdies[rowdyIndex])
+            world:setRowdy(player, Rowdies[Menu.rowdy])
             world:restartMatch()
         end
-    elseif pickFor.join then
-        openJoin()
     else
-        newGame(pickFor.mode, pickFor.host)
+        state = "menu"
     end
 end
 
@@ -201,19 +194,31 @@ local function cancelPick()
     if pickFor == "between" then state = "game" else state = "menu" end
 end
 
-local function startMenuEntry(i)
-    local entry = MENU[i]
-    if entry.page then -- switch between the main and the LAN page
-        Sound.play("click")
-        MENU = MENUS[entry.page]
-        Menu.selected = 1
-        return
-    end
-    Menu.selected = i
-    openPicker(entry)
+-- PLAY on the start screen: the chosen mode with the chosen rowdy
+local function play()
+    Sound.play("click")
+    Menu.save()
+    local entry = Menu.entry()
+    if entry.join then openJoin() else newGame(entry.mode, entry.host) end
 end
 
--- Is the player steering their rowdy right now (not in a menu or between rounds)?
+-- Start screen actions (from Menu.hit / Menu.keypressed)
+local function menuAction(what, i)
+    if what == "play" then play()
+    elseif what == "rowdies" then openPicker("lobby")
+    elseif what == "prev" or what == "next" then
+        Sound.play("click")
+        Menu.rowdy = (Menu.rowdy - 1 + (what == "next" and 1 or -1)) % #Rowdies + 1
+        Menu.save()
+    elseif what == "mode" then Sound.play("click"); Menu.modesOpen = true
+    elseif what == "pick" then Sound.play("click"); Menu.mode = i
+    elseif what == "close" or what == "outside" then
+        Sound.play("click")
+        Menu.modesOpen = false
+        Menu.save()
+    elseif what == "quit" then love.event.quit() end
+end
+
 local function playing()
     return state == "game" and player ~= nil and not world.match.over
 end
@@ -222,11 +227,12 @@ function love.load(args)
     love.graphics.setBackgroundColor(0.05, 0.15, 0.08)
     Assets.load()
     Sound.load()
+    Menu.load()
     love.resize()
     openMenu()
     -- Testing shortcuts: love . [--rowdy N] --host [team|waves] | --join <address> | --find
     for i, a in ipairs(args or {}) do
-        if a == "--rowdy" then rowdyIndex = Rowdies[tonumber(args[i + 1])] and tonumber(args[i + 1]) or 1 end
+        if a == "--rowdy" then Menu.rowdy = Rowdies[tonumber(args[i + 1])] and tonumber(args[i + 1]) or 1 end
         if a == "--find" then openJoin() end
         if a == "--host" then
             newGame(MODES[args[i + 1]] or MODES.duel, true) -- duel / team / waves
@@ -749,7 +755,7 @@ local function drawScreen()
         Arena.drawBelow()
         Arena.drawBushes(nil)
         Camera.detach()
-        if state == "menu" then Menu.draw(MENU, menuFonts, Controls.touchMode)
+        if state == "menu" then Menu.draw(menuFonts, Controls.touchMode)
         elseif state == "join" then Join.draw(menuFonts)
         else Picker.draw(menuFonts) end
         return
@@ -775,8 +781,7 @@ end
 -- Menus, rowdy choice, join screen, result screen: taps and clicks
 local function press(x, y)
     if state == "menu" then
-        local i = Menu.hit(MENU, x, y)
-        if i then startMenuEntry(i) end
+        menuAction(Menu.hit(x, y))
     elseif state == "pick" then
         local what, i = Picker.hit(x, y)
         if what == "card" then
@@ -821,7 +826,7 @@ function love.mousereleased(x, y, button, istouch)
 end
 function love.mousemoved(x, y, dx, dy, istouch)
     if state == "menu" and not istouch then
-        Menu.selected = Menu.hit(MENU, x, y) or Menu.selected
+        Menu.mousemoved(x, y)
     end
 end
 
@@ -834,13 +839,12 @@ end
 function love.keypressed(key)
     if key == "m" and state ~= "join" then Sound.toggleMute() return end
     if state == "menu" then
-        if key == "escape" then
-            if MENU ~= MENUS.main then MENU, Menu.selected = MENUS.main, 1 -- LAN page -> main
-            else love.event.quit() end
-            return
+        local before = Menu.rowdy .. " " .. Menu.mode
+        menuAction(Menu.keypressed(key))
+        if state == "menu" and Menu.rowdy .. " " .. Menu.mode ~= before then
+            Sound.play("click")
+            Menu.save()
         end
-        local i = Menu.keypressed(MENU, key)
-        if i then startMenuEntry(i) end
         return
     elseif state == "pick" then
         local action = Picker.keypressed(key)

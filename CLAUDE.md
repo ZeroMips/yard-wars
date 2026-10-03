@@ -30,10 +30,10 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   (LÖVE keeps running in the background unless force-stopped).
 
 ## Layout
-- `main.lua` — client: state (menu/pick/join/game), roles local/host/client, `MENUS` pages:
-  main (Duel, Team fight, Waves, LAN game) and lan (Host duel = free-for-all, Host team
-  fight, Host waves = co-op, Join, Back); every game entry
-  first opens the rowdy choice; result screen (Play again / Rowdy / Menu; LAN clients:
+- `main.lua` — client: state (menu/pick/join/game), roles local/host/client, the modes of
+  the start screen (`Menu.entries`: Duel, Team fight, Waves, Host duel = free-for-all, Host
+  team fight, Host waves = co-op, Join); PLAY starts the chosen mode with the chosen
+  rowdy (`Menu.rowdy`); result screen (Play again / Rowdy / Menu; LAN clients:
   Rowdy / Leave, the host starts the next round), fixed-step loop (`World.TICK` = 1/60, a shot from the
   controls is kept until a step uses it), local player by id (`localId`), world events →
   particles/shake, camera, HUD, minimap, rowdy switching.
@@ -66,13 +66,17 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   keyboard opens only when the field is tapped), found games below as tap-to-join buttons
 - `src/medpack.lua` — medpack drawing (comic box + red cross, bob, pop-in, blinks last 3 s);
   confirmed on the Pixel 2026-10-01
-- `src/picker.lua` — rowdy choice screen (cards: picture, role, HP, attack, super)
+- `src/picker.lua` — rowdy choice screen (cards: picture, role, HP, attack, super), from the
+  lobby (ROWDIES) or between rounds
 - `src/result.lua` — end-of-round screen (title, scoreboard, buttons)
-- `src/menu.lua` — start screen with one button per mode (mouse, touch, keyboard)
+- `src/menu.lua` — start screen in mobile-game lobby style: chosen rowdy big on a pedestal
+  (arrows switch, ROWDIES opens the card picker), mode card bottom right (tap: list of all
+  modes, solo + LAN), PLAY button; landscape + portrait layouts; last rowdy + mode saved
+  in `lobby.txt`. Keys: left/right rowdy, up/down mode, Enter play, B cards
 - `conf.lua` — identity "yard-wars", 1280x720 resizable window
 - `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
   ("comic" | "kenney"), `Assets.look(def)` → plain-data look (image names, origin, muzzle;
-  usable without graphics)
+  usable without graphics), `Assets.drawPortrait` (rowdy picture for menus)
 - `src/arena.lua` — 40x24 tiles (64px), left half defined and mirrored to the right;
   walls (solid, 2x2), crates (solid), bushes (hiding, 2x2); `resolveCircle`, `hitsSolid`,
   raycast, `hasLineOfSight`, `randomOpenPoint`, spawns

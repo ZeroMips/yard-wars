@@ -69,4 +69,22 @@ function Assets.look(def)
     return { style = "kenney", character = def.character, weapon = weapon }
 end
 
+-- The rowdy's picture (current style), facing up, fitted into a box of size `box`
+-- around (cx, cy); rot tilts it (radians). For menus, not the game.
+function Assets.drawPortrait(def, cx, cy, box, rot)
+    local look = Assets.look(def)
+    local img, angle
+    if look.style == "comic" then
+        img = Assets.comic[look.image]
+        angle = 0
+    else
+        img = Assets.characters[look.character][look.weapon] or Assets.characters[look.character].gun
+        angle = -math.pi / 2 -- Kenney art faces right
+    end
+    local w, h = img:getDimensions()
+    local k = box / math.max(w, h)
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.draw(img, cx, cy, angle + (rot or 0), k, k, w / 2, h / 2)
+end
+
 return Assets
