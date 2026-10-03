@@ -1,7 +1,9 @@
 # Yard Wars (LÖVE 11.x)
 
 Top-down arena shooter (mobile twin-stick style) in LÖVE (Lua). Currently 1 player vs. 1 bot
-in a mirrored arena. Developed on Linux, tested on a Pixel 6a and a moto g67 (second
+in a mirrored arena. On screen the characters are "rowdies" (in code still `Rowdy`);
+repo folder, save identity (`t.identity`) and LAN discovery string stay "yard-wars".
+Developed on Linux, tested on a Pixel 6a and a moto g67 (second
 phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP path).
 
 ## Running
@@ -73,7 +75,7 @@ phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP pa
   (arrows switch, ROWDIES opens the card picker), mode card bottom right (tap: list of all
   modes, solo + LAN), PLAY button; landscape + portrait layouts; last rowdy + mode saved
   in `lobby.txt`. Keys: left/right rowdy, up/down mode, Enter play, B cards
-- `conf.lua` — identity "yard-wars", 1280x720 resizable window
+- `conf.lua` — title "Yard Wars", identity "yard-wars" (save folder, keep), 1280x720 resizable window
 - `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
   ("comic" | "kenney"), `Assets.look(def)` → plain-data look (image names, origin, muzzle;
   usable without graphics), `Assets.drawPortrait` (rowdy picture for menus)
