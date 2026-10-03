@@ -198,6 +198,8 @@ function Rowdy:addCharge(damage)
     if not self.super then return end
     local before = self.charge
     self.charge = math.min(1, self.charge + damage / self.super.charge)
+    -- 10 x 0.1 adds up to 0.999..., which would need one hit more than intended
+    if self.charge > 1 - 1e-6 then self.charge = 1 end
     if before < 1 and self.charge >= 1 then self:emit("superReady", { id = self.id }) end
 end
 
@@ -220,7 +222,7 @@ function Rowdy:drawAim(useSuper)
     local a = (useSuper and self.super) or self
     local spread, radius = a.spread or 0, a.radius or Bullet.radius
     local mx, my = self:muzzle()
-    local len = Arena.raycast(mx, my, self.aim, a.range or Bullet.range, radius)
+    local len = Arena.raycast(mx, my, self.aim, a.range or Bullet.range, a.wallRadius or radius)
     local hw = math.max(9, radius + 3)
     local hwEnd = hw + math.tan(spread / 2) * len
     local c = (a == self) and self.bulletColor or SUPER_COLOR

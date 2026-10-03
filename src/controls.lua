@@ -99,14 +99,48 @@ function Controls.touchreleased(id, x, y)
     end
 end
 
--- Angle to the target if it is within attack range, else nil.
+-- Velocity of the auto-aim target: its movement over the last ~0.1 s (a window, not
+-- frame to frame: frames can be faster than the 60 Hz simulation)
+local track = { id = nil, samples = {}, vx = 0, vy = 0 }
+local TRACK_WINDOW = 0.1
+local MAX_TRACK_SPEED = 400 -- px/s; faster = a teleport (respawn), not walking
+
+local function trackTarget(target)
+    local now = love.timer.getTime()
+    if not target or target.id ~= track.id then
+        track.id, track.samples, track.vx, track.vy = target and target.id, {}, 0, 0
+        if not target then return end
+    end
+    local samples = track.samples
+    samples[#samples + 1] = { t = now, x = target.x, y = target.y }
+    while #samples > 2 and now - samples[2].t >= TRACK_WINDOW do table.remove(samples, 1) end
+    local old = samples[1]
+    local dt = now - old.t
+    if dt > 0 then
+        local vx, vy = (target.x - old.x) / dt, (target.y - old.y) / dt
+        if vx * vx + vy * vy > MAX_TRACK_SPEED * MAX_TRACK_SPEED then
+            track.samples, vx, vy = { samples[#samples] }, 0, 0
+        end
+        track.vx, track.vy = vx, vy
+    end
+end
+
+-- Angle to the target if it is within attack range, else nil. Aims where a walking
+-- target will be when the shot arrives (fast shots barely lead, slow ones more).
 -- (Walls are ignored on purpose: a quick tap should always fire at someone.)
 local function autoAimAngle(player, target, super)
     if not target then return nil end
-    local range = (super and player.super and player.super.range) or player.range
+    local attack = (super and player.super) or player
+    local range = attack.range or player.range
+    local speed = attack.bulletSpeed or player.bulletSpeed
     local dx, dy = target.x - player.x, target.y - player.y
     if math.sqrt(dx * dx + dy * dy) > range + 60 then return nil end
-    return math.atan2(dy, dx)
+    local px, py = target.x, target.y
+    for _ = 1, 3 do -- refine: flight time to the predicted spot
+        local t = math.min(math.sqrt((px - player.x) ^ 2 + (py - player.y) ^ 2), range) / speed
+        px, py = target.x + track.vx * t, target.y + track.vy * t
+    end
+    return math.atan2(py - player.y, px - player.x)
 end
 
 -- ---- Read input for this frame ----
@@ -114,6 +148,7 @@ end
 -- Returns { dx, dy, aim (angle or nil), fire (bool), super (bool: fire the super),
 --           aiming (show the beam), aimingSuper (show the super's aim) }
 function Controls.get(player, target)
+    trackTarget(target)
     if Controls.touchMode then
         local dx, dy = 0, 0
         if move.id then dx, dy = stickVector(move) end

@@ -319,7 +319,7 @@ local function updateBullets(self, dt)
 
         for _ = 1, steps do
             b:update(dt / steps)
-            if Arena.hitsSolid(b.x, b.y, b.radius) then
+            if Arena.hitsSolid(b.x, b.y, b.wallRadius or b.radius) then
                 self:emit("impact", { x = b.x, y = b.y, color = b.color, -- wall / crate
                     bullet = b.id, owner = b.owner.id })
                 remove = true

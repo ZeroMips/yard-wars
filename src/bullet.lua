@@ -24,6 +24,8 @@ function Bullet.new(x, y, angle, owner, attack)
         damage = attack.damage,
         -- (owner.radius is the rowdy's body, so only a super sets the bullet size)
         radius = super and attack.radius or Bullet.radius,
+        -- size against walls/crates (default: radius); smaller lets a big ball graze them
+        wallRadius = super and attack.wallRadius or nil,
         pierce = super and attack.pierce, -- flies through rowdies (hits each one once)
         super = super,
         color = owner.bulletColor,

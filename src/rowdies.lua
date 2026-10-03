@@ -22,7 +22,8 @@
 --   super        special attack, charged by dealing damage (optional):
 --                  name, description, charge (damage needed to fill the meter), and
 --                  like above pellets, spread, damage, range, bulletSpeed, plus
---                  radius (bullet size, default 6) and pierce (flies through rowdies)
+--                  radius (bullet size, default 6), wallRadius (size against walls and
+--                  crates, default radius) and pierce (flies through rowdies)
 local Rowdies = {
     {
         name = "Gunner", role = "All-rounder", character = "manBlue", weapon = "gun",
@@ -31,7 +32,8 @@ local Rowdies = {
                   reload = 0.3, maxAmmo = 3, ammoRefill = 1.2,
                   super = { name = "Bullet Storm", description = "Fan of 10 bullets",
                             charge = 200, pellets = 10, spread = 0.9,
-                            damage = 22, range = 520, bulletSpeed = 750 } },
+                            -- 10 x 14 = 140 point blank (22 did 220, twice any HP)
+                            damage = 14, range = 520, bulletSpeed = 750 } },
     },
     {
         name = "Shotgunner", role = "Close range, tough", character = "hitman1",
@@ -44,7 +46,10 @@ local Rowdies = {
                             description = "Big ball that rolls through everyone", charge = 180, damage = 75, range = 440,
                             -- fast enough to catch a strafing bot at mid range
                             -- (450 px/s missed every moving target)
-                            bulletSpeed = 900, radius = 28, pierce = true } },
+                            bulletSpeed = 900, radius = 28, pierce = true,
+                            -- grazes walls: fired right next to one (or through a
+                            -- 1-tile gap) it would vanish at once with radius 28
+                            wallRadius = 16 } },
     },
     {
         name = "Sniper", role = "Long range, fragile", character = "manBrown",
