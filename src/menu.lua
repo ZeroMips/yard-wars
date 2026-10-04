@@ -22,10 +22,15 @@ Menu.hover = nil        -- what the mouse is over (highlighted)
 Menu.message = nil      -- shown under the title (e.g. "Connection lost")
 Menu.notice = nil       -- shown under the rowdy's stats (e.g. "Gunner unlocked!")
 
--- Build shown in the corner: version.txt is written when the game is copied to a
--- device (commit + date), so it's easy to see which code a phone runs.
-Menu.version = (love.filesystem.getInfo("version.txt") and
-    love.filesystem.read("version.txt") or "dev"):gsub("%s+$", "")
+-- Build shown in the corner: build.txt + version.txt (commit + date) are written by
+-- tools/build.sh and when the game is copied to a device, so it's easy to see which code
+-- a phone runs (a mounted update's files win).
+local function readTrimmed(name)
+    return love.filesystem.getInfo(name) and (love.filesystem.read(name):gsub("%s+$", ""))
+end
+Menu.version = (readTrimmed("build.txt") and "build " .. readTrimmed("build.txt") .. "  " or "")
+    .. (readTrimmed("version.txt") or "dev")
+Menu.status = nil -- update check ("up to date", ...), shown after the version
 
 local SAVE_FILE = "lobby.txt" -- last rowdy + mode: "<rowdy index> <mode id>"
 
@@ -416,7 +421,7 @@ function Menu.draw(fonts, touchMode)
 
     love.graphics.setFont(fonts.text)
     love.graphics.setColor(1, 1, 1, 0.35)
-    love.graphics.print(Menu.version, 8, L.sh - 24)
+    love.graphics.print(Menu.version .. (Menu.status and "  -  " .. Menu.status or ""), 8, L.sh - 24)
     if not touchMode and not L.portrait then
         love.graphics.setColor(1, 1, 1, 0.45)
         love.graphics.printf("Left/Right rowdy  -  Up/Down mode  -  Enter play  -  Esc quit",

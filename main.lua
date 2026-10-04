@@ -1,3 +1,6 @@
+-- A newer downloaded build (src/updater.lua) runs instead of this one: nothing else here
+if require("src.updater").boot() then return end
+
 -- Client side: menu, input, fixed-step loop, camera, effects and HUD.
 -- The game itself (rowdies, bullets, hits, scores, waves) lives in src/world.lua.
 --
@@ -23,6 +26,7 @@ local Picker   = require("src.picker")
 local Result   = require("src.result")
 local Scoreboard = require("src.scoreboard")
 local Sound    = require("src.sound")
+local Updater  = require("src.updater")
 
 -- Game modes (round rules: see World.KILL_TARGET / TIME_LIMIT / LIVES).
 --   waves = false: duel - the bots respawn; first to 10 kills or most kills after
@@ -269,6 +273,7 @@ function love.load(args)
             joinGame()
         end
     end
+    Updater.start(args)
 end
 
 function love.resize()
@@ -426,6 +431,12 @@ local function updateClient()
 end
 
 function love.update(dt)
+    Updater.update(dt)
+    Menu.status = Updater.status
+    -- A downloaded update is used right away if nobody is busy in the lobby
+    if Updater.ready and state == "menu" and not Menu.modesOpen then
+        love.event.quit("restart")
+    end
     if state == "join" then
         if finder then
             finder:update(dt)

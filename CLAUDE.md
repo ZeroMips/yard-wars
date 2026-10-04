@@ -17,11 +17,32 @@ the official LÖVE for Android 11.5 (same MTP path).
   (or `love . --find` for the join screen with discovery) in a second terminal.
   UDP ports 27015 (game) + 27016 (discovery); if a phone can't connect/find the desktop:
   `sudo ufw allow 27015:27016/udp`.
+- Self-update test: `love dist/yard-wars-N.love --update-url http://127.0.0.1:8000/updates/`
+  (serve a dir filled by `tools/publish.sh --local DIR/updates` with `python3 -m http.server`;
+  use a test clone with its own `t.identity` so the real save folder stays clean);
+  `--no-update` turns the updater off. `love .` (git checkout, no build.txt) never updates.
 - Scripted test harnesses (copy main.lua to game.lua in a temp dir, override love.update/
   draw, symlink `src`/`assets`): NEVER symlink conf.lua (writing the test conf overwrote
   the real one once), and set `t.window.vsync = 0` + `love.timer.sleep` — with vsync the
   window blocks forever when the screen is locked. Print needs `io.stdout:setvbuf("no")`
   if the process gets killed by `timeout`.
+
+## Publishing updates (self-update over http, see `src/updater.lua`)
+- Commit, then `tools/publish.sh`: `tools/build.sh` packs HEAD into `dist/yard-wars-<build>.love`
+  (build = `git rev-list --count HEAD`, adds build.txt + version.txt; refuses a dirty tree),
+  writes the manifest `latest.txt` (build/version/file/size/sha256), signs it (RSA-2048, key
+  `~/.config/yard-wars/update-key.pem`, outside the repo; `--init-key` made it once and printed
+  `Updater.PUBLIC_KEY`) and uploads via FTPS to `/updates/` (.love first, latest.txt last).
+  Host/paths in `tools/publish.conf`; FTP login only in `~/.netrc` (chmod 600).
+  Installed copies check on every start and switch to the new build automatically.
+- Server side must answer PLAIN http (LÖVE has no https, the client doesn't follow redirects):
+  `curl -I http://yardwars.zeromips.org/updates/latest.txt` must give 200 (until 2026-10-04 the
+  host answered `301 -> https`; switched off in the manitu panel). publish.sh also uploads
+  `updates/.htaccess` (`RewriteEngine Off`). The https site sends HSTS, so browsers that
+  visited it upgrade on their own - test with curl, not a browser.
+- conf.lua runs before an update is mounted: changes to it (window, identity) still need a
+  manual install. Same for `Updater.boot()` itself: the hand-installed build's boot() mounts
+  every later update, so keep update.txt's format compatible.
 
 ## Android test workflow (took a while to figure out — don't change without reason)
 - Use the OFFICIAL "LÖVE for Android" (package `org.love2d.android`, APK from
@@ -31,7 +52,9 @@ the official LÖVE for Android 11.5 (same MTP path).
   `/sdcard/Android/data/org.love2d.android/files/games/lovegame/`, force-stop LÖVE,
   start it from its icon. Also write `version.txt` (`git log -1 --format='%h %cd'`, not in
   git) into the game folder: the menu shows it bottom-left, so you can see which build runs
-  (LÖVE keeps running in the background unless force-stopped).
+  (LÖVE keeps running in the background unless force-stopped). Also write `build.txt`
+  (`git rev-list --count HEAD`), otherwise the copy never updates itself - or simply unzip
+  `tools/build.sh`'s .love into the folder.
 
 ## Layout
 - `main.lua` — client: state (menu/pick/join/game), roles local/host/client, the modes of
@@ -70,6 +93,16 @@ the official LÖVE for Android 11.5 (same MTP path).
 - `src/replica.lua` — client-side World copy from snapshots: others interpolated 100 ms
   behind the host, own rowdy 50 ms; bullets drawn from spawn records (straight lines);
   events played when their time comes; clock offset = max(t - arrival), pulled down 10%
+- `src/updater.lua` — self-update: `Updater.boot()` (first line of main.lua) mounts a
+  downloaded newer build (`update-N.love` in the save folder, `update.txt`: build/file/
+  state ok|trying/bad) over the game source and runs its main.lua; a build whose start never
+  got past 3 s ("trying" at the next start) is marked bad and skipped. `Updater.start()`
+  runs `src/updater_thread.lua` (love.thread: socket.http GET latest.txt, RSA check, download,
+  size + sha256, write) and `Updater.update()` reads its status for the lobby's version line;
+  a finished download restarts the game at once (`love.event.quit("restart")`) if the lobby
+  is idle, otherwise it's used at the next start.
+- `src/rsa.lua` — pure-Lua RSA verify (PKCS#1 v1.5 + SHA-256, e = 65537; 24-bit limbs,
+  Montgomery multiplication; ~5 ms on desktop)
 - `src/codec.lua` — message serializer (no loadstring; rejects malformed input)
 - `src/join.lua` — join screen: address field in the upper half (last address saved; phone
   keyboard opens only when the field is tapped), found games below as tap-to-join buttons
@@ -137,6 +170,8 @@ the official LÖVE for Android 11.5 (same MTP path).
 - `src/effects.lua` — particles: puff, sparks, burst, ring, heal ("+" signs) (`drawBelow`/`drawAbove` layers)
 - `assets/images/` — `tilesheet.png` (Kenney), `characters/<name>_<pose>.png`,
   `comic/<name>.png`
+- `tools/build.sh`, `tools/publish.sh`, `tools/publish.conf` — packing + signed upload (see
+  "Publishing updates")
 - `tools/make_comic_sprites.py` — AI image (white bg, facing up) → cut out, trimmed,
   88px-wide sprite; prints origin + muzzle for `src/rowdies.lua`
 
@@ -190,6 +225,15 @@ Server-authoritative, host device = server, LAN first (enet is built into LÖVE 
 4. Optional: internet play via a dedicated headless server on a VPS.
 Not done yet: render interpolation between steps (60 Hz sim looks slightly uneven on
 >60 Hz desktop monitors; Pixel 6a runs at 60 Hz).
+
+## Self-update status (2026-10-04)
+- Tested on desktop with a local http server: update + instant restart, tampered .love /
+  manifest rejected, crashing build marked bad (fallback to the built-in build), no server /
+  timeout / 301 -> "update failed: ..." while the lobby keeps working.
+- moto g67: build 38 + uncommitted changes installed by hand (has the updater) 2026-10-04.
+- Open: first real publish, `love.event.quit("restart")` on Android (if it fails, the
+  update is still used at the next start), manual install of an updater build on the
+  tablet and the Pixel 6a.
 
 ## Next-step ideas
 1. (done: super attack with charge meter + touch button; confirmed on the Pixel 2026-10-01)
