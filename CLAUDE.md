@@ -40,6 +40,16 @@ the official LÖVE for Android 11.5 (same MTP path).
   host answered `301 -> https`; switched off in the manitu panel). publish.sh also uploads
   `updates/.htaccess` (`RewriteEngine Off`). The https site sends HSTS, so browsers that
   visited it upgrade on their own - test with curl, not a browser.
+- publish.sh also uploads the build as `download/yard-wars.love` + `.zip` (stable names for
+  the website's download links). `.gitattributes` keeps CLAUDE.md, tools/ and website/ out of
+  the package (export-ignore).
+- Website (`website/`: index.html, style.css, images/): static page about the game and its
+  installation at http://yardwars.zeromips.org/, uploaded by `tools/publish-site.sh` (FTPS
+  to the web root; robots.txt/sitemap.xml there are the hoster's). Shows the newest build
+  from updates/latest.txt. Never mention the game that inspired this one on the website or
+  in the shipped code - describe it on its own terms.
+  Screenshots in website/images/ come from a scripted harness (team fight with an
+  autopilot overriding `Controls.get`, FPS line removed in the copy).
 - conf.lua runs before an update is mounted: changes to it (window, identity) still need a
   manual install. Same for `Updater.boot()` itself: the hand-installed build's boot() mounts
   every later update, so keep update.txt's format compatible.

@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yard Wars - a top-down arena shooter</title>
+<meta name="description" content="Yard Wars: a free top-down arena shooter for Android and desktop. Pick a rowdy, fight bots or friends in your Wi-Fi.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>YARD WARS</h1>
+    <p class="tagline">A fast top-down arena shooter. Pick a rowdy, grab the coins, win the yard.</p>
+    <p class="buttons">
+      <a class="btn play" href="#install">Install</a>
+      <a class="btn" href="#rowdies">Meet the rowdies</a>
+    </p>
+    <img class="shot" src="images/gameplay.jpg" width="1280" height="720"
+         alt="A team fight in the yard: shotgun pellets fly towards a red enemy bot">
+    <p class="build" id="build">Free, no ads, no accounts. Runs on Android, Windows, macOS and Linux.</p>
+  </div>
+</header>
+
+<main>
+
+<section class="wrap" id="about">
+  <h2>What is it?</h2>
+  <div class="cols">
+    <div>
+      <p>Yard Wars is a small arcade shooter seen from above. You run around a yard full of
+        walls, crates and bushes, aim with the right stick and let go to fire. Hits charge
+        your <b>super</b>, a special attack that can turn a fight around.</p>
+      <p>Hide in bushes to ambush enemies, pick up <b>medpacks</b> after a kill, and smash the
+        <b>treasure chests</b> that drop into the arena: they spill coins. Coins unlock new
+        rowdies.</p>
+    </div>
+    <div>
+      <img src="images/lobby.jpg" width="1280" height="720" loading="lazy"
+           alt="The lobby: the Robot stands on a pedestal next to the PLAY button">
+    </div>
+  </div>
+</section>
+
+<section class="wrap" id="rowdies">
+  <h2>The rowdies</h2>
+  <div class="cards">
+    <article class="card">
+      <img src="images/shotgunner.png" alt="Shotgunner" loading="lazy">
+      <h3>Shotgunner</h3>
+      <p class="role">Close range, tough</p>
+      <ul>
+        <li><span>HP</span> 120</li>
+        <li><span>Attack</span> 5 pellets in a cone</li>
+        <li><span>Super</span> Wrecking Ball - a big ball that rolls through everyone</li>
+      </ul>
+      <p class="price free">Free from the start</p>
+    </article>
+    <article class="card">
+      <img src="images/gunner.png" alt="Gunner" loading="lazy">
+      <h3>Gunner</h3>
+      <p class="role">All-rounder</p>
+      <ul>
+        <li><span>HP</span> 100</li>
+        <li><span>Attack</span> quick pistol shots</li>
+        <li><span>Super</span> Bullet Storm - a fan of 10 bullets</li>
+      </ul>
+      <p class="price">150 coins</p>
+    </article>
+    <article class="card">
+      <img src="images/sniper.png" alt="Sniper" loading="lazy">
+      <h3>Sniper</h3>
+      <p class="role">Long range, fragile</p>
+      <ul>
+        <li><span>HP</span> 80</li>
+        <li><span>Attack</span> one hard-hitting long shot</li>
+        <li><span>Super</span> Railgun - a fast shot through everyone</li>
+      </ul>
+      <p class="price">300 coins</p>
+    </article>
+    <article class="card">
+      <img src="images/robot.png" alt="Robot" loading="lazy">
+      <h3>Robot</h3>
+      <p class="role">Heavy and slow</p>
+      <ul>
+        <li><span>HP</span> 160</li>
+        <li><span>Attack</span> heavy energy bolts</li>
+        <li><span>Super</span> Shockwave - a ring of bolts all around</li>
+      </ul>
+      <p class="price">500 coins</p>
+    </article>
+  </div>
+</section>
+
+<section class="wrap" id="modes">
+  <h2>Modes</h2>
+  <div class="modes">
+    <div class="mode duel">
+      <h3>Duel</h3>
+      <p>You against a bot. First to 10 kills wins, or whoever has more after 3 minutes.</p>
+    </div>
+    <div class="mode team">
+      <h3>Team fight</h3>
+      <p>3 against 3: you and two bots against three bots. First team to 15 kills.</p>
+    </div>
+    <div class="mode waves">
+      <h3>Waves</h3>
+      <p>Survive! Every wave brings one more bot. You have 3 lives.</p>
+    </div>
+  </div>
+  <h3 class="sub">Play with friends</h3>
+  <p>All modes also work over your <b>Wi-Fi</b>: one device hosts, the others join. The host
+    is found automatically. Duel becomes a free-for-all, team fight puts all players in one
+    team against the bots, and waves becomes co-op.</p>
+  <img class="wide" src="images/picker.jpg" width="1280" height="720" loading="lazy"
+       alt="The rowdy choice: four cards with picture, role, health, attack and super">
+</section>
+
+<section class="wrap" id="install">
+  <h2>Install</h2>
+  <p>Yard Wars runs on <a href="https://love2d.org/">LÖVE</a>, a free game engine. You install
+    LÖVE once, then add the game. After that the game <b>updates itself</b>: every start it
+    checks for a new version, downloads it and switches over.</p>
+
+  <div class="cols">
+    <div class="box">
+      <h3>Android</h3>
+      <ol>
+        <li>Install <b>LÖVE for Android 11.5</b>: download
+          <code>love-11.5-android.apk</code> from the
+          <a href="https://github.com/love2d/love/releases/tag/11.5">LÖVE releases page</a>
+          and open it (allow installing apps from your browser when asked). Start LÖVE once,
+          then close it.</li>
+        <li>On a computer, download <a href="download/yard-wars.zip">yard-wars.zip</a> and
+          unzip it.</li>
+        <li>Connect the phone with a USB cable and choose <i>File transfer</i> on the phone.</li>
+        <li>On the phone's storage, open
+          <code>Android/data/org.love2d.android/files/</code>, create the folders
+          <code>games/lovegame</code> and copy the unzipped files into
+          <code>lovegame</code> (<code>main.lua</code> must be directly inside it).</li>
+        <li>Start LÖVE from its icon: Yard Wars starts.</li>
+      </ol>
+      <p class="note">Opening the file directly from a download or cloud app doesn't work with
+        LÖVE for Android, so the USB copy is needed once. Later versions arrive by
+        themselves.</p>
+    </div>
+    <div class="box">
+      <h3>Windows, macOS, Linux</h3>
+      <ol>
+        <li>Install <b>LÖVE 11.5</b> from <a href="https://love2d.org/">love2d.org</a>
+          (Linux: also available in most package managers as <code>love</code>).</li>
+        <li>Download <a href="download/yard-wars.love">yard-wars.love</a>.</li>
+        <li>Double-click it, or run <code>love yard-wars.love</code>.</li>
+      </ol>
+      <h3>Playing over Wi-Fi</h3>
+      <p>All devices must be in the same network. If others can't find or join your game,
+        allow UDP ports <code>27015</code> and <code>27016</code> in your firewall (Linux with
+        ufw: <code>sudo ufw allow 27015:27016/udp</code>).</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" id="controls">
+  <h2>Controls</h2>
+  <div class="cols">
+    <div class="box">
+      <h3>Touch</h3>
+      <ul>
+        <li><b>Left half:</b> move (the stick appears where you touch)</li>
+        <li><b>Right half:</b> drag to aim, release to fire; drag back to the centre to
+          cancel</li>
+        <li><b>Quick tap:</b> fires at the nearest enemy</li>
+        <li><b>Super button:</b> same as the aim stick, glows when your super is ready</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Keyboard and mouse</h3>
+      <ul>
+        <li><b>W A S D:</b> move</li>
+        <li><b>Mouse:</b> aim, hold the left button to fire</li>
+        <li><b>Right button or E:</b> aim the super, release to fire</li>
+        <li><b>M:</b> sound on/off, <b>Esc:</b> back to the lobby</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Yard Wars is a hobby project. Made with <a href="https://love2d.org/">LÖVE</a>.
+      Arena tiles: <a href="https://kenney.nl/assets/top-down-shooter">Top-down Shooter
+      pack</a> by Kenney (CC0). Character art generated with AI.</p>
+  </div>
+</footer>
+
+<script>
+// Show the newest published build (the manifest the game itself checks)
+fetch("updates/latest.txt").then(function (r) { return r.ok ? r.text() : ""; }).then(function (t) {
+  var b = t.match(/^build (\d+)$/m), v = t.match(/^version \S+ (\S+)/m);
+  if (b) {
+    document.getElementById("build").textContent +=
+      " Current version: build " + b[1] + (v ? " (" + v[1] + ")" : "") + ".";
+  }
+}).catch(function () {});
+</script>
+</body>
+</html>

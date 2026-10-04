@@ -1,6 +1,7 @@
 #!/bin/sh
 # Publishes the committed state as a signed update (see src/updater.lua):
-#   tools/publish.sh              build, sign, upload (.love first, latest.txt last)
+#   tools/publish.sh              build, sign, upload (.love first, latest.txt last; also
+#                                 download/yard-wars.love + .zip for the website)
 #   tools/publish.sh --local DIR  same, but copy into DIR instead (tests with a local
 #                                 http server: love x.love --update-url http://127.0.0.1:8000/)
 #   tools/publish.sh --init-key   make the signing key once, print the modulus for
@@ -61,6 +62,11 @@ upload() {
 }
 upload "$tmp/.htaccess" .htaccess
 upload "$love" "$file"
+# Stable names for the website's download links (a .love is a zip: Android users unzip it)
+curl --fail --silent --show-error --ssl-reqd --netrc --ftp-create-dirs \
+    -T "$love" "ftp://$FTP_HOST/download/yard-wars.love"
+curl --fail --silent --show-error --ssl-reqd --netrc --ftp-create-dirs \
+    -T "$love" "ftp://$FTP_HOST/download/yard-wars.zip"
 upload "$tmp/latest.txt" latest.txt # last: the game never sees a half-published build
 echo "published build $build: ${HTTP_URL}latest.txt"
 curl --silent --show-error --include "${HTTP_URL}latest.txt" | head -n 12

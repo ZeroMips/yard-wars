@@ -1,0 +1,164 @@
+/* Yard Wars website: colours of the game's lobby (dark teal, gold title, chunky buttons) */
+:root {
+  --bg: #0b2a2a;
+  --bg2: #0e1f33;
+  --panel: rgba(10, 18, 30, 0.72);
+  --text: #e8eef2;
+  --muted: #a9b8c2;
+  --gold: #ffc933;
+  --orange: #f27f1f;
+  --blue: #3f8ce8;
+  --purple: #a64dd9;
+  --green: #4cbf4c;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--text);
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%) fixed;
+}
+
+a { color: var(--gold); }
+
+img { max-width: 100%; height: auto; }
+
+code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.05em 0.35em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  word-break: break-word;
+}
+
+.wrap { max-width: 1060px; margin: 0 auto; padding: 0 20px; }
+
+/* Outlined comic headings */
+h1, h2, h3 {
+  font-family: "Arial Black", "Trebuchet MS", sans-serif;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(3rem, 10vw, 6rem);
+  color: var(--gold);
+  text-shadow: 0 4px 0 #8a5a00, 3px 3px 0 #000, -3px 3px 0 #000, 3px -3px 0 #000, -3px -3px 0 #000;
+}
+
+h2 {
+  font-size: 2.1rem;
+  color: #fff;
+  text-shadow: 2px 2px 0 #000, -2px 2px 0 #000, 2px -2px 0 #000, -2px -2px 0 #000;
+  margin: 0 0 0.8em;
+}
+
+h3 { margin: 0.2em 0 0.5em; font-size: 1.25rem; }
+
+h3.sub { margin-top: 1.6em; }
+
+section.wrap { padding-top: 72px; } /* section.wrap: .wrap alone resets padding + margin */
+
+/* Hero */
+.hero { text-align: center; padding: 48px 0 8px; }
+.tagline { font-size: 1.3rem; color: var(--muted); margin: 0.6em 0 1.2em; }
+.shot, .wide, .cols img {
+  border-radius: 14px;
+  border: 4px solid #000;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.shot { margin-top: 24px; }
+.build { color: var(--muted); font-size: 0.95rem; }
+
+.buttons { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.btn {
+  display: inline-block;
+  padding: 0.55em 1.4em;
+  font-family: "Arial Black", sans-serif;
+  font-size: 1.2rem;
+  color: #fff;
+  text-decoration: none;
+  background: var(--blue);
+  border: 3px solid #000;
+  border-radius: 12px;
+  box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.25), 0 4px 0 #000;
+  text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
+  transition: transform 0.1s;
+}
+.btn:hover { transform: translateY(-2px); }
+.btn.play { background: var(--gold); }
+
+/* Two columns that stack on phones */
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+
+.box {
+  background: var(--panel);
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 18px 22px;
+}
+.box ol, .box ul { padding-left: 1.3em; margin: 0.4em 0; }
+.box li { margin-bottom: 0.45em; }
+.note { color: var(--muted); font-size: 0.92rem; }
+
+/* Rowdy cards */
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+.card {
+  background: var(--panel);
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  padding: 16px;
+  text-align: center;
+  background-image: radial-gradient(circle at 50% 30%, rgba(255, 220, 140, 0.18), transparent 60%);
+}
+.card img { height: 200px; width: auto; object-fit: contain; }
+.card h3 { margin-bottom: 0; }
+.role { color: var(--gold); margin: 0 0 0.6em; font-size: 0.95rem; }
+.card ul { list-style: none; padding: 0; margin: 0; text-align: left; font-size: 0.93rem; }
+.card li { margin-bottom: 0.35em; }
+.card li span { color: var(--orange); font-weight: bold; margin-right: 0.3em; }
+.price {
+  margin: 0.8em 0 0;
+  font-weight: bold;
+  color: var(--gold);
+}
+.price.free { color: var(--green); }
+
+/* Mode tiles in the colours of the game's mode cards */
+.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.mode {
+  border: 3px solid #000;
+  border-radius: 14px;
+  padding: 14px 18px;
+  box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.2), 0 4px 0 #000;
+}
+.mode h3 { color: #fff; text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000; }
+.mode p { margin: 0; }
+.duel  { background: var(--orange); }
+.team  { background: var(--blue); }
+.waves { background: var(--purple); }
+.wide { margin-top: 18px; }
+
+footer {
+  margin-top: 64px;
+  padding: 24px 0 32px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  border-top: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+@media (max-width: 860px) {
+  .cards { grid-template-columns: repeat(2, 1fr); }
+  .cols, .modes { grid-template-columns: 1fr; }
+}
+@media (max-width: 460px) {
+  .cards { grid-template-columns: 1fr; }
+  body { font-size: 16px; }
+}
