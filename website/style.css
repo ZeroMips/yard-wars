@@ -94,6 +94,7 @@ section.wrap { padding-top: 72px; } /* section.wrap: .wrap alone resets padding 
 }
 .btn:hover { transform: translateY(-2px); }
 .btn.play { background: var(--gold); }
+.btn.code { background: #3a4452; }
 
 /* Two columns that stack on phones */
 .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
