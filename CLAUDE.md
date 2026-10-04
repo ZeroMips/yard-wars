@@ -53,7 +53,10 @@ the official LÖVE for Android 11.5 (same MTP path).
   from updates/latest.txt. Never mention the game that inspired this one on the website or
   in the shipped code - describe it on its own terms.
   Screenshots in website/images/ come from a scripted harness (team fight with an
-  autopilot overriding `Controls.get`, FPS line removed in the copy).
+  autopilot overriding `Controls.get`, FPS line removed in the copy). Icons (favicon.ico
+  16/32/48, images/icon-192.png, apple-touch-icon.png 180): the Shotgunner's head cropped
+  from assets/images/side/shotgunner.png (box 6,0-200,194) on a rounded dark-teal square
+  with a gold edge (made with a PIL snippet, not kept as a tool).
 - conf.lua runs before an update is mounted: changes to it (window, identity) still need a
   manual install. Same for `Updater.boot()` itself: the hand-installed build's boot() mounts
   every later update, so keep update.txt's format compatible.
