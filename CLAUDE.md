@@ -107,7 +107,7 @@ the official LÖVE for Android 11.5 (same MTP path).
 - `src/join.lua` — join screen: address field in the upper half (last address saved; phone
   keyboard opens only when the field is tapped), found games below as tap-to-join buttons
 - `src/profile.lua` — progress on this device (`profile.txt`): coins + bought rowdies (by
-  name). Start: only the Shotgunner (`STARTER`, no `price`); Gunner 150, Sniper 300
+  name). Start: only the Shotgunner (`STARTER`, no `price`); Gunner 150, Sniper 300, Robot 500
   (`price` in `src/rowdies.lua`). Coins: own `coin` events (boxes) + round reward on
   `matchOver` (`REWARD`: win 30, draw 10, loss 5, waves 5 per cleared wave), added in
   main.lua's `playEvents` — so LAN clients earn on their own device too.
@@ -127,7 +127,8 @@ the official LÖVE for Android 11.5 (same MTP path).
 - `conf.lua` — title "Yard Wars", identity "yard-wars" (save folder, keep), 1280x720 resizable window
 - `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
   ("comic" | "kenney"), `Assets.look(def)` → plain-data look (image names, origin, muzzle;
-  usable without graphics), `Assets.drawPortrait` (rowdy picture for menus)
+  usable without graphics), `Assets.drawPortrait` (rowdy picture for menus, top view),
+  `Assets.drawStanding` (side view on the lobby pedestal, comic style only)
 - `src/arena.lua` — 40x24 tiles (64px), left half defined and mirrored to the right;
   walls (solid, 2x2), crates (solid), bushes (hiding, 2x2); `resolveCircle`, `hitsSolid`,
   raycast, `hasLineOfSight`, `randomOpenPoint`, spawns
@@ -146,10 +147,11 @@ the official LÖVE for Android 11.5 (same MTP path).
   (pellets/spread), aim beam/cone (`drawAim`), health/ammo bars, animation (pose, walk
   sway/bob, breathing, recoil, muzzle flash, spawn pop-in); logic reports via `self:emit`
 - `src/rowdies.lua` — data: Gunner (pistol), Shotgunner (5 pellets, 0.6 rad cone),
-  Sniper (range 720), plus `Rowdies.bot` (enemy look + stats). Supers (`stats.super`,
+  Sniper (range 720), Robot (tank: 160 HP, slow, heavy single bolts), plus `Rowdies.bot` (enemy look + stats). Supers (`stats.super`,
   charged by normal-attack damage, `charge` = damage needed): Gunner "Bullet Storm" (10-bullet
   fan), Shotgunner "Wrecking Ball" (big slow piercing ball), Sniper "Railgun" (fast,
-  long, piercing). Super bullets: own `radius`, `wallRadius` (smaller size against walls: the Wrecking Ball
+  long, piercing), Robot "Shockwave" (ring of 16 bolts: `spread` >= pi means an even ring
+  from the body centre, aim preview = circle of its range). Super bullets: own `radius`, `wallRadius` (smaller size against walls: the Wrecking Ball
   grazes them instead of vanishing next to one), `pierce` (each rowdy hit once). See the comment at the top for
   stat meanings and the `comic` look entry.
 - `src/player.lua` — Player subclass, `update(dt, input, bullets)`, 0.25s fire buffer
@@ -173,7 +175,10 @@ the official LÖVE for Android 11.5 (same MTP path).
 - `tools/build.sh`, `tools/publish.sh`, `tools/publish.conf` — packing + signed upload (see
   "Publishing updates")
 - `tools/make_comic_sprites.py` — AI image (white bg, facing up) → cut out, trimmed,
-  88px-wide sprite; prints origin + muzzle for `src/rowdies.lua`
+  88px-wide sprite; prints origin + muzzle for `src/rowdies.lua`; optional names after the
+  folder process only those (`... ~/Downloads/yard-wars-art-new/top robot`); `--scale K` keeps the
+  relative sizes of the source images instead of scaling each to 88px wide; `--side` makes
+  the lobby side views (`assets/images/side/`, 400px tall)
 
 ## Conventions
 - Code and comments in English.
@@ -188,7 +193,10 @@ the official LÖVE for Android 11.5 (same MTP path).
 
 ## Art
 - Comic style (default): one still sprite per character, generated with
-  Google Gemini (prompts + raw 1024px JPEGs in ~/Downloads/yard-wars-art/, not in the repo),
+  Google Gemini (prompts + raw 1024px JPEGs in ~/Downloads/yard-wars-art/, not in the repo;
+  the newer top + side view sheets are in ~/Downloads/yard-wars-art-new/, split into top/ and
+  side/; the rowdies use these since 2026-10-04 (made with `--scale 0.27`, the Robot from
+  top/bot.png), the enemy bot keeps the old sprite from ~/Downloads/yard-wars-art/),
   top-down, facing UP, bold outline. Stored at 2x (88px wide), drawn at
   `Assets.comicScale` 0.6 with mipmaps; rotates around the head (`origin`). Keeps the
   Kenney-style animation (sway, bob, recoil, flash); no reload pose.

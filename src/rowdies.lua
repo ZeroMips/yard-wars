@@ -8,6 +8,8 @@
 --                origin  body centre in the image (px); the sprite rotates around it
 --                muzzle  {forward, sideways} barrel tip from the origin (image px)
 --              tools/make_comic_sprites.py prints origin and muzzle for new images.
+--              assets/images/side/<image>.png (optional): side view standing on the
+--              lobby pedestal
 --
 -- stats:
 --   speed        walking speed (px/s)
@@ -24,11 +26,12 @@
 --                  name, description, charge (damage needed to fill the meter), and
 --                  like above pellets, spread, damage, range, bulletSpeed, plus
 --                  radius (bullet size, default 6), wallRadius (size against walls and
---                  crates, default radius) and pierce (flies through rowdies)
+--                  crates, default radius) and pierce (flies through rowdies);
+--                  spread >= pi: a ring around the rowdy instead of a cone
 local Rowdies = {
     {
         name = "Gunner", role = "All-rounder", character = "manBlue", weapon = "gun", price = 150,
-        comic = { image = "gunner", origin = { 46, 65 }, muzzle = { 63, 0 } },
+        comic = { image = "gunner", origin = { 46, 80 }, muzzle = { 77, 0 } },
         stats = { speed = 250, hp = 100, damage = 20, range = 480, bulletSpeed = 600,
                   reload = 0.3, maxAmmo = 3, ammoRefill = 1.2,
                   super = { name = "Bullet Storm", description = "Fan of 10 bullets",
@@ -39,7 +42,7 @@ local Rowdies = {
     {
         name = "Shotgunner", role = "Close range, tough", character = "hitman1",
         weapon = "machine",
-        comic = { image = "shotgunner", origin = { 46, 84 }, muzzle = { 82, 0 } },
+        comic = { image = "shotgunner", origin = { 48, 91 }, muzzle = { 88, 0.5 } },
         stats = { speed = 240, hp = 120, damage = 9, pellets = 5, spread = 0.6,
                   range = 320, bulletSpeed = 600,
                   reload = 0.4, maxAmmo = 3, ammoRefill = 1.6,
@@ -55,12 +58,23 @@ local Rowdies = {
     {
         name = "Sniper", role = "Long range, fragile", character = "manBrown", price = 300,
         weapon = "silencer",
-        comic = { image = "sniper", origin = { 46, 89 }, muzzle = { 87, 0 } },
+        comic = { image = "sniper", origin = { 33.5, 120.5 }, muzzle = { 117.5, 1 } },
         stats = { speed = 225, hp = 80, damage = 50, range = 720, bulletSpeed = 1100,
                   reload = 0.5, maxAmmo = 3, ammoRefill = 2.0,
                   super = { name = "Railgun", description = "Fast shot through everyone",
                             charge = 150, damage = 90, range = 960,
                             bulletSpeed = 1800, radius = 7, pierce = true } },
+    },
+    {
+        name = "Robot", role = "Heavy and slow", character = "robot1", price = 500,
+        weapon = "machine",
+        comic = { image = "robot", origin = { 46, 96 }, muzzle = { 93, 1 } },
+        stats = { speed = 205, hp = 160, damage = 34, range = 420, bulletSpeed = 650,
+                  reload = 0.55, maxAmmo = 3, ammoRefill = 1.9,
+                  super = { name = "Shockwave", description = "Ring of bolts all around",
+                            -- 16 bolts, 22.5 degrees apart: at point blank 2-3 hit
+                            charge = 170, pellets = 16, spread = 2 * math.pi * 15 / 16,
+                            damage = 30, range = 360, bulletSpeed = 700, radius = 9 } },
     },
 }
 

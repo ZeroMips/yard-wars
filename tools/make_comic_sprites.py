@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 """Turn AI-generated character images (white background, art facing UP) into game sprites.
 
-Usage: python3 tools/make_comic_sprites.py ~/Downloads/yard-wars-art
+Usage: python3 tools/make_comic_sprites.py ~/Downloads/yard-wars-art [name ...]
+       python3 tools/make_comic_sprites.py --side ~/Downloads/yard-wars-art-new/side [name ...]
 
-For each <name>.png in NAMES: remove the white background (flood fill from the image
+For each <name>.png in NAMES (or only the names given): remove the white background (flood fill from the image
 border, so white inside the outline stays), shrink the mask a little to drop the JPEG
 fringe, trim, scale to a fixed width and save to assets/images/comic/<name>.png.
 Prints the body origin and muzzle (in output pixels) to put into src/rowdies.lua.
+
+--scale K: scale every image by K instead of to WIDTH (keeps the sizes the images were
+drawn at: a slim sniper isn't blown up to the width of the others; 0.27 for
+~/Downloads/yard-wars-art-new/top makes the gunner 88px wide).
+
+--side: side views (standing, facing right) for the lobby: same cut-out, scaled to
+SIDE_HEIGHT px tall, saved to assets/images/side/<name>.png (no origin/muzzle).
 """
 import collections
 import os
@@ -14,11 +22,14 @@ import sys
 
 from PIL import Image, ImageFilter
 
-NAMES = ["gunner", "shotgunner", "sniper", "bot"]
+NAMES = ["gunner", "shotgunner", "sniper", "bot", "robot"]
 WIDTH = 88        # output width in px (drawn at Assets.comicScale = 0.5 -> 44 world px)
 WHITE = 225       # background = all channels at least this bright
 PAD = 2           # transparent border around the trimmed sprite
+SIDE_NAMES = ["gunner", "shotgunner", "sniper", "robot"]
+SIDE_HEIGHT = 400  # lobby: drawn up to ~300 HUD px tall, x2 for high-DPI screens
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "images", "comic")
+SIDE_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "images", "side")
 
 
 def background_mask(im):
@@ -44,14 +55,28 @@ def background_mask(im):
     return mask.filter(ImageFilter.MinFilter(5)).filter(ImageFilter.GaussianBlur(1))
 
 
-def process(src_dir, name):
+def cut_out(src_dir, name):
     im = Image.open(os.path.join(src_dir, name + ".png")).convert("RGB")
     rgba = im.convert("RGBA")
     rgba.putalpha(background_mask(im))
     bbox = rgba.getchannel("A").point(lambda a: 255 if a > 8 else 0).getbbox()
-    rgba = rgba.crop(bbox)
-    k = WIDTH / rgba.width
-    rgba = rgba.resize((WIDTH, round(rgba.height * k)), Image.LANCZOS)
+    return rgba.crop(bbox), bbox
+
+
+def process_side(src_dir, name):
+    rgba, bbox = cut_out(src_dir, name)
+    k = SIDE_HEIGHT / rgba.height
+    rgba = rgba.resize((round(rgba.width * k), SIDE_HEIGHT), Image.LANCZOS)
+    out = Image.new("RGBA", (rgba.width + 2 * PAD, rgba.height + 2 * PAD))
+    out.alpha_composite(rgba, (PAD, PAD))
+    out.save(os.path.join(SIDE_DIR, name + ".png"))
+    print(f"{name:10s} side view {out.width}x{out.height}  (source bbox {bbox})")
+
+
+def process(src_dir, name, scale=None):
+    rgba, bbox = cut_out(src_dir, name)
+    k = scale or WIDTH / rgba.width
+    rgba = rgba.resize((round(rgba.width * k), round(rgba.height * k)), Image.LANCZOS)
     out = Image.new("RGBA", (rgba.width + 2 * PAD, rgba.height + 2 * PAD))
     out.alpha_composite(rgba, (PAD, PAD))
     out.save(os.path.join(OUT_DIR, name + ".png"))
@@ -59,7 +84,7 @@ def process(src_dir, name):
     # Body origin: centre of a circle as wide as the sprite resting on its bottom edge
     # (the head/shoulders); muzzle: topmost opaque pixel (the weapon points up).
     w, h = out.size
-    ox, oy = w / 2, h - PAD - WIDTH / 2
+    ox, oy = w / 2, h - PAD - rgba.width / 2
     alpha = out.getchannel("A").load()
     top = next(y for y in range(h) if any(alpha[x, y] > 128 for x in range(w)))
     xs = [x for x in range(w) if alpha[x, top] > 128]
@@ -69,10 +94,23 @@ def process(src_dir, name):
 
 
 def main():
-    src_dir = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else "~/Downloads/yard-wars-art")
+    args, side, scale = sys.argv[1:], False, None
+    while args and args[0].startswith("--"):
+        if args[0] == "--side":
+            side, args = True, args[1:]
+        elif args[0] == "--scale":
+            scale, args = float(args[1]), args[2:]
+        else:
+            sys.exit("unknown option " + args[0])
+    src_dir = os.path.expanduser(args[0] if args else "~/Downloads/yard-wars-art")
+    if side:
+        os.makedirs(SIDE_DIR, exist_ok=True)
+        for name in args[1:] or SIDE_NAMES:
+            process_side(src_dir, name)
+        return
     os.makedirs(OUT_DIR, exist_ok=True)
-    for name in NAMES:
-        process(src_dir, name)
+    for name in args[1:] or NAMES:
+        process(src_dir, name, scale)
 
 
 if __name__ == "__main__":

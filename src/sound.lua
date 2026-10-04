@@ -177,7 +177,7 @@ end
 
 -- Shot sound of a rowdy definition (src/rowdies.lua)
 local SHOTS = { Gunner = "shot_gunner", Shotgunner = "shot_shotgun", Sniper = "shot_sniper",
-    Bot = "shot_bot" }
+    Robot = "shot_bot", Bot = "shot_bot" }
 function Sound.shotFor(def)
     return SHOTS[def and def.name] or "shot_gunner"
 end

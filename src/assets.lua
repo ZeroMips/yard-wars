@@ -11,7 +11,9 @@ local POSES = { "stand", "hold", "gun", "machine", "silencer", "reload" }
 -- or "kenney" (pose images). F2 toggles it on desktop.
 Assets.style = "comic"
 Assets.comicScale = 0.6 -- sprites are stored at ~2x (88px wide) for sharp high-DPI screens
-Assets.comicNames = { "gunner", "shotgunner", "sniper", "bot" }
+Assets.comicNames = { "gunner", "shotgunner", "sniper", "bot", "robot" }
+-- Side views (standing, facing right) for the lobby, by comic image name
+Assets.sideNames = { "gunner", "shotgunner", "sniper", "robot" }
 
 function Assets.load()
     Assets.tiles = love.graphics.newImage("assets/images/tilesheet.png")
@@ -47,6 +49,14 @@ function Assets.load()
             { mipmaps = true })
         img:setMipmapFilter("linear") -- smooth when drawn smaller than stored
         Assets.comic[name] = img
+    end
+
+    Assets.side = {}
+    for _, name in ipairs(Assets.sideNames) do
+        local img = love.graphics.newImage("assets/images/side/" .. name .. ".png",
+            { mipmaps = true })
+        img:setMipmapFilter("linear")
+        Assets.side[name] = img
     end
 end
 
@@ -87,6 +97,21 @@ function Assets.drawPortrait(def, cx, cy, box, rot, tint)
     love.graphics.setColor(tint or { 1, 1, 1 })
     love.graphics.draw(img, cx, cy, angle + (rot or 0), k, k, w / 2, h / 2)
     love.graphics.setColor(1, 1, 1)
+end
+
+-- The rowdy standing (side view), feet at (cx, footY), `height` tall; sway: tilt
+-- (radians) around the feet. Returns false if there's no side view in the current
+-- style (then use drawPortrait).
+function Assets.drawStanding(def, cx, footY, height, sway, tint)
+    local look = Assets.look(def)
+    local img = look.style == "comic" and Assets.side[look.image]
+    if not img then return false end
+    local w, h = img:getDimensions()
+    local k = height / h
+    love.graphics.setColor(tint or { 1, 1, 1 })
+    love.graphics.draw(img, cx, footY, sway or 0, k, k, w / 2, h)
+    love.graphics.setColor(1, 1, 1)
+    return true
 end
 
 return Assets

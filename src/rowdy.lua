@@ -161,15 +161,18 @@ function Rowdy:muzzle()
 end
 
 -- Fire `attack.pellets` projectiles in a cone of `attack.spread` (attack: self for the
--- normal attack, or self.super)
+-- normal attack, or self.super); spread >= pi: an even ring from the body centre
 local function fire(self, bullets, attack)
     local bx, by = self:muzzle()
     local n, spread = attack.pellets or 1, attack.spread or 0
+    local ring = spread >= math.pi
+    if ring then bx, by = self.x, self.y end
     for i = 1, n do
         local a = self.aim
         if n > 1 then
             local t = (i - 1) / (n - 1) - 0.5 -- -0.5 .. 0.5 across the cone
-            a = a + t * spread + (math.random() - 0.5) * spread * 0.15
+            a = a + t * spread
+            if not ring then a = a + (math.random() - 0.5) * spread * 0.15 end
         end
         bullets[#bullets + 1] = Bullet.new(bx, by, a, self, attack ~= self and attack or nil)
     end
@@ -221,11 +224,22 @@ function Rowdy:drawAim(useSuper)
     if self.dead then return end
     local a = (useSuper and self.super) or self
     local spread, radius = a.spread or 0, a.radius or Bullet.radius
+    local c = (a == self) and self.bulletColor or SUPER_COLOR
+    if spread >= math.pi then -- ring attack: a circle of its range around the rowdy
+        local r = a.range or Bullet.range
+        love.graphics.setColor(c[1], c[2], c[3], 0.12)
+        love.graphics.circle("fill", self.x, self.y, r)
+        love.graphics.setColor(c[1], c[2], c[3], 0.6)
+        love.graphics.setLineWidth(2)
+        love.graphics.circle("line", self.x, self.y, r)
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(1, 1, 1, 1)
+        return
+    end
     local mx, my = self:muzzle()
     local len = Arena.raycast(mx, my, self.aim, a.range or Bullet.range, a.wallRadius or radius)
     local hw = math.max(9, radius + 3)
     local hwEnd = hw + math.tan(spread / 2) * len
-    local c = (a == self) and self.bulletColor or SUPER_COLOR
 
     self.aimMesh = self.aimMesh or love.graphics.newMesh(4, "fan", "stream")
     self.aimMesh:setVertices({

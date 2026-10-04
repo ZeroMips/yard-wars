@@ -307,8 +307,12 @@ local function drawStage(L, fonts, t)
     local bob = math.sin(t * 2.2) * 6 * k
     love.graphics.setColor(0, 0, 0, 0.35)
     love.graphics.ellipse("fill", cx, py, (70 - bob * 0.6) * k, 18 * k)
-    Assets.drawPortrait(def, cx, cy - 20 * k + bob, 260 * k, math.sin(t * 1.3) * 0.05,
-        locked and LOCKED_TINT or nil)
+    -- side view standing on the pedestal (breathing: grows and shrinks a little)
+    local tint = locked and LOCKED_TINT or nil
+    if not Assets.drawStanding(def, cx, py + 6 * k, (290 + bob * 0.5) * k,
+        math.sin(t * 1.3) * 0.02, tint) then
+        Assets.drawPortrait(def, cx, cy - 20 * k + bob, 260 * k, math.sin(t * 1.3) * 0.05, tint)
+    end
     if locked then Loot.drawLock(cx, cy - 20 * k, 1.4 * k) end
     -- name + role
     outlined(def.name:upper(), fonts.title, cx - 300, cy - 250 * k - 20, 600, "center", { 1, 1, 1 }, 3)
