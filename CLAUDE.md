@@ -40,8 +40,11 @@ the official LÖVE for Android 11.5 (same MTP path).
   host answered `301 -> https`; switched off in the manitu panel). publish.sh also uploads
   `updates/.htaccess` (`RewriteEngine Off`). The https site sends HSTS, so browsers that
   visited it upgrade on their own - test with curl, not a browser.
-- publish.sh also uploads the build as `download/yard-wars.love` + `.zip` (stable names for
-  the website's download links). `.gitattributes` keeps CLAUDE.md, tools/ and website/ out of
+- The web space is only ~5 MB ("Exceeded storage allocation" on 2026-10-04): publish.sh
+  keeps only the current build in /updates/ (deletes the others before and after the
+  upload) and uploads it once more as `download/yard-wars.zip` for the website;
+  `download/.htaccess` rewrites `yard-wars.love` to that zip (a .love is a zip). Keep the
+  package small: the lobby side views are 256-colour PNGs (~100 KB for all four). `.gitattributes` keeps CLAUDE.md, tools/ and website/ out of
   the package (export-ignore).
 - Website (`website/`: index.html, style.css, images/): static page about the game and its
   installation at http://yardwars.zeromips.org/, uploaded by `tools/publish-site.sh` (FTPS

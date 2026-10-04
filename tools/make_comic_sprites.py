@@ -14,7 +14,8 @@ drawn at: a slim sniper isn't blown up to the width of the others; 0.27 for
 ~/Downloads/yard-wars-art-new/top makes the gunner 88px wide).
 
 --side: side views (standing, facing right) for the lobby: same cut-out, scaled to
-SIDE_HEIGHT px tall, saved to assets/images/side/<name>.png (no origin/muzzle).
+SIDE_HEIGHT px tall, reduced to 256 colours (1/6 of the size, looks the same for comic
+art; keeps the game download small), saved to assets/images/side/<name>.png.
 """
 import collections
 import os
@@ -69,7 +70,8 @@ def process_side(src_dir, name):
     rgba = rgba.resize((round(rgba.width * k), SIDE_HEIGHT), Image.LANCZOS)
     out = Image.new("RGBA", (rgba.width + 2 * PAD, rgba.height + 2 * PAD))
     out.alpha_composite(rgba, (PAD, PAD))
-    out.save(os.path.join(SIDE_DIR, name + ".png"))
+    out = out.quantize(256, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.NONE)
+    out.save(os.path.join(SIDE_DIR, name + ".png"), optimize=True)
     print(f"{name:10s} side view {out.width}x{out.height}  (source bbox {bbox})")
 
 

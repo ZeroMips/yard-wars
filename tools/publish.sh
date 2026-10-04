@@ -1,7 +1,7 @@
 #!/bin/sh
 # Publishes the committed state as a signed update (see src/updater.lua):
 #   tools/publish.sh              build, sign, upload (.love first, latest.txt last; also
-#                                 download/yard-wars.love + .zip for the website)
+#                                 download/yard-wars.zip for the website), delete old builds
 #   tools/publish.sh --local DIR  same, but copy into DIR instead (tests with a local
 #                                 http server: love x.love --update-url http://127.0.0.1:8000/)
 #   tools/publish.sh --init-key   make the signing key once, print the modulus for
@@ -56,17 +56,30 @@ if [ "${1:-}" = "--local" ]; then
     exit 0
 fi
 
-upload() {
-    curl --fail --silent --show-error --ssl-reqd --netrc --ftp-create-dirs \
-        -T "$1" "ftp://$FTP_HOST$FTP_DIR/$2"
+# The web space is small (~5 MB): only the current build stays on the server, and the
+# website's download is one file (download/yard-wars.zip; yard-wars.love is a rewrite to it,
+# a .love is a zip anyway).
+ftp() { curl --fail --silent --show-error --ssl-reqd --netrc --ftp-create-dirs "$@"; }
+upload() { ftp -T "$1" "ftp://$FTP_HOST$FTP_DIR/$2"; }
+# Builds in /updates/ except $1 (and the new one)
+stale() {
+    ftp --list-only "ftp://$FTP_HOST$FTP_DIR/" | tr -d '\r' |
+        grep '^yard-wars-[0-9]*\.love$' | grep -v -x -e "$1" -e "$file" || true
 }
+delete() { ftp -o /dev/null -Q "DELE $1" "ftp://$FTP_HOST/"; }
+
+# Make room first: keep only the build latest.txt points to right now
+live=$(curl --silent "${HTTP_URL}latest.txt" | sed -n 's/^file //p')
+for f in $(stale "$live"); do echo "deleting $f"; delete "$FTP_DIR/$f"; done
+
 upload "$tmp/.htaccess" .htaccess
 upload "$love" "$file"
-# Stable names for the website's download links (a .love is a zip: Android users unzip it)
-curl --fail --silent --show-error --ssl-reqd --netrc --ftp-create-dirs \
-    -T "$love" "ftp://$FTP_HOST/download/yard-wars.love"
-curl --fail --silent --show-error --ssl-reqd --netrc --ftp-create-dirs \
-    -T "$love" "ftp://$FTP_HOST/download/yard-wars.zip"
 upload "$tmp/latest.txt" latest.txt # last: the game never sees a half-published build
+for f in $(stale "$file"); do echo "deleting $f"; delete "$FTP_DIR/$f"; done
+
+printf 'RewriteEngine On\nRewriteRule ^yard-wars\\.love$ yard-wars.zip [L]\n' > "$tmp/download.htaccess"
+ftp -T "$tmp/download.htaccess" "ftp://$FTP_HOST/download/.htaccess"
+ftp -T "$love" "ftp://$FTP_HOST/download/yard-wars.zip"
+
 echo "published build $build: ${HTTP_URL}latest.txt"
 curl --silent --show-error --include "${HTTP_URL}latest.txt" | head -n 12
