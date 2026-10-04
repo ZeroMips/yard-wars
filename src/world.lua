@@ -161,11 +161,6 @@ function World:setRowdy(p, def)
     p:setRowdy(Assets.look(def), def.stats)
 end
 
--- Rebuild all looks after Assets.style changed (HP, ammo etc. stay)
-function World:restyle()
-    for _, e in ipairs(self.entities) do e.look = Assets.look(e.def) end
-end
-
 function World:isOpponent(a, b) return a.team ~= b.team end
 
 function World:countBots()

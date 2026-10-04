@@ -9,11 +9,6 @@ local Bullet  = require("src.bullet")
 local Rowdy = {}
 Rowdy.__index = Rowdy
 
--- Sprite geometry (Kenney characters: body center at (16, 21.5), facing right)
-local ORIGIN_X, ORIGIN_Y = 16, 21.5
--- Where the barrel ends, per weapon pose: {forward, sideways} from the body center
-local MUZZLE = { gun = { 33, 8 }, machine = { 33, 8 }, silencer = { 38, 8 } }
-
 local RESPAWN_TIME = 2.5
 local SPAWN_TIME   = 0.35 -- pop-in animation after respawn
 local FLASH_TIME   = 0.07 -- muzzle flash
@@ -154,7 +149,7 @@ end
 
 -- World position of the gun barrel (bullets spawn here)
 function Rowdy:muzzle()
-    local m = self.look.muzzle or MUZZLE[self.look.weapon] or MUZZLE.gun
+    local m = self.look.muzzle
     local c, s = math.cos(self.aim), math.sin(self.aim)
     return self.x + c * m[1] - s * m[2],
            self.y + s * m[1] + c * m[2]
@@ -384,19 +379,11 @@ function Rowdy:draw()
     else
         love.graphics.setColor(1, 1, 1, alpha)
     end
+    -- The art faces up: rotate a quarter turn more, and sx (the aim axis) is its y
     local look = self.look
-    if look.style == "comic" then
-        -- Comic art faces up: rotate a quarter turn more, and sx (the aim axis) is its y
-        local k = look.scale
-        love.graphics.draw(Assets.comic[look.image], px, py, self.aim + sway + math.pi / 2,
-            k * sy, k * sx, look.origin[1], look.origin[2])
-    else
-        -- Out of ammo: show the reload pose
-        local poses = Assets.characters[look.character]
-        local pose = (self.ammo == 0) and "reload" or look.weapon
-        local img = poses[pose] or poses.gun
-        love.graphics.draw(img, px, py, self.aim + sway, sx, sy, ORIGIN_X, ORIGIN_Y)
-    end
+    local k = look.scale
+    love.graphics.draw(Assets.comic[look.image], px, py, self.aim + sway + math.pi / 2,
+        k * sy, k * sx, look.origin[1], look.origin[2])
 
     self:drawMuzzleFlash()
     self:drawHealthBar()

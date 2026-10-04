@@ -79,7 +79,7 @@ end
 local C5, E5, G5, C6 = 523.3, 659.3, 784.0, 1046.5
 
 local DEFS = {
-    -- shots (one per attack; picked by rowdy, see Sound.shotFor)
+    -- shots (one per attack; picked by rowdy: `shot` in src/rowdies.lua)
     shot_gunner  = { { wave = "square", f1 = 900, f2 = 220, dur = 0.09, vol = 0.22, duty = 0.35 },
                      { wave = "noise", f1 = 1, f2 = 1, dur = 0.05, vol = 0.35, lowpass = 0.5 } },
     shot_shotgun = { { wave = "noise", f1 = 1, f2 = 1, dur = 0.24, vol = 0.6, lowpass = 0.25, curve = 2.5 },
@@ -175,11 +175,9 @@ function Sound.play(name, x, y, volume)
     src:play()
 end
 
--- Shot sound of a rowdy definition (src/rowdies.lua)
-local SHOTS = { Gunner = "shot_gunner", Shotgunner = "shot_shotgun", Sniper = "shot_sniper",
-    Robot = "shot_bot", Bot = "shot_bot" }
+-- Shot sound of a rowdy definition (its `shot` field in src/rowdies.lua)
 function Sound.shotFor(def)
-    return SHOTS[def and def.name] or "shot_gunner"
+    return def and def.shot or "shot_gunner"
 end
 
 function Sound.toggleMute()

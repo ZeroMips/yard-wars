@@ -185,6 +185,7 @@ local function openPicker(forWhat)
     state, pickFor = "pick", forWhat
     Picker.selected = Menu.rowdy
     Picker.message = nil
+    Picker.reveal()
     if forWhat == "between" then
         Picker.confirmLabel = (role == "client") and "OK" or "Play"
     else
@@ -906,15 +907,18 @@ function love.touchpressed(id, x, y)
         muteTouch = id
         return
     end
+    if state == "pick" then Picker.touchStart() end
     if playing() then Controls.touchpressed(id, x, y) end
 end
-function love.touchmoved(id, x, y)
+function love.touchmoved(id, x, y, dx, dy)
     if id == muteTouch then return end
+    if state == "pick" then Picker.drag(dy) end
     if playing() then Controls.touchmoved(id, x, y) end
 end
 function love.touchreleased(id, x, y)
     if id == muteTouch then muteTouch = nil return end
     if playing() then Controls.touchreleased(id, x, y)
+    elseif state == "pick" and Picker.dragged then Controls.touchMode = true -- scrolled
     else Controls.touchMode = true; press(x, y) end
 end
 
@@ -926,6 +930,10 @@ function love.mousemoved(x, y, dx, dy, istouch)
     if state == "menu" and not istouch then
         Menu.mousemoved(x, y)
     end
+end
+
+function love.wheelmoved(x, y)
+    if state == "pick" then Picker.wheel(y) end
 end
 
 function love.textinput(t)
@@ -959,11 +967,6 @@ function love.keypressed(key)
         return
     end
     if key == "escape" then openMenu() return end
-    if key == "f2" then -- toggle art style: comic <-> Kenney (only the looks change)
-        Assets.style = (Assets.style == "comic") and "kenney" or "comic"
-        if world then world:restyle() end
-        return
-    end
     if world and world.match.over then
         local id = Result.keypressed(resultInfo(), key)
         if id then resultAction(id) end

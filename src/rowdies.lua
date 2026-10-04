@@ -1,15 +1,24 @@
--- Playable rowdies. To add one: add an entry.
---   character  sprite set (see Assets.characterNames)
+-- Playable rowdies. Adding one = one entry here + its images:
+--   1. Make a top view (facing UP) and a side view (standing, facing right) on white
+--      background (same Gemini chat as the others, see CLAUDE.md "Art"); put them as
+--      <image>.png into ~/Downloads/yard-wars-art-new/top/ and .../side/.
+--   2. Add the entry below with comic = { image = "<image>" } (the tool finds the
+--      names here), then run
+--        python3 tools/make_comic_sprites.py --scale 0.27 ~/Downloads/yard-wars-art-new/top <image>
+--        python3 tools/make_comic_sprites.py --side ~/Downloads/yard-wars-art-new/side <image>
+--   3. Paste the printed `comic = { ... }` line into the entry.
+--   4. Fill in name, role, stats, price and optionally shot.
+--
+--   name       shown in menus; also the key profile.txt stores bought rowdies by
 --   role       short description for the rowdy choice screen
 --   price      coins to unlock it (src/profile.lua); none = free from the start
---   weapon     pose the character holds: "gun", "machine" or "silencer"
---   comic      look for the comic art style (Assets.style = "comic"):
---                image   assets/images/comic/<image>.png (art faces UP)
+--   shot       shot sound (a name from src/sound.lua's DEFS, default "shot_gunner")
+--   comic      look:
+--                image   assets/images/comic/<image>.png (art faces UP, required)
 --                origin  body centre in the image (px); the sprite rotates around it
 --                muzzle  {forward, sideways} barrel tip from the origin (image px)
---              tools/make_comic_sprites.py prints origin and muzzle for new images.
 --              assets/images/side/<image>.png (optional): side view standing on the
---              lobby pedestal
+--              lobby pedestal (without one the lobby shows the top view)
 --
 -- stats:
 --   speed        walking speed (px/s)
@@ -30,7 +39,7 @@
 --                  spread >= pi: a ring around the rowdy instead of a cone
 local Rowdies = {
     {
-        name = "Gunner", role = "All-rounder", character = "manBlue", weapon = "gun", price = 150,
+        name = "Gunner", role = "All-rounder", price = 150, shot = "shot_gunner",
         comic = { image = "gunner", origin = { 46, 80 }, muzzle = { 77, 0 } },
         stats = { speed = 250, hp = 100, damage = 20, range = 480, bulletSpeed = 600,
                   reload = 0.3, maxAmmo = 3, ammoRefill = 1.2,
@@ -40,8 +49,7 @@ local Rowdies = {
                             damage = 14, range = 520, bulletSpeed = 750 } },
     },
     {
-        name = "Shotgunner", role = "Close range, tough", character = "hitman1",
-        weapon = "machine",
+        name = "Shotgunner", role = "Close range, tough", shot = "shot_shotgun",
         comic = { image = "shotgunner", origin = { 48, 91 }, muzzle = { 88, 0.5 } },
         stats = { speed = 240, hp = 120, damage = 9, pellets = 5, spread = 0.6,
                   range = 320, bulletSpeed = 600,
@@ -56,8 +64,7 @@ local Rowdies = {
                             wallRadius = 16 } },
     },
     {
-        name = "Sniper", role = "Long range, fragile", character = "manBrown", price = 300,
-        weapon = "silencer",
+        name = "Sniper", role = "Long range, fragile", price = 300, shot = "shot_sniper",
         comic = { image = "sniper", origin = { 33.5, 120.5 }, muzzle = { 117.5, 1 } },
         stats = { speed = 225, hp = 80, damage = 50, range = 720, bulletSpeed = 1100,
                   reload = 0.5, maxAmmo = 3, ammoRefill = 2.0,
@@ -66,8 +73,7 @@ local Rowdies = {
                             bulletSpeed = 1800, radius = 7, pierce = true } },
     },
     {
-        name = "Robot", role = "Heavy and slow", character = "robot1", price = 500,
-        weapon = "machine",
+        name = "Robot", role = "Heavy and slow", price = 500, shot = "shot_bot",
         comic = { image = "robot", origin = { 46, 96 }, muzzle = { 93, 1 } },
         stats = { speed = 205, hp = 160, damage = 34, range = 420, bulletSpeed = 650,
                   reload = 0.55, maxAmmo = 3, ammoRefill = 1.9,
@@ -80,7 +86,7 @@ local Rowdies = {
 
 -- The enemy bots (not playable, so not part of the list above)
 Rowdies.bot = {
-    name = "Bot", character = "robot1", weapon = "machine",
+    name = "Bot", shot = "shot_bot",
     comic = { image = "bot", origin = { 46, 81 }, muzzle = { 79, 0 } },
     stats = { speed = 170, hp = 100, damage = 15, reload = 0.6, maxAmmo = 3, ammoRefill = 1.8,
               barColor = { 0.9, 0.25, 0.25 }, bulletColor = { 1, 0.35, 0.3 } },

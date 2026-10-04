@@ -81,8 +81,8 @@ the official LÖVE for Android 11.5 (same MTP path).
   Rowdy / Leave, the host starts the next round), fixed-step loop (`World.TICK` = 1/60, a shot from the
   controls is kept until a step uses it), local player by id (`localId`), world events →
   particles/shake, camera, HUD, minimap, rowdy switching.
-  Escape / Android back: game → menu, menu → quit. F2 toggles the art style
-  (comic / Kenney) for player and bots.
+  Escape / Android back: game → menu, menu → quit. (F2 used to toggle a Kenney
+  character style; those sprites were removed 2026-10-04.)
 - `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
   `id`/`team`/`def`/kills/deaths, bullets (sub-stepped, hit other teams), waves, bush
   hiding (`isHiddenFrom`), `nearestOpponent`, medpacks (dropped when a player makes a kill, not
@@ -134,7 +134,11 @@ the official LÖVE for Android 11.5 (same MTP path).
   confirmed on the Pixel 2026-10-01
 - `src/picker.lua` — rowdy choice screen (cards: picture, role, HP, attack, super), from the
   lobby (ROWDIES) or between rounds; locked cards dark with padlock + price, confirm button
-  becomes "Unlock" (a second tap on a locked card doesn't buy)
+  becomes "Unlock" (a second tap on a locked card doesn't buy). Fixed-size cards (210x310 HUD
+  units) in a grid (landscape 5 columns, portrait 3) that scrolls between title and buttons:
+  mouse wheel (`love.wheelmoved` → `Picker.wheel`), touch drag (`Picker.drag`; a touch that
+  scrolled more than 12 units sets `Picker.dragged` and its release taps nothing), arrows
+  (up/down = one row); `Picker.reveal()` scrolls the selected card into view
 - `src/result.lua` — end-of-round screen (title, scoreboard, buttons)
 - `src/menu.lua` — start screen in mobile-game lobby style: chosen rowdy big on a pedestal
   (arrows switch, ROWDIES opens the card picker), mode card bottom right (tap: list of all
@@ -145,10 +149,11 @@ the official LÖVE for Android 11.5 (same MTP path).
   Until build 46 the identity had another name; conf.lua is never replaced by an update, so
   devices installed by hand before keep their old save folder (and progress) until they
   are reinstalled by hand - then they start fresh.
-- `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
-  ("comic" | "kenney"), `Assets.look(def)` → plain-data look (image names, origin, muzzle;
-  usable without graphics), `Assets.drawPortrait` (rowdy picture for menus, top view),
-  `Assets.drawStanding` (side view on the lobby pedestal, comic style only)
+- `src/assets.lua` — tilesheet quads (Kenney) + comic sprites; the image list comes from
+  `src/rowdies.lua` (every entry + `Rowdies.bot`, `comic.image`): top view required (clear
+  error if missing), side view optional; `Assets.look(def)` → plain-data look (image name,
+  origin, muzzle; usable without graphics), `Assets.drawPortrait` (rowdy picture for menus,
+  top view), `Assets.drawStanding` (side view on the lobby pedestal, false if none)
 - `src/arena.lua` — 40x24 tiles (64px), left half defined and mirrored to the right;
   walls (solid, 2x2), crates (solid), bushes (hiding, 2x2); `resolveCircle`, `hitsSolid`,
   raycast, `hasLineOfSight`, `randomOpenPoint`, spawns
@@ -172,8 +177,10 @@ the official LÖVE for Android 11.5 (same MTP path).
   fan), Shotgunner "Wrecking Ball" (big slow piercing ball), Sniper "Railgun" (fast,
   long, piercing), Robot "Shockwave" (ring of 16 bolts: `spread` >= pi means an even ring
   from the body centre, aim preview = circle of its range). Super bullets: own `radius`, `wallRadius` (smaller size against walls: the Wrecking Ball
-  grazes them instead of vanishing next to one), `pierce` (each rowdy hit once). See the comment at the top for
-  stat meanings and the `comic` look entry.
+  grazes them instead of vanishing next to one), `pierce` (each rowdy hit once). Optional
+  `shot` = shot sound name (src/sound.lua). The comment at the top is the "how to add a
+  rowdy" checklist and explains the stats and the `comic` look entry. Adding a rowdy = one
+  entry here + its images (assets, tool and picker pick it up).
 - `src/player.lua` — Player subclass, `update(dt, input, bullets)`, 0.25s fire buffer
 - `src/enemy.lua` — Bot subclass (`isBot`), `update(dt, world)` targets the nearest opponent;
   states patrol/chase/strafe/retreat/flee/search, LOS +
@@ -190,13 +197,16 @@ the official LÖVE for Android 11.5 (same MTP path).
   target + timer, red in the last 30 s; waves: wave, lives as hearts, bots left; below the
   minimap on narrow screens) and banners (time marks, new wave, lost life, 1 kill to win)
 - `src/effects.lua` — particles: puff, sparks, burst, ring, heal ("+" signs) (`drawBelow`/`drawAbove` layers)
-- `assets/images/` — `tilesheet.png` (Kenney), `characters/<name>_<pose>.png`,
-  `comic/<name>.png`
+- `assets/images/` — `tilesheet.png` (Kenney arena tiles), `comic/<name>.png` (top views),
+  `side/<name>.png` (lobby side views)
 - `tools/build.sh`, `tools/publish.sh`, `tools/publish.conf` — packing + signed upload (see
   "Publishing updates")
 - `tools/make_comic_sprites.py` — AI image (white bg, facing up) → cut out, trimmed,
-  88px-wide sprite; prints origin + muzzle for `src/rowdies.lua`; optional names after the
-  folder process only those (`... ~/Downloads/yard-wars-art-new/top robot`); `--scale K` keeps the
+  88px-wide sprite; prints a ready-to-paste `comic = { image, origin, muzzle },` line for
+  `src/rowdies.lua`; default names = the `image = "..."` of the playable rowdies in
+  `src/rowdies.lua` that have a <name>.png in the folder (not the bot: top/bot.png in the new
+  folder is a robot, the bot's sprite comes from ~/Downloads/yard-wars-art; name it to
+  process it); optional names after the folder process only those (`... ~/Downloads/yard-wars-art-new/top robot`); `--scale K` keeps the
   relative sizes of the source images instead of scaling each to 88px wide; `--side` makes
   the lobby side views (`assets/images/side/`, 400px tall)
 
@@ -212,18 +222,17 @@ the official LÖVE for Android 11.5 (same MTP path).
 - Tile art uses nearest filtering to avoid bleeding when scaled.
 
 ## Art
-- Comic style (default): one still sprite per character, generated with
+- Comic style (the only character art): one still sprite per character, generated with
   Google Gemini (prompts + raw 1024px JPEGs in ~/Downloads/yard-wars-art/, not in the repo;
   the newer top + side view sheets are in ~/Downloads/yard-wars-art-new/, split into top/ and
   side/; the rowdies use these since 2026-10-04 (made with `--scale 0.27`, the Robot from
   top/bot.png), the enemy bot keeps the old sprite from ~/Downloads/yard-wars-art/),
   top-down, facing UP, bold outline. Stored at 2x (88px wide), drawn at
   `Assets.comicScale` 0.6 with mipmaps; rotates around the head (`origin`). Keeps the
-  Kenney-style animation (sway, bob, recoil, flash); no reload pose.
-  New character: same Gemini chat, then add the name to `NAMES` in the tool and
-  `Assets.comicNames`, run the tool, copy origin/muzzle into `src/rowdies.lua`.
-- Kenney "Top-down Shooter" (CC0, see CREDITS.md). 6 still poses per character
-  (stand/hold/gun/machine/silencer/reload), all sharing body-center origin (16, 21.5).
+  procedural animation (sway, bob, recoil, flash); no reload pose.
+  New character: follow the checklist at the top of `src/rowdies.lua`.
+- Kenney "Top-down Shooter" (CC0, see CREDITS.md): only the arena tiles (tilesheet.png).
+  Its character sprites (and the F2 style toggle) were removed on 2026-10-04.
 - Set aside (too gritty, comic style preferred): "Undead Empire 2D Assets" (2015), prototype
   on local branch `art/undead-empire` — 64x64 top-down, layered characters
   (4-frame legs walk cycle + torso poses 1h/2h/DW + separate weapon sprites), zombies,

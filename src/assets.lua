@@ -1,19 +1,17 @@
--- Loads all images and defines quads for the Kenney tilesheet.
+-- Loads all images and defines quads for the Kenney tilesheet (arena tiles).
+-- Rowdy art: one AI-generated still per rowdy (see tools/make_comic_sprites.py), the
+-- image names come from src/rowdies.lua.
 local Assets = {}
 
 local TILE = 64
 
--- Each character has these poses (files: assets/images/characters/<name>_<pose>.png)
-Assets.characterNames = { "manBlue", "hitman1", "manBrown", "robot1" }
-local POSES = { "stand", "hold", "gun", "machine", "silencer", "reload" }
-
--- Art style: "comic" (one AI-generated still per character, see tools/make_comic_sprites.py)
--- or "kenney" (pose images). F2 toggles it on desktop.
-Assets.style = "comic"
 Assets.comicScale = 0.6 -- sprites are stored at ~2x (88px wide) for sharp high-DPI screens
-Assets.comicNames = { "gunner", "shotgunner", "sniper", "bot", "robot" }
--- Side views (standing, facing right) for the lobby, by comic image name
-Assets.sideNames = { "gunner", "shotgunner", "sniper", "robot" }
+
+local function loadSmooth(path)
+    local img = love.graphics.newImage(path, { mipmaps = true })
+    img:setMipmapFilter("linear") -- smooth when drawn smaller than stored
+    return img
+end
 
 function Assets.load()
     Assets.tiles = love.graphics.newImage("assets/images/tilesheet.png")
@@ -33,78 +31,54 @@ function Assets.load()
         crate = quad(20, 4),        -- 64x64 wooden crate
     }
 
-    Assets.characters = {}
-    for _, name in ipairs(Assets.characterNames) do
-        local poses = {}
-        for _, pose in ipairs(POSES) do
-            poses[pose] = love.graphics.newImage(
-                "assets/images/characters/" .. name .. "_" .. pose .. ".png")
+    -- Every rowdy plus the bot: top view (required) and side view for the lobby
+    -- (optional), by comic image name
+    local Rowdies = require("src.rowdies")
+    local defs = { Rowdies.bot }
+    for _, def in ipairs(Rowdies) do defs[#defs + 1] = def end
+    Assets.comic, Assets.side = {}, {}
+    for _, def in ipairs(defs) do
+        local name = def.comic.image
+        local top = "assets/images/comic/" .. name .. ".png"
+        if not love.filesystem.getInfo(top) then
+            error("rowdy " .. def.name .. ": missing " .. top
+                .. " - run tools/make_comic_sprites.py", 0)
         end
-        Assets.characters[name] = poses
-    end
-
-    Assets.comic = {}
-    for _, name in ipairs(Assets.comicNames) do
-        local img = love.graphics.newImage("assets/images/comic/" .. name .. ".png",
-            { mipmaps = true })
-        img:setMipmapFilter("linear") -- smooth when drawn smaller than stored
-        Assets.comic[name] = img
-    end
-
-    Assets.side = {}
-    for _, name in ipairs(Assets.sideNames) do
-        local img = love.graphics.newImage("assets/images/side/" .. name .. ".png",
-            { mipmaps = true })
-        img:setMipmapFilter("linear")
-        Assets.side[name] = img
+        Assets.comic[name] = loadSmooth(top)
+        local side = "assets/images/side/" .. name .. ".png"
+        if love.filesystem.getInfo(side) then Assets.side[name] = loadSmooth(side) end
     end
 end
 
--- A "look" says how a rowdy definition (src/rowdies.lua) is drawn in the current
--- style. It is plain data (image names, no images), so the simulation can use it
--- without graphics (the muzzle position depends on it):
---   comic : { style = "comic", image, weapon, origin = {x, y}, scale,
---             muzzle = {forward, sideways} in world px }
---   kenney: { style = "kenney", character, weapon }
+-- A "look" says how a rowdy definition (src/rowdies.lua) is drawn. It is plain data
+-- (image name, no images), so the simulation can use it without graphics (the muzzle
+-- position depends on it):
+--   { image, origin = {x, y} (image px), scale, muzzle = {forward, sideways} in world px }
 function Assets.look(def)
-    local weapon = def.weapon or "gun"
-    if Assets.style == "comic" and def.comic then
-        local c, k = def.comic, Assets.comicScale
-        return {
-            style = "comic", image = c.image, weapon = weapon,
-            origin = c.origin, scale = k,
-            muzzle = { c.muzzle[1] * k, c.muzzle[2] * k },
-        }
-    end
-    return { style = "kenney", character = def.character, weapon = weapon }
+    local c, k = def.comic, Assets.comicScale
+    return {
+        image = c.image, origin = c.origin, scale = k,
+        muzzle = { c.muzzle[1] * k, c.muzzle[2] * k },
+    }
 end
 
--- The rowdy's picture (current style), facing up, fitted into a box of size `box`
--- around (cx, cy); rot tilts it (radians); tint: color multiplied in (e.g. dark for a
--- locked one). For menus, not the game.
+-- The rowdy's picture, facing up, fitted into a box of size `box` around (cx, cy);
+-- rot tilts it (radians); tint: color multiplied in (e.g. dark for a locked one).
+-- For menus, not the game.
 function Assets.drawPortrait(def, cx, cy, box, rot, tint)
-    local look = Assets.look(def)
-    local img, angle
-    if look.style == "comic" then
-        img = Assets.comic[look.image]
-        angle = 0
-    else
-        img = Assets.characters[look.character][look.weapon] or Assets.characters[look.character].gun
-        angle = -math.pi / 2 -- Kenney art faces right
-    end
+    local img = Assets.comic[def.comic.image]
     local w, h = img:getDimensions()
     local k = box / math.max(w, h)
     love.graphics.setColor(tint or { 1, 1, 1 })
-    love.graphics.draw(img, cx, cy, angle + (rot or 0), k, k, w / 2, h / 2)
+    love.graphics.draw(img, cx, cy, rot or 0, k, k, w / 2, h / 2)
     love.graphics.setColor(1, 1, 1)
 end
 
 -- The rowdy standing (side view), feet at (cx, footY), `height` tall; sway: tilt
--- (radians) around the feet. Returns false if there's no side view in the current
--- style (then use drawPortrait).
+-- (radians) around the feet. Returns false if the rowdy has no side view (then use
+-- drawPortrait).
 function Assets.drawStanding(def, cx, footY, height, sway, tint)
-    local look = Assets.look(def)
-    local img = look.style == "comic" and Assets.side[look.image]
+    local img = Assets.side[def.comic.image]
     if not img then return false end
     local w, h = img:getDimensions()
     local k = height / h

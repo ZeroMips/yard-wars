@@ -4,11 +4,13 @@
 Usage: python3 tools/make_comic_sprites.py ~/Downloads/yard-wars-art [name ...]
        python3 tools/make_comic_sprites.py --side ~/Downloads/yard-wars-art-new/side [name ...]
 
-For each <name>.png in NAMES (or only the names given): remove the white background
+Names: every comic image = "<name>" of the playable rowdies in src/rowdies.lua that has
+a <name>.png in the folder (or only the names given, e.g. bot). For each: remove the white background
 (flood fill from the image border, plus enclosed white areas of at least HOLE_MIN px, e.g.
 between arms and weapon; smaller white spots inside the outline stay), shrink the mask a little to drop the JPEG
 fringe, trim, scale to a fixed width and save to assets/images/comic/<name>.png.
-Prints the body origin and muzzle (in output pixels) to put into src/rowdies.lua.
+Prints the body origin and muzzle (in output pixels) as a ready-to-paste
+`comic = { ... },` line for src/rowdies.lua.
 
 --scale K: scale every image by K instead of to WIDTH (keeps the sizes the images were
 drawn at: a slim sniper isn't blown up to the width of the others; 0.27 for
@@ -20,19 +22,36 @@ art; keeps the game download small), saved to assets/images/side/<name>.png.
 """
 import collections
 import os
+import re
 import sys
 
 from PIL import Image, ImageFilter
 
-NAMES = ["gunner", "shotgunner", "sniper", "bot", "robot"]
-WIDTH = 88        # output width in px (drawn at Assets.comicScale = 0.5 -> 44 world px)
+WIDTH = 88        # output width in px (drawn at Assets.comicScale = 0.6 -> ~53 world px)
 WHITE = 225       # background = all channels at least this bright
 PAD = 2           # transparent border around the trimmed sprite
 HOLE_MIN = 200    # enclosed white areas this big (source px) are background too
-SIDE_NAMES = ["gunner", "shotgunner", "sniper", "robot"]
 SIDE_HEIGHT = 400  # lobby: drawn up to ~300 HUD px tall, x2 for high-DPI screens
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "images", "comic")
 SIDE_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "images", "side")
+ROWDIES = os.path.join(os.path.dirname(__file__), "..", "src", "rowdies.lua")
+
+
+def default_names(src_dir):
+    """Image names of the playable rowdies (src/rowdies.lua) that have a source image in src_dir."""
+    with open(ROWDIES) as f:
+        code = re.sub(r"--[^\n]*", "", f.read()) # not the examples in comments
+    # Only the playable list: the bot's sprite comes from the older art folder
+    # (~/Downloads/yard-wars-art), give its name to process it
+    code = code.split("Rowdies.bot")[0]
+    names = re.findall(r'image\s*=\s*"([^"]+)"', code)
+    found = []
+    for name in dict.fromkeys(names):
+        if os.path.exists(os.path.join(src_dir, name + ".png")):
+            found.append(name)
+        else:
+            print(f"skipped: no {name}.png")
+    return found
 
 
 def white_area(px, w, h, start, seen):
@@ -115,8 +134,9 @@ def process(src_dir, name, scale=None):
     top = next(y for y in range(h) if any(alpha[x, y] > 128 for x in range(w)))
     xs = [x for x in range(w) if alpha[x, top] > 128]
     tip_x = (xs[0] + xs[-1]) / 2
-    print(f"{name:10s} size {w}x{h}  origin {{ {ox:g}, {oy:g} }}  "
-          f"muzzle {{ {oy - top:g}, {tip_x - ox:g} }}  (source bbox {bbox})")
+    print(f"{name:10s} size {w}x{h}  (source bbox {bbox})")
+    print(f'    comic = {{ image = "{name}", origin = {{ {ox:g}, {oy:g} }}, '
+          f'muzzle = {{ {oy - top:g}, {tip_x - ox:g} }} }},')
 
 
 def main():
@@ -131,11 +151,11 @@ def main():
     src_dir = os.path.expanduser(args[0] if args else "~/Downloads/yard-wars-art")
     if side:
         os.makedirs(SIDE_DIR, exist_ok=True)
-        for name in args[1:] or SIDE_NAMES:
+        for name in args[1:] or default_names(src_dir):
             process_side(src_dir, name)
         return
     os.makedirs(OUT_DIR, exist_ok=True)
-    for name in args[1:] or NAMES:
+    for name in args[1:] or default_names(src_dir):
         process(src_dir, name, scale)
 
 
