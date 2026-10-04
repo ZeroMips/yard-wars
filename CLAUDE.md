@@ -246,6 +246,10 @@ the official LÖVE for Android 11.5 (same MTP path).
 - NOT yet confirmed on device: auto-aim fix (preview + fire buffer) and the animation
   update (poses, walk sway, recoil, muzzle flash, dust, sparks, death burst, respawn pop-in).
   Desktop smoke test loads without errors (2026-09-29).
+- Picker grid (scrolling, 210x310 cards) + data-driven art + Kenney characters removed
+  (build 51, 2026-10-04): tested on desktop (smoke tests, LAN host/join/find, harness with
+  12 rowdies in landscape + portrait: wheel, keys, auto-scroll, drag doesn't tap). NOT yet
+  confirmed on device: touch-drag scrolling in the picker.
 
 ## Multiplayer plan (merged into master 2026-10-01)
 Server-authoritative, host device = server, LAN first (enet is built into LÖVE 11.5).
@@ -268,7 +272,9 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   manifest rejected, crashing build marked bad (fallback to the built-in build), no server /
   timeout / 301 -> "update failed: ..." while the lobby keeps working.
 - moto g67: build 38 + uncommitted changes installed by hand (has the updater) 2026-10-04.
-- Open: first real publish, `love.event.quit("restart")` on Android (if it fails, the
+- Published to the real server: build 47 (replaced), build 51 (2026-10-04, current;
+  latest.txt + .love answer 200 over plain http).
+- Open: `love.event.quit("restart")` on Android (if it fails, the
   update is still used at the next start), manual install of an updater build on the
   tablet and the Pixel 6a.
 
