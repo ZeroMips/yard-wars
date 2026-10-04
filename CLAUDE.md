@@ -1,8 +1,9 @@
 # Yard Wars (LÖVE 11.x)
 
-Top-down arena shooter (mobile twin-stick style) in LÖVE (Lua). Currently 1 player vs. 1 bot
-in a mirrored arena. On screen the characters are "rowdies" (in code still `Rowdy`);
-repo folder, save identity (`t.identity`) and LAN discovery string stay "yard-wars".
+Top-down arena shooter in LÖVE (Lua) with mobile twin-stick controls. Currently 1 player
+vs. 1 bot in a mirrored arena. The characters are "rowdies" (code: `Rowdy`, `Rowdies`).
+Name everything "Yard Wars" / "yard-wars": no references to other games or their
+trademarks anywhere (code, comments, docs, website, file names; renamed 2026-10-04).
 Developed on Linux, tested on a Pixel 6a, a moto g67 (second
 phone for LAN tests) and a Lenovo tablet (TB330FU, MTP name `LENOVO_TB330FU_...`), all with
 the official LÖVE for Android 11.5 (same MTP path).
@@ -137,7 +138,10 @@ the official LÖVE for Android 11.5 (same MTP path).
   modes, solo + LAN), PLAY button (UNLOCK + price for a locked rowdy, grey if too few coins),
   coin counter next to the logo; landscape + portrait layouts; last rowdy + mode saved
   in `lobby.txt`. Keys: left/right rowdy, up/down mode, Enter play, B cards
-- `conf.lua` — title "Yard Wars", identity "yard-wars" (save folder, keep), 1280x720 resizable window
+- `conf.lua` — title "Yard Wars", identity "yard-wars" (save folder), 1280x720 resizable window.
+  Until build 46 the identity had another name; conf.lua is never replaced by an update, so
+  devices installed by hand before keep their old save folder (and progress) until they
+  are reinstalled by hand - then they start fresh.
 - `src/assets.lua` — tilesheet quads + Kenney pose images + comic sprites; `Assets.style`
   ("comic" | "kenney"), `Assets.look(def)` → plain-data look (image names, origin, muzzle;
   usable without graphics), `Assets.drawPortrait` (rowdy picture for menus, top view),
