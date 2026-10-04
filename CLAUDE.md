@@ -3,8 +3,9 @@
 Top-down arena shooter (mobile twin-stick style) in LÖVE (Lua). Currently 1 player vs. 1 bot
 in a mirrored arena. On screen the characters are "rowdies" (in code still `Rowdy`);
 repo folder, save identity (`t.identity`) and LAN discovery string stay "yard-wars".
-Developed on Linux, tested on a Pixel 6a and a moto g67 (second
-phone for LAN tests), both with the official LÖVE for Android 11.5 (same MTP path).
+Developed on Linux, tested on a Pixel 6a, a moto g67 (second
+phone for LAN tests) and a Lenovo tablet (TB330FU, MTP name `LENOVO_TB330FU_...`), all with
+the official LÖVE for Android 11.5 (same MTP path).
 
 ## Running
 - Desktop: `love .` in the project folder.
