@@ -106,7 +106,12 @@ the official LÖVE for Android 11.5 (same MTP path).
   use `socket.udp4()` + bind "0.0.0.0": `socket.udp()` + "*" becomes IPv6 on Android and
   sendto IPv4 fails with "hostname nor servname provided"), enet LAN server (runs next to the World on the host: hello → player,
   input per step, events reliable + 30 Hz snapshots unreliable, 6 s timeout) and client
-  (hello/input/rowdy; input `fire` is a counter so lost packets lose no shot)
+  (hello/input/rowdy; input `fire` is a counter so lost packets lose no shot). Version
+  check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
+  `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
+  refused with a reason ("The host has a newer build (52): restart to update"), different
+  builds with the same protocol and rowdies may play together (git checkout <-> phone).
+  Clients up to build 51 have no check: a newer host refuses them ("Could not connect")
 - `src/replica.lua` — client-side World copy from snapshots: others interpolated 100 ms
   behind the host, own rowdy 50 ms; bullets drawn from spawn records (straight lines);
   events played when their time comes; clock offset = max(t - arrival), pulled down 10%
@@ -179,7 +184,10 @@ the official LÖVE for Android 11.5 (same MTP path).
   from the body centre, aim preview = circle of its range). Super bullets: own `radius`, `wallRadius` (smaller size against walls: the Wrecking Ball
   grazes them instead of vanishing next to one), `pierce` (each rowdy hit once). Optional
   `shot` = shot sound name (src/sound.lua). The comment at the top is the "how to add a
-  rowdy" checklist and explains the stats and the `comic` look entry. Adding a rowdy = one
+  rowdy" checklist and explains the stats and the `comic` look entry. The entries are
+  checked when the file loads (unknown fields, wrong types, names with spaces or twice,
+  price, origin/muzzle; `shot` is checked in `Sound.load`): a typo stops the game with
+  "src/rowdies.lua: entry 3 (Sniper): unknown field 'stats.bulletspeed'". Adding a rowdy = one
   entry here + its images (assets, tool and picker pick it up).
 - `src/player.lua` — Player subclass, `update(dt, input, bullets)`, 0.25s fire buffer
 - `src/enemy.lua` — Bot subclass (`isBot`), `update(dt, world)` targets the nearest opponent;

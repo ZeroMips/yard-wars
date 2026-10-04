@@ -3,18 +3,21 @@
 -- sends (see src/replica.lua).
 --
 -- Messages (tables, encoded with src/codec.lua):
---   client -> host   hello {rowdy}          reliable, once after connecting
+--   client -> host   hello {rowdy, protocol, content, build}
+--                                           reliable, once after connecting
 --                    input {dx, dy, aim, fire, super} unreliable, every frame; fire
 --                                             and super are counters, so a lost packet
 --                                             loses no shot
 --                    rowdy {index}          reliable
---   host -> client   welcome {id, mode}       reliable
+--   host -> client   welcome {id, mode, protocol, content, build}  reliable
+--                    refused {reason}         reliable, then disconnect (other version)
 --                    events {list}            reliable, world events (with world time t)
 --                    snap {t, wave, ..., e}   unreliable, SNAPSHOT_EVERY steps
 local enet     = require("enet")
 local socket   = require("socket")
 local Codec    = require("src.codec")
 local Rowdies = require("src.rowdies")
+local Updater  = require("src.updater")
 
 -- Finding games: a joining device sends DISCOVER_QUERY to UDP DISCOVERY_PORT (broadcast
 -- + every address of its /24 network, since some phones/routers drop broadcasts); hosts
@@ -30,6 +33,53 @@ Net.SNAPSHOT_EVERY = 2 -- simulation steps per snapshot (30 Hz)
 Net.CONNECT_TIMEOUT = 5
 
 local CH_RELIABLE, CH_FAST = 0, 1
+
+-- Host and client must agree on the messages and the rowdy list (rowdies travel as
+-- list indexes, the client draws with its own stats). Bump PROTOCOL when messages or
+-- Net.FIELDS change; the content id is a hash of src/rowdies.lua's data, so a new or
+-- changed rowdy needs no manual bump. Builds may differ otherwise (git checkout <-> phone).
+Net.PROTOCOL = 2
+
+local function serialize(v, out)
+    if type(v) == "table" then
+        local keys = {}
+        for k in pairs(v) do keys[#keys + 1] = k end
+        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+        out[#out + 1] = "{"
+        for _, k in ipairs(keys) do
+            out[#out + 1] = tostring(k) .. "="
+            serialize(v[k], out)
+            out[#out + 1] = ","
+        end
+        out[#out + 1] = "}"
+    else
+        out[#out + 1] = tostring(v)
+    end
+    return out
+end
+
+local contentId
+function Net.version()
+    if not contentId then
+        local data = table.concat(serialize({ Rowdies.bot, unpack(Rowdies) }, {}))
+        contentId = love.data.encode("string", "hex", love.data.hash("md5", data)):sub(1, 12)
+    end
+    return { protocol = Net.PROTOCOL, content = contentId, build = Updater.build() }
+end
+
+-- nil if host and client fit together, otherwise the reason (as the client sees it)
+function Net.versionProblem(host, client)
+    if host.protocol == client.protocol and host.content == client.content then return end
+    local hb, cb = tonumber(host.build), tonumber(client.build)
+    if not host.protocol then return "The host has an older build: update it" end
+    if hb and cb and hb > cb then
+        return "The host has a newer build (" .. hb .. "): restart to update"
+    elseif hb and cb and hb < cb then
+        return "The host has an older build (" .. hb .. "): update it"
+    end
+    return "The host has a different version (build " .. (hb or "dev") .. ", you: "
+        .. (cb or "dev") .. ")"
+end
 
 -- Entity fields in a snapshot (sent as an array in this order)
 Net.FIELDS = { "id", "team", "key", "x", "y", "aim", "hp", "ammo", "ammoTimer", "dead",
@@ -109,7 +159,14 @@ end
 local function receive(self, peer, msg)
     local c, world = self.clients[peer], self.world
     if not c or type(msg) ~= "table" then return end
-    if msg.type == "hello" and not c.id then
+    if msg.type == "hello" and not c.id and not c.refused then
+        local problem = Net.versionProblem(Net.version(), msg)
+        if problem then
+            c.refused = true
+            send(peer, { type = "refused", reason = problem }, true)
+            peer:disconnect_later()
+            return
+        end
         local def = Rowdies[tonumber(msg.rowdy)] or Rowdies[1]
         local p
         if world.mode.teams then -- with the other players, in place of a bot
@@ -121,8 +178,10 @@ local function receive(self, peer, msg)
         end
         p:respawn() -- pop-in + spawn event
         c.id, c.fireSeen = p.id, 0
+        local v = Net.version()
         send(peer, { type = "welcome", id = p.id, mode = { name = world.mode.name,
-            waves = world.mode.waves, teams = world.mode.teams } }, true)
+            waves = world.mode.waves, teams = world.mode.teams },
+            protocol = v.protocol, content = v.content, build = v.build }, true)
     elseif msg.type == "input" and c.id then
         c.input = msg
     elseif msg.type == "rowdy" and c.id then
@@ -373,11 +432,18 @@ function Client:service()
         if not ev then break end
         if ev.type == "connect" then
             setTimeout(self.peer)
-            send(self.peer, { type = "hello", rowdy = self.rowdy }, true)
+            local v = Net.version()
+            send(self.peer, { type = "hello", rowdy = self.rowdy, protocol = v.protocol,
+                content = v.content, build = v.build }, true)
         elseif ev.type == "receive" then
             local msg = Codec.decode(ev.data)
             if type(msg) == "table" then
-                if msg.type == "welcome" then
+                if msg.type == "refused" then
+                    self:fail(tostring(msg.reason))
+                    return
+                elseif msg.type == "welcome" then
+                    local problem = Net.versionProblem(msg, Net.version())
+                    if problem then self:fail(problem) return end
                     self.state, self.id, self.mode = "joined", msg.id, msg.mode
                 end
                 self.inbox[#self.inbox + 1] = msg

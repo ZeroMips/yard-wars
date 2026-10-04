@@ -133,6 +133,14 @@ function Sound.load()
     Sound.muted = love.filesystem.getInfo(SETTINGS_FILE) ~= nil
         and love.filesystem.read(SETTINGS_FILE) == "muted"
     love.audio.setDistanceModel("none") -- positions only pan, the volume is ours
+    -- a rowdy's shot sound must exist (src/rowdies.lua: shot)
+    local Rowdies = require("src.rowdies")
+    for _, def in ipairs({ Rowdies.bot, unpack(Rowdies) }) do
+        if def.shot and not DEFS[def.shot] then
+            error("src/rowdies.lua: " .. def.name .. ": unknown shot sound '" .. def.shot
+                .. "' (see DEFS in src/sound.lua)", 0)
+        end
+    end
     for name, layers in pairs(DEFS) do
         local data = synth(layers)
         Sound.data[name] = data -- kept for tests (levels, export)
