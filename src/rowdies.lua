@@ -82,6 +82,19 @@ local Rowdies = {
                             charge = 170, pellets = 16, spread = 2 * math.pi * 15 / 16,
                             damage = 30, range = 360, bulletSpeed = 700, radius = 9 } },
     },
+    {
+        -- Season 1 "Garden Party" (src/seasons.lua: free at tier 10). Origin by hand:
+        -- the water tank on the back made the tool's guess sit below the hat's centre.
+        name = "Gardener", role = "Water spray, mid range", price = 400, shot = "shot_water",
+        comic = { image = "gardener", origin = { 51.5, 108 }, muzzle = { 105, -0.5 } },
+        stats = { speed = 240, hp = 110, damage = 7, pellets = 4, spread = 0.22,
+                  range = 380, bulletSpeed = 750, reload = 0.25, maxAmmo = 3, ammoRefill = 1.3,
+                  bulletColor = { 0.45, 0.8, 1 },
+                  super = { name = "Sprinkler Burst", description = "Wide fan of drops that soak through everyone",
+                            -- 7 x 20 = 140 if all drops hit one rowdy point blank
+                            charge = 170, pellets = 7, spread = 1.2, damage = 20, range = 460,
+                            bulletSpeed = 700, radius = 10, wallRadius = 6, pierce = true } },
+    },
 }
 
 -- The enemy bots (not playable, so not part of the list above)

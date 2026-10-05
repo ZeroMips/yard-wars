@@ -17,7 +17,7 @@ drawn at: a slim sniper isn't blown up to the width of the others; 0.27 for
 ~/Downloads/yard-wars-art-new/top makes the gunner 88px wide).
 
 --side: side views (standing, facing right) for the lobby: same cut-out, scaled to
-SIDE_HEIGHT px tall (enclosed white stays: eyes), reduced to 256 colours (1/6 of the size, looks the same for comic
+SIDE_HEIGHT px tall (enclosed white smaller than SIDE_HOLE_MIN stays: eyes), reduced to 256 colours (1/6 of the size, looks the same for comic
 art; keeps the game download small), saved to assets/images/side/<name>.png.
 """
 import collections
@@ -31,6 +31,8 @@ WIDTH = 88        # output width in px (drawn at Assets.comicScale = 0.6 -> ~53 
 WHITE = 225       # background = all channels at least this bright
 PAD = 2           # transparent border around the trimmed sprite
 HOLE_MIN = 200    # enclosed white areas this big (source px) are background too
+SIDE_HOLE_MIN = 1500  # side views: only big ones (eyes are up to ~1000 px, the gap in
+                      # the Gardener's hose loop 2000+)
 SIDE_HEIGHT = 400  # lobby: drawn up to ~300 HUD px tall, x2 for high-DPI screens
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "images", "comic")
 SIDE_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "images", "side")
@@ -68,9 +70,9 @@ def white_area(px, w, h, start, seen):
     return area
 
 
-def background_mask(im, holes=True):
+def background_mask(im, hole_min=HOLE_MIN):
     """255 = character, 0 = background: white reachable from the border, and enclosed
-    white areas of at least HOLE_MIN px (gaps between arms and weapon)."""
+    white areas of at least hole_min px (gaps between arms and weapon)."""
     w, h = im.size
     px = im.load()
     mask = Image.new("L", (w, h), 255)
@@ -88,27 +90,27 @@ def background_mask(im, holes=True):
             if 0 <= n[0] < w and 0 <= n[1] < h and n not in seen:
                 seen.add(n)
                 queue.append(n)
-    for y in range(h if holes else 0):
+    for y in range(h):
         for x in range(w):
             if (x, y) not in seen and min(px[x, y]) >= WHITE:
                 area = white_area(px, w, h, (x, y), seen)
-                if len(area) >= HOLE_MIN:
+                if len(area) >= hole_min:
                     for p in area:
                         m[p] = 0
     # Erode by ~2px (outlines are ~12px thick) and soften the edge
     return mask.filter(ImageFilter.MinFilter(5)).filter(ImageFilter.GaussianBlur(1))
 
 
-def cut_out(src_dir, name, holes=True):
+def cut_out(src_dir, name, hole_min=HOLE_MIN):
     im = Image.open(os.path.join(src_dir, name + ".png")).convert("RGB")
     rgba = im.convert("RGBA")
-    rgba.putalpha(background_mask(im, holes))
+    rgba.putalpha(background_mask(im, hole_min))
     bbox = rgba.getchannel("A").point(lambda a: 255 if a > 8 else 0).getbbox()
     return rgba.crop(bbox), bbox
 
 
 def process_side(src_dir, name):
-    rgba, bbox = cut_out(src_dir, name, holes=False) # eyes are enclosed white areas
+    rgba, bbox = cut_out(src_dir, name, SIDE_HOLE_MIN) # eyes are enclosed white areas
     k = SIDE_HEIGHT / rgba.height
     rgba = rgba.resize((round(rgba.width * k), SIDE_HEIGHT), Image.LANCZOS)
     out = Image.new("RGBA", (rgba.width + 2 * PAD, rgba.height + 2 * PAD))

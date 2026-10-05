@@ -110,7 +110,9 @@ section.wrap { padding-top: 72px; } /* section.wrap: .wrap alone resets padding 
 .note { color: var(--muted); font-size: 0.92rem; }
 
 /* Rowdy cards */
-.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+/* centred rows (5 rowdies: 3 + 2) */
+.cards { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; }
+.cards .card { flex: 0 1 calc((100% - 2 * 18px) / 3); box-sizing: border-box; }
 .card {
   background: var(--panel);
   border: 2px solid rgba(255, 255, 255, 0.14);
@@ -119,7 +121,7 @@ section.wrap { padding-top: 72px; } /* section.wrap: .wrap alone resets padding 
   text-align: center;
   background-image: radial-gradient(circle at 50% 30%, rgba(255, 220, 140, 0.18), transparent 60%);
 }
-.card img { height: 200px; width: auto; object-fit: contain; }
+.card img { height: 200px; width: auto; max-width: 100%; object-fit: contain; }
 .card h3 { margin-bottom: 0; }
 .role { color: var(--gold); margin: 0 0 0.6em; font-size: 0.95rem; }
 .card ul { list-style: none; padding: 0; margin: 0; text-align: left; font-size: 0.93rem; }
@@ -164,10 +166,10 @@ footer {
 .legal .stand { margin-top: 2em; color: var(--muted); }
 
 @media (max-width: 860px) {
-  .cards { grid-template-columns: repeat(2, 1fr); }
+  .cards .card { flex-basis: calc((100% - 18px) / 2); }
   .cols, .modes { grid-template-columns: 1fr; }
 }
 @media (max-width: 460px) {
-  .cards { grid-template-columns: 1fr; }
+  .cards .card { flex-basis: 100%; }
   body { font-size: 16px; }
 }

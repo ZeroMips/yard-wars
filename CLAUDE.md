@@ -45,7 +45,7 @@ the official LÖVE for Android 11.5 (same MTP path).
   keeps only the current build in /updates/ (deletes the others before and after the
   upload) and uploads it once more as `download/yard-wars.zip` for the website;
   `download/.htaccess` rewrites `yard-wars.love` to that zip (a .love is a zip). Keep the
-  package small: the lobby side views are 256-colour PNGs (~100 KB for all four). `.gitattributes` keeps CLAUDE.md, tools/ and website/ out of
+  package small: the lobby side views are 256-colour PNGs (~130 KB for all five). `.gitattributes` keeps CLAUDE.md, tools/ and website/ out of
   the package (export-ignore).
 - Website (`website/`: index.html, style.css, images/): static page about the game and its
   installation at http://yardwars.zeromips.org/, uploaded by `tools/publish-site.sh` (FTPS
@@ -155,8 +155,8 @@ the official LÖVE for Android 11.5 (same MTP path).
   kill 10, chest 5, first win of the day 100, daily 150, weekly 600), `BONUS_XP`/
   `BONUS_COINS` after the last tier, challenge pools `daily`/`weekly` (`{id, kind, n, rowdy,
   mode}`; kinds kills/wins/rounds/coins/chests/supers/medpacks/waves), `describe`.
-  Season 1 "Garden Party" (starts 2026-10-05, 30 tiers x 1200 XP); tier 10 is the Robot as
-  a stand-in for the season's new rowdy (a Gardener - needs art first).
+  Season 1 "Garden Party" (starts 2026-10-05, 30 tiers x 1200 XP); tier 10 is the Gardener
+  (build 57 still gave the Robot there).
 - `src/pass.lua` — Yard Pass progress in its own `pass.txt` (NOT profile.txt: an older
   build after a bad update rewrites profile.txt with coins + rowdies only; checked: build
   53 leaves pass.txt alone): XP per season, claimed tiers, bonus count, selected season
@@ -229,10 +229,12 @@ the official LÖVE for Android 11.5 (same MTP path).
   (pellets/spread), aim beam/cone (`drawAim`), health/ammo bars, animation (pose, walk
   sway/bob, breathing, recoil, muzzle flash, spawn pop-in); logic reports via `self:emit`
 - `src/rowdies.lua` — data: Gunner (pistol), Shotgunner (5 pellets, 0.6 rad cone),
-  Sniper (range 720), Robot (tank: 160 HP, slow, heavy single bolts), plus `Rowdies.bot` (enemy look + stats). Supers (`stats.super`,
+  Sniper (range 720), Robot (tank: 160 HP, slow, heavy single bolts), Gardener (season 1
+  rowdy, 400 coins or free at pass tier 10: spray of 4 water drops, narrow cone; origin set
+  by hand - the water tank made the tool's guess too low), plus `Rowdies.bot` (enemy look + stats). Supers (`stats.super`,
   charged by normal-attack damage, `charge` = damage needed): Gunner "Bullet Storm" (10-bullet
   fan), Shotgunner "Wrecking Ball" (big slow piercing ball), Sniper "Railgun" (fast,
-  long, piercing), Robot "Shockwave" (ring of 16 bolts: `spread` >= pi means an even ring
+  long, piercing), Gardener "Sprinkler Burst" (fan of 7 big piercing drops), Robot "Shockwave" (ring of 16 bolts: `spread` >= pi means an even ring
   from the body centre, aim preview = circle of its range). Super bullets: own `radius`, `wallRadius` (smaller size against walls: the Wrecking Ball
   grazes them instead of vanishing next to one), `pierce` (each rowdy hit once). Optional
   `shot` = shot sound name (src/sound.lua). The comment at the top is the "how to add a
@@ -268,7 +270,10 @@ the official LÖVE for Android 11.5 (same MTP path).
   folder is a robot, the bot's sprite comes from ~/Downloads/yard-wars-art; name it to
   process it); optional names after the folder process only those (`... ~/Downloads/yard-wars-art-new/top robot`); `--scale K` keeps the
   relative sizes of the source images instead of scaling each to 88px wide; `--side` makes
-  the lobby side views (`assets/images/side/`, 400px tall)
+  the lobby side views (`assets/images/side/`, 400px tall; enclosed white areas from
+  `SIDE_HOLE_MIN` 1500 source px on are cut out - eyes are smaller, the gap in the
+  Gardener's hose loop bigger). Check the printed origin: it assumes the head sits at the
+  bottom of the sprite (wrong with something on the back)
 
 ## Conventions
 - Code and comments in English.
@@ -350,9 +355,10 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   save/load), screenshot harness (lobby/pass/style/result/picker, landscape + portrait),
   LAN host + client (XP on both sides, cosmetics both ways), build 53 refused with the
   version message and leaves pass.txt alone, smoke tests duel/team/waves.
-- Open: the season's new rowdy (Gardener with a water-hose spray) needs Gemini art, then
-  the rowdies.lua checklist and tier 10 -> `{ rowdy = "Gardener" }`. NOT yet on a device
-  (touch drag on the track, shader on GLES).
+- Gardener added after build 57 (art: one Gemini sheet with top + side view, split in
+  halves into ~/Downloads/yard-wars-art-new/top|side/gardener.png; prompts in
+  gardener-prompts.md there). Tested on desktop (lobby, picker, staged firing + super).
+- Open: NOT yet on a device (touch drag on the track, skin shader on GLES).
 
 ## Next-step ideas
 1. (done: super attack with charge meter + touch button; confirmed on the Pixel 2026-10-01)

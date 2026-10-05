@@ -47,8 +47,7 @@ Seasons.list = {
         tiers = {
             coins(10), coins(15), coins(20), coins(15), cos("skin.gunner.rose"),            --  1- 5
             coins(20), coins(25), cos("trail.leaf"), coins(25),
-            -- the season's new rowdy goes here (the Gardener, once it has art)
-            { rowdy = "Robot" },                                                              --  6-10
+            { rowdy = "Gardener" }, -- the season's new rowdy                                 --  6-10
             coins(20), coins(30), cos("skin.shotgunner.sunflower"), coins(25), cos("badge.garden"), -- 11-15
             coins(30), coins(30), cos("pedestal.flowerpot"), coins(35), cos("skin.sniper.tulip"), -- 16-20
             coins(30), coins(35), coins(40), coins(35), cos("skin.robot.lavender"),           -- 21-25
@@ -63,6 +62,7 @@ Seasons.daily = {
     { id = "d.kills.shotgunner", kind = "kills", n = 10, rowdy = "Shotgunner" },
     { id = "d.kills.sniper", kind = "kills", n = 10, rowdy = "Sniper" },
     { id = "d.kills.robot", kind = "kills", n = 10, rowdy = "Robot" },
+    { id = "d.kills.gardener", kind = "kills", n = 10, rowdy = "Gardener" },
     { id = "d.kills.waves", kind = "kills", n = 25, mode = "waves" },
     { id = "d.wins3", kind = "wins", n = 3 },
     { id = "d.wins.duel", kind = "wins", n = 2, mode = "duel" },
