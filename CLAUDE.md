@@ -340,7 +340,7 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 - Pixel 6a: build 53 (the published .love, unzipped) installed by hand 2026-10-05; before it
   had a build from 2026-10-01 with the old identity, so its progress started fresh.
 - Published to the real server: builds 47, 51 (replaced), 53 (2026-10-04: rowdy entry
-  check + LAN version check), build 57 (2026-10-05, current: Yard Pass, protocol 3;
+  check + LAN version check), 57 (2026-10-05: Yard Pass, protocol 3), build 59 (2026-10-05, current: Gardener;
   latest.txt + .love answer 200 over plain http). Website with the Yard Pass section
   uploaded the same day.
 - Open: `love.event.quit("restart")` on Android (if it fails, the
@@ -355,7 +355,7 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   save/load), screenshot harness (lobby/pass/style/result/picker, landscape + portrait),
   LAN host + client (XP on both sides, cosmetics both ways), build 53 refused with the
   version message and leaves pass.txt alone, smoke tests duel/team/waves.
-- Gardener added after build 57 (art: one Gemini sheet with top + side view, split in
+- Gardener added in build 59 (art: one Gemini sheet with top + side view, split in
   halves into ~/Downloads/yard-wars-art-new/top|side/gardener.png; prompts in
   gardener-prompts.md there). Tested on desktop (lobby, picker, staged firing + super).
 - Open: NOT yet on a device (touch drag on the track, skin shader on GLES).
