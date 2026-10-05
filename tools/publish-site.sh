@@ -5,6 +5,11 @@
 set -eu
 cd "$(dirname "$0")/../website"
 . ../tools/publish.conf
+# The legal pages must be filled in before anything goes online
+if grep -rl "TODO-" --include="*.html" .; then
+    echo "placeholders (TODO-...) left in the files above - not uploading" >&2
+    exit 1
+fi
 find . -type f | sed 's|^\./||' | sort | while read -r f; do
     echo "uploading $f"
     curl --fail --silent --show-error --ssl-reqd --netrc --ftp-create-dirs \

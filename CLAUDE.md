@@ -52,6 +52,12 @@ the official LÖVE for Android 11.5 (same MTP path).
   to the web root; robots.txt/sitemap.xml there are the hoster's). Shows the newest build
   from updates/latest.txt. Never mention the game that inspired this one on the website or
   in the shipped code - describe it on its own terms.
+  Legal pages (German law): `impressum.html` (§ 5 DDG, noindex) and `datenschutz.html`
+  (DSGVO: no cookies/tracking/third-party content; manitu server logs ~21 days with IP
+  anonymization switched on in the manitu panel + AV-Vertrag; the game's update check; LAN
+  stays local; authority LDI NRW), linked in the footer. Keep them true when adding
+  anything that sends data (analytics, embeds, fonts from a CDN, online play, crash
+  reports...). publish-site.sh refuses to upload while a `TODO-` placeholder is left.
   Screenshots in website/images/ come from a scripted harness (team fight with an
   autopilot overriding `Controls.get`, FPS line removed in the copy). Icons (favicon.ico
   16/32/48, images/icon-192.png, apple-touch-icon.png 180): the Shotgunner's head cropped
