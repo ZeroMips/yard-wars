@@ -3,12 +3,13 @@
 -- sends (see src/replica.lua).
 --
 -- Messages (tables, encoded with src/codec.lua):
---   client -> host   hello {rowdy, protocol, content, build}
---                                           reliable, once after connecting
+--   client -> host   hello {rowdy, style, protocol, content, build}
+--                                           reliable, once after connecting; style =
+--                                           Yard Pass cosmetics {skin, trail, title, badge}
 --                    input {dx, dy, aim, fire, super} unreliable, every frame; fire
 --                                             and super are counters, so a lost packet
 --                                             loses no shot
---                    rowdy {index}          reliable
+--                    rowdy {index, style}   reliable
 --   host -> client   welcome {id, mode, protocol, content, build}  reliable
 --                    refused {reason}         reliable, then disconnect (other version)
 --                    events {list}            reliable, world events (with world time t)
@@ -38,7 +39,7 @@ local CH_RELIABLE, CH_FAST = 0, 1
 -- list indexes, the client draws with its own stats). Bump PROTOCOL when messages or
 -- Net.FIELDS change; the content id is a hash of src/rowdies.lua's data, so a new or
 -- changed rowdy needs no manual bump. Builds may differ otherwise (git checkout <-> phone).
-Net.PROTOCOL = 2
+Net.PROTOCOL = 3 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
 
 local function serialize(v, out)
     if type(v) == "table" then
@@ -84,7 +85,8 @@ end
 -- Entity fields in a snapshot (sent as an array in this order)
 Net.FIELDS = { "id", "team", "key", "x", "y", "aim", "hp", "ammo", "ammoTimer", "dead",
     "respawnTimer", "walkPhase", "walkBlend", "recoil", "flashTimer", "flashSize",
-    "hitFlash", "spawnAnim", "kills", "deaths", "isBot", "charge", "out" }
+    "hitFlash", "spawnAnim", "kills", "deaths", "isBot", "charge", "out",
+    "skin", "trail", "title", "badge" }
 
 local function send(peer, msg, reliable)
     peer:send(Codec.encode(msg), reliable and CH_RELIABLE or CH_FAST,
@@ -111,6 +113,18 @@ function Net.localAddress()
     udp:close()
     if not ip or ip == "0.0.0.0" then return nil end
     return ip
+end
+
+-- Cosmetics from a client: only ids (src/cosmetics.lua looks them up when drawing;
+-- unknown ones are drawn as the default)
+local function cleanStyle(style)
+    local clean = {}
+    if type(style) ~= "table" then return clean end
+    for _, k in ipairs({ "skin", "trail", "title", "badge" }) do
+        local v = style[k]
+        if type(v) == "string" and #v <= 48 and v:match("^[%w%._%-]+$") then clean[k] = v end
+    end
+    return clean
 end
 
 local function clampAxis(v)
@@ -170,11 +184,11 @@ local function receive(self, peer, msg)
         local def = Rowdies[tonumber(msg.rowdy)] or Rowdies[1]
         local p
         if world.mode.teams then -- with the other players, in place of a bot
-            p = world:addTeamPlayer(def)
+            p = world:addTeamPlayer(def, cleanStyle(msg.style))
         else -- waves: everybody against the bots; duel: free-for-all
             local team = (not world.mode.waves) and world:newTeam() or nil
             local x, y = world:playerSpawn()
-            p = world:addPlayer(def, x, y, team)
+            p = world:addPlayer(def, x, y, team, cleanStyle(msg.style))
         end
         p:respawn() -- pop-in + spawn event
         c.id, c.fireSeen = p.id, 0
@@ -187,7 +201,7 @@ local function receive(self, peer, msg)
     elseif msg.type == "rowdy" and c.id then
         -- only between rounds (switching heals completely)
         local def, p = Rowdies[tonumber(msg.index)], world:get(c.id)
-        if def and p and world.match.over then world:setRowdy(p, def) end
+        if def and p and world.match.over then world:setRowdy(p, def, cleanStyle(msg.style)) end
     end
 end
 
@@ -409,7 +423,8 @@ local Client = {}
 Client.__index = Client
 
 -- state: "connecting" -> "joined" (after welcome) -> "closed" (see .error)
-function Net.newClient(address, rowdyIndex)
+-- style: the own cosmetics (see hello)
+function Net.newClient(address, rowdyIndex, style)
     local host = enet.host_create()
     if not host then return nil, "Network not available" end
     local ok, peer = pcall(host.connect, host, address .. ":" .. Net.PORT, 2)
@@ -418,7 +433,7 @@ function Net.newClient(address, rowdyIndex)
         return nil, "Bad address: " .. address
     end
     return setmetatable({ host = host, peer = peer, state = "connecting",
-        started = love.timer.getTime(), rowdy = rowdyIndex, fire = 0, super = 0,
+        started = love.timer.getTime(), rowdy = rowdyIndex, style = style, fire = 0, super = 0,
         inbox = {} }, Client)
 end
 
@@ -433,7 +448,7 @@ function Client:service()
         if ev.type == "connect" then
             setTimeout(self.peer)
             local v = Net.version()
-            send(self.peer, { type = "hello", rowdy = self.rowdy, protocol = v.protocol,
+            send(self.peer, { type = "hello", rowdy = self.rowdy, style = self.style, protocol = v.protocol,
                 content = v.content, build = v.build }, true)
         elseif ev.type == "receive" then
             local msg = Codec.decode(ev.data)
@@ -481,9 +496,9 @@ function Client:sendInput(input)
     self.host:flush()
 end
 
-function Client:selectRowdy(index)
-    self.rowdy = index
-    if self.state == "joined" then send(self.peer, { type = "rowdy", index = index }, true) end
+function Client:selectRowdy(index, style)
+    self.rowdy, self.style = index, style
+    if self.state == "joined" then send(self.peer, { type = "rowdy", index = index, style = style }, true) end
 end
 
 -- Round-trip time in ms

@@ -148,17 +148,18 @@ local function proxyFor(self, s)
     local p = self.proxies[s.id]
     if not p then
         p = setmetatable({}, Rowdy)
-        p:init(s.x, s.y, Assets.look(def), def.stats)
+        p:init(s.x, s.y, Assets.look(def, s.skin), def.stats)
         p.def = def
         self.proxies[s.id] = p
-    elseif p.def ~= def then
+    elseif p.def ~= def or p.skin ~= s.skin then
         p.def = def
-        p:setRowdy(Assets.look(def), def.stats)
+        p:setRowdy(Assets.look(def, s.skin), def.stats)
     end
     for f, v in pairs(s) do p[f] = v end
     p.dead = s.dead == true
     p.isBot = s.isBot == true
     p.out = s.out == true
+    p.skin, p.trail, p.title, p.badge = s.skin, s.trail, s.title, s.badge -- nil = none
     return p
 end
 
@@ -207,6 +208,7 @@ function Replica:update()
                 x = b.x0 + b.vx * (t - b.t0), y = b.y0 + b.vy * (t - b.t0),
                 vx = b.vx, vy = b.vy, radius = b.radius, super = b.super,
                 color = owner and owner.bulletColor or { 1, 0.85, 0.2 },
+                trail = owner and owner.trail,
             }, Bullet)
         elseif remoteT > b.tEnd and ownT > b.tEnd then
             self.bullets[id] = nil

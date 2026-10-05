@@ -101,8 +101,9 @@ function Rowdy:respawn()
     self:emit("spawn", { x = self.x, y = self.y, id = self.id })
 end
 
--- Returns true if this hit killed the rowdy.
-function Rowdy:takeDamage(amount)
+-- Returns true if this hit killed the rowdy. killer: id of the shooter (in the
+-- death event, for the Yard Pass XP)
+function Rowdy:takeDamage(amount, killer)
     if self.dead then return false end
     self.hp = self.hp - amount
     self.hitFlash = 0.12
@@ -110,7 +111,8 @@ function Rowdy:takeDamage(amount)
         self.hp = 0
         self.dead = true
         self.respawnTimer = RESPAWN_TIME
-        self:emit("death", { x = self.x, y = self.y, id = self.id, color = self.barColor })
+        self:emit("death", { x = self.x, y = self.y, id = self.id, color = self.barColor,
+            killer = killer })
         return true
     end
     return false
@@ -382,8 +384,10 @@ function Rowdy:draw()
     -- The art faces up: rotate a quarter turn more, and sx (the aim axis) is its y
     local look = self.look
     local k = look.scale
+    local shaded = Assets.beginSkin(look) -- colour-change skin (src/cosmetics.lua)
     love.graphics.draw(Assets.comic[look.image], px, py, self.aim + sway + math.pi / 2,
         k * sy, k * sx, look.origin[1], look.origin[2])
+    if shaded then love.graphics.setShader() end
 
     self:drawMuzzleFlash()
     self:drawHealthBar()

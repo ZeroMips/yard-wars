@@ -4,12 +4,18 @@
 -- Works with mouse, touch and keyboard (left/right rowdy, up/down mode, Enter play).
 -- A rowdy that isn't bought yet (src/profile.lua) is shown dark with its price, and
 -- PLAY turns into an UNLOCK button; the coins are shown next to the logo.
+-- YARD PASS (season, tier, XP bar, a red dot while a reward waits) opens the pass
+-- screen (src/passview.lua), STYLE the cosmetics (src/wardrobe.lua); the rowdy is shown
+-- with its skin, the pedestal, badge and title that are put on.
 -- Laid out in HUD units (720 along the short screen side), like the in-game HUD;
 -- landscape and portrait have their own layout.
 local Assets   = require("src.assets")
 local Rowdies = require("src.rowdies")
 local Loot     = require("src.loot")
 local Profile  = require("src.profile")
+local Pass     = require("src.pass")
+local Decor    = require("src.decor")
+local PassView = require("src.passview")
 
 local Menu = {}
 
@@ -45,6 +51,8 @@ local ROWDIES_COLOR = { 0.2, 0.5, 0.9 }
 local UNLOCK_COLOR   = { 0.3, 0.75, 0.3 }
 local LOCKED_COLOR   = { 0.42, 0.44, 0.5 }
 local LOCKED_TINT    = { 0.12, 0.12, 0.18 }
+local PASS_COLOR     = { 0.55, 0.3, 0.75 }
+local STYLE_COLOR    = { 0.85, 0.4, 0.55 }
 
 local function uiScale() return math.min(love.graphics.getDimensions()) / 720 end
 
@@ -92,13 +100,17 @@ local function lobbyLayout()
         L.play = { x = sw - m - 210, y = sh - m - 110, w = 210, h = 110 }
         L.mode = { x = L.play.x - 16 - 370, y = L.play.y, w = 370, h = 110 }
         L.rowdies = { x = m, y = sh / 2 - 45, w = 170, h = 90 }
+        L.pass = { x = m, y = L.rowdies.y - 16 - 110, w = 210, h = 110 }
+        L.style = { x = m, y = L.rowdies.y + L.rowdies.h + 16, w = 170, h = 70 }
         L.cx, L.cy, L.k = math.min(sw * 0.45, L.mode.x - 40), sh * 0.46, 1
     else
         L.play = { x = m, y = sh - m - 110, w = sw - 2 * m, h = 110 }
         L.rowdies = { x = m, y = L.play.y - 16 - 110, w = 170, h = 110 }
         L.mode = { x = m + 170 + 16, y = L.rowdies.y, w = sw - 2 * m - 170 - 16, h = 110 }
+        L.style = { x = m, y = L.rowdies.y - 16 - 110, w = 170, h = 110 }
+        L.pass = { x = m + 170 + 16, y = L.style.y, w = sw - 2 * m - 170 - 16, h = 110 }
         -- the stage gets the room above the buttons (shrinks on almost square windows)
-        local room = L.mode.y - 60
+        local room = L.pass.y - 60
         L.k = math.min(1.25, room / 560)
         L.cx, L.cy = sw / 2, 60 + room * 0.5
     end
@@ -139,7 +151,7 @@ end
 
 local function inside(r, x, y) return x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h end
 
--- Screen position -> "play", "prev", "next", "rowdies", "mode", "pick" + index (mode
+-- Screen position -> "play", "prev", "next", "rowdies", "pass", "style", "mode", "pick" + index (mode
 -- list), "close" (mode list: the OK button), "outside" (mode list: elsewhere) or nil
 function Menu.hit(x, y)
     local ui = uiScale()
@@ -152,12 +164,13 @@ function Menu.hit(x, y)
         return inside(L.close, x, y) and "close" or "outside"
     end
     local L = lobbyLayout()
-    for _, name in ipairs({ "play", "mode", "rowdies", "prev", "next" }) do
-        if inside(L[name], x, y) then return name end
+    for _, name in ipairs({ "play", "mode", "rowdies", "pass", "style", "prev", "next" }) do
+        if inside(L[name], x, y) and (name ~= "pass" or Pass.season()) then return name end
     end
 end
 
--- Keyboard: returns "play", "rowdies", "close", "quit" or nil (switching is done here)
+-- Keyboard: returns "play", "rowdies", "pass", "style", "close", "quit" or nil (switching
+-- is done here)
 function Menu.keypressed(key)
     local n = #Menu.entries
     if Menu.modesOpen then
@@ -174,6 +187,8 @@ function Menu.keypressed(key)
     elseif key == "down" or key == "s" then Menu.mode = Menu.mode % n + 1
     elseif key == "return" or key == "kpenter" or key == "space" then return "play"
     elseif key == "b" or key == "tab" then return "rowdies"
+    elseif key == "p" and Pass.season() then return "pass"
+    elseif key == "y" then return "style"
     elseif key == "escape" then return "quit" end
 end
 
@@ -293,33 +308,43 @@ local function drawStage(L, fonts, t)
         love.graphics.setColor(1, 0.9, 0.55, 0.035)
         love.graphics.circle("fill", cx, cy, (110 + i * 22) * k)
     end
-    -- pedestal
+    -- pedestal (the default one or a Yard Pass pedestal)
     local py = cy + 120 * k
-    love.graphics.setColor(0.05, 0.05, 0.1, 0.85)
-    love.graphics.ellipse("fill", cx, py + 10 * k, 160 * k, 46 * k)
-    love.graphics.setColor(0.2, 0.25, 0.35, 1)
-    love.graphics.ellipse("fill", cx, py, 156 * k, 42 * k)
-    love.graphics.setColor(1, 0.8, 0.3, 0.7)
-    love.graphics.setLineWidth(4)
-    love.graphics.ellipse("line", cx, py, 156 * k, 42 * k)
-    love.graphics.setLineWidth(1)
+    if not Decor.drawPedestal(Pass.equippedId("pedestal"), cx, py, k, t) then
+        love.graphics.setColor(0.05, 0.05, 0.1, 0.85)
+        love.graphics.ellipse("fill", cx, py + 10 * k, 160 * k, 46 * k)
+        love.graphics.setColor(0.2, 0.25, 0.35, 1)
+        love.graphics.ellipse("fill", cx, py, 156 * k, 42 * k)
+        love.graphics.setColor(1, 0.8, 0.3, 0.7)
+        love.graphics.setLineWidth(4)
+        love.graphics.ellipse("line", cx, py, 156 * k, 42 * k)
+        love.graphics.setLineWidth(1)
+    end
     -- the rowdy: gentle idle bob and sway
     local bob = math.sin(t * 2.2) * 6 * k
     love.graphics.setColor(0, 0, 0, 0.35)
     love.graphics.ellipse("fill", cx, py, (70 - bob * 0.6) * k, 18 * k)
     -- side view standing on the pedestal (breathing: grows and shrinks a little)
     local tint = locked and LOCKED_TINT or nil
+    local skin = Pass.skinFor(def)
     if not Assets.drawStanding(def, cx, py + 6 * k, (290 + bob * 0.5) * k,
-        math.sin(t * 1.3) * 0.02, tint) then
-        Assets.drawPortrait(def, cx, cy - 20 * k + bob, 260 * k, math.sin(t * 1.3) * 0.05, tint)
+        math.sin(t * 1.3) * 0.02, tint, skin) then
+        Assets.drawPortrait(def, cx, cy - 20 * k + bob, 260 * k, math.sin(t * 1.3) * 0.05, tint, skin)
     end
     if locked then Loot.drawLock(cx, cy - 20 * k, 1.4 * k) end
     -- name + role
     outlined(def.name:upper(), fonts.title, cx - 300, cy - 250 * k - 20, 600, "center", { 1, 1, 1 }, 3)
+    local badge = Pass.equippedId("badge")
+    if badge then
+        Decor.drawBadge(badge, cx - fonts.title:getWidth(def.name:upper()) / 2 - 30, cy - 250 * k + 10, 18)
+    end
     outlined(def.role or "", fonts.text, cx - 300, cy - 250 * k + 46, 600, "center", { 1, 0.82, 0.3 })
     drawStats(def, cx, py + 62 * k, fonts.text)
+    -- the title, or a notice in its place (e.g. "Gunner unlocked!")
     if Menu.notice then
         outlined(Menu.notice, fonts.text, cx - 320, py + 62 * k + 44, 640, "center", { 1, 0.85, 0.35 }, 1)
+    elseif Pass.equippedId("title") then
+        Decor.drawTitle(Pass.equippedId("title"), fonts.text, cx, py + 62 * k + 56)
     end
 end
 
@@ -396,6 +421,39 @@ function Menu.draw(fonts, touchMode)
     end
     outlined("ROWDIES", fonts.button, b.x, b.y + b.h - 44, b.w, "center", { 1, 1, 1 })
 
+    -- YARD PASS: season, tier, XP bar; red dot while something can be claimed
+    local season = Pass.season()
+    if season then
+        local r = L.pass
+        block(r, PASS_COLOR, Menu.hover == "pass")
+        local tier, into, need = Pass.level(season)
+        outlined("YARD PASS", fonts.button, r.x + 14, r.y + 8, r.w - 28, "left", { 1, 1, 1 })
+        outlined(season.name, fonts.text, r.x + 14, r.y + 40, r.w - 28, "left", { 1, 0.85, 0.5 }, 1)
+        outlined("Tier " .. tier, fonts.text, r.x + 14, r.y + 40, r.w - 28, "right", { 1, 1, 1 }, 1)
+        PassView.drawBar(r.x + 14, r.y + 72, r.w - 28, 12, into / need)
+        if Pass.claimable() > 0 then
+            local k = 1 + 0.12 * math.sin(t * 6)
+            love.graphics.setColor(0.05, 0.05, 0.1)
+            love.graphics.circle("fill", r.x + r.w - 4, r.y + 4, 15 * k)
+            love.graphics.setColor(1, 0.25, 0.2)
+            love.graphics.circle("fill", r.x + r.w - 4, r.y + 4, 12 * k)
+            love.graphics.setColor(1, 1, 1)
+            love.graphics.setFont(fonts.text)
+            love.graphics.printf("!", r.x + r.w - 24, r.y + 4 - fonts.text:getHeight() / 2, 40, "center")
+        end
+    end
+
+    -- STYLE: a little hanger
+    local st = L.style
+    block(st, STYLE_COLOR, Menu.hover == "style")
+    love.graphics.setColor(1, 1, 1, 0.95)
+    love.graphics.setLineWidth(4)
+    local hx, hy = st.x + st.w / 2, st.y + 14
+    love.graphics.arc("line", "open", hx, hy + 4, 6, math.pi, math.pi * 2.6)
+    love.graphics.line(hx, hy + 10, hx - 26, hy + 26, hx + 26, hy + 26, hx, hy + 10)
+    love.graphics.setLineWidth(1)
+    outlined("STYLE", fonts.button, st.x, st.y + st.h - 40, st.w, "center", { 1, 1, 1 })
+
     drawModeCard(L.mode, Menu.entry(), fonts, Menu.hover == "mode", true)
 
     -- PLAY: pulses gently
@@ -428,7 +486,7 @@ function Menu.draw(fonts, touchMode)
     love.graphics.print(Menu.version .. (Menu.status and "  -  " .. Menu.status or ""), 8, L.sh - 24)
     if not touchMode and not L.portrait then
         love.graphics.setColor(1, 1, 1, 0.45)
-        love.graphics.printf("Left/Right rowdy  -  Up/Down mode  -  Enter play  -  Esc quit",
+        love.graphics.printf("Left/Right rowdy  -  Up/Down mode  -  Enter play  -  P pass  -  Esc quit",
             0, 24, L.sw - 24, "right")
     end
 

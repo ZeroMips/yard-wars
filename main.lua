@@ -27,6 +27,10 @@ local Result   = require("src.result")
 local Scoreboard = require("src.scoreboard")
 local Sound    = require("src.sound")
 local Updater  = require("src.updater")
+local Cosmetics = require("src.cosmetics")
+local Pass     = require("src.pass")
+local PassView = require("src.passview")
+local Wardrobe = require("src.wardrobe")
 
 -- Game modes (round rules: see World.KILL_TARGET / TIME_LIMIT / LIVES).
 --   waves = false: duel - the bots respawn; first to 10 kills or most kills after
@@ -66,8 +70,10 @@ local OPPONENT_COLOR = { 1, 0.5, 0.15 } -- health bar of other players
 local TEAMMATE_COLOR = { 0.3, 0.6, 1 }
 local ENEMY_TEAM_COLOR = { 1, 0.3, 0.25 } -- team fight: enemies (bots and players)
 
-local state = "menu" -- "menu", "pick" (rowdy choice), "join" or "game"
+local state = "menu" -- "menu", "pick" (rowdy choice), "join", "game", "pass" (Yard Pass)
+                     -- or "style" (cosmetics)
 local pickFor        -- what the rowdy choice is for: "lobby" or "between" rounds
+local styleFrom      -- where the style screen goes back to: "menu" or "pick"
 local role           -- "local", "host" or "client" while playing
 local menuTime = 0   -- drives the camera pan behind the menu
 local menuFonts
@@ -87,8 +93,11 @@ local hudFont
 local boardFonts -- scoreboard: { small, big, banner }
 local watch = {} -- last frame's round state, to notice what is worth a banner
 local watchMatch -- (defined with the HUD below; called from love.update)
+local betweenRounds -- (defined with playing() below)
 local roundCoins = 0 -- coins the own rowdy picked up this round
 local roundReward    -- coins for the finished round: { outcome, coins } (result screen)
+local roundXp        -- Yard Pass XP of the finished round (Pass.onRoundOver + shownAt)
+local tierUpSoundAt  -- love.timer time to play "tierUp" (when the result's XP bar is full)
 
 -- HUD is laid out for a 720px screen (short side) and scaled on bigger/denser screens
 local function uiScale() return math.min(love.graphics.getDimensions()) / 720 end
@@ -100,7 +109,8 @@ local function resetGame()
     Controls.reset()
     Scoreboard.clear()
     watch = {}
-    roundCoins, roundReward = 0, nil
+    roundCoins, roundReward, roundXp, tierUpSoundAt = 0, nil, nil, nil
+    Pass.roundStart()
 end
 
 local function closeFinder()
@@ -132,10 +142,11 @@ local function newGame(mode, host)
     end
     state, role = "game", host and "host" or "local"
     Menu.message = nil
+    local def = Rowdies[Menu.rowdy]
     if mode.teams then
-        player = world:addTeamPlayer(Rowdies[Menu.rowdy])
+        player = world:addTeamPlayer(def, Pass.style(def))
     else
-        player = world:addPlayer(Rowdies[Menu.rowdy], Arena.spawn.x, Arena.spawn.y)
+        player = world:addPlayer(def, Arena.spawn.x, Arena.spawn.y, nil, Pass.style(def))
     end
     localId = player.id
     world:start()
@@ -158,7 +169,7 @@ local function joinGame(address)
     address = Join.address
     if address == "" then Join.status = "Enter the host's address" return end
     local err
-    client, err = Net.newClient(address, Menu.rowdy)
+    client, err = Net.newClient(address, Menu.rowdy, Pass.style(Rowdies[Menu.rowdy]))
     if not client then Join.status = err return end
     Join.save()
     Join.close()
@@ -203,10 +214,11 @@ local function confirmPick()
     Menu.save()
     if pickFor == "between" then
         state = "game"
+        local def = Rowdies[Menu.rowdy]
         if client then
-            client:selectRowdy(Menu.rowdy) -- the host switches us before its next round
+            client:selectRowdy(Menu.rowdy, Pass.style(def)) -- the host switches us before its next round
         else
-            world:setRowdy(player, Rowdies[Menu.rowdy])
+            world:setRowdy(player, def, Pass.style(def))
             world:restartMatch()
         end
     else
@@ -217,6 +229,72 @@ end
 local function cancelPick()
     Sound.play("click")
     if pickFor == "between" then state = "game" else state = "menu" end
+end
+
+-- Yard Pass screen (src/passview.lua) and style screen (src/wardrobe.lua)
+local function openPass()
+    Sound.play("click")
+    state = "pass"
+    PassView.open()
+end
+
+local function openStyle(from, rowdyIndex)
+    Sound.play("click")
+    styleFrom = from
+    state = "style"
+    Wardrobe.open(rowdyIndex)
+end
+
+local function closeStyle()
+    Sound.play("click")
+    if styleFrom == "pick" then
+        state = "pick"
+        Picker.selected = Wardrobe.rowdy
+        Picker.reveal()
+    else
+        state = "menu"
+        if Profile.isUnlocked(Rowdies[Wardrobe.rowdy]) then -- show what was styled
+            Menu.rowdy = Wardrobe.rowdy
+            Menu.save()
+        end
+    end
+end
+
+-- Pass screen actions (from PassView.hit / PassView.keypressed)
+local function passAction(what, i)
+    local season = Pass.season()
+    if what == "back" then
+        Sound.play("click")
+        state = "menu"
+    elseif what == "prev" or what == "next" then
+        if PassView.switchSeason(what == "next" and 1 or -1) then Sound.play("click") end
+    elseif what == "reroll" then
+        Sound.play("click")
+        if Pass.reroll(i) then PassView.say("New challenge!") end
+    elseif what == "tier" or what == "bonus" then
+        local msg
+        if what == "tier" then msg = Pass.claim(season, i) else msg = Pass.claimBonus(season) end
+        if msg then
+            Sound.play("claim")
+            PassView.celebrate(msg, what == "tier" and i or #season.tiers + 1)
+        elseif what == "tier" and Pass.tierState(season, i) == "locked" then
+            Sound.play("click")
+            PassView.say("Reach tier " .. i .. " to claim this")
+        end
+    elseif what == "claimAll" and season then
+        local n, last = 0, nil
+        for t = 1, #season.tiers do
+            local msg = Pass.claim(season, t)
+            if msg then n, last = n + 1, msg end
+        end
+        while Pass.bonusReady(season) > 0 do
+            last, n = Pass.claimBonus(season), n + 1
+        end
+        if n > 0 then
+            Sound.play("claim")
+            PassView.celebrate(n == 1 and last or (n .. " rewards claimed!"))
+        end
+    end
 end
 
 -- PLAY on the start screen: the chosen mode with the chosen rowdy
@@ -235,6 +313,8 @@ end
 local function menuAction(what, i)
     if what == "play" then play()
     elseif what == "rowdies" then openPicker("lobby")
+    elseif what == "pass" then openPass()
+    elseif what == "style" then openStyle("menu", Menu.rowdy)
     elseif what == "prev" or what == "next" then
         Sound.play("click")
         Menu.notice = nil
@@ -253,11 +333,18 @@ local function playing()
     return state == "game" and player ~= nil and not world.match.over
 end
 
+-- The rowdy choice (or its style screen) between two rounds: the game goes on behind
+function betweenRounds()
+    return pickFor == "between" and (state == "pick" or (state == "style" and styleFrom == "pick"))
+end
+
 function love.load(args)
     love.graphics.setBackgroundColor(0.05, 0.15, 0.08)
     Assets.load()
     Sound.load()
     Profile.load()
+    Pass.load()
+    Pass.refresh()
     Menu.load()
     love.resize()
     openMenu()
@@ -310,9 +397,10 @@ end
 local WOOD = { 0.6, 0.3, 0.15 }
 local GOLD = { 1, 0.82, 0.2 }
 
--- Turn simulation events into particles, screen shake and sounds
+-- Turn simulation events into particles, screen shake and sounds (and Yard Pass XP)
 local function playEvents(events)
     for _, ev in ipairs(events) do
+        Pass.onEvent(ev, localId, world)
         if ev.kind == "spawn" then
             Effects.ring(ev.x, ev.y, 45, { 1, 1, 1 })
             Sound.play("spawn", ev.x, ev.y, 0.7)
@@ -369,7 +457,8 @@ local function playEvents(events)
                 Sound.play("coin", ev.x, ev.y, 0.5)
             end
         elseif ev.kind == "matchStart" then
-            roundCoins, roundReward = 0, nil
+            roundCoins, roundReward, roundXp, tierUpSoundAt = 0, nil, nil, nil
+            Pass.roundStart()
             Sound.play("roundStart")
         elseif ev.kind == "matchOver" then
             local outcome = outcomeOf(ev)
@@ -378,6 +467,11 @@ local function playEvents(events)
             if player then
                 roundReward = { outcome = outcome, coins = Profile.roundReward(outcome, ev.wave) }
                 Profile.addCoins(roundReward.coins)
+                roundXp = Pass.onRoundOver(outcome, ev.wave, localId, world)
+                if roundXp then
+                    roundXp.shownAt = love.timer.getTime() + 0.4
+                    if roundXp.tiersUp > 0 then tierUpSoundAt = roundXp.shownAt + 1.5 end
+                end
             end
         end
     end
@@ -448,8 +542,13 @@ function love.update(dt)
             Join.searching = "search not available"
         end
     end
+    if state == "pass" then PassView.update(dt) end
+    if tierUpSoundAt and love.timer.getTime() >= tierUpSoundAt then
+        tierUpSoundAt = nil
+        Sound.play("tierUp")
+    end
     -- The game keeps running while a rowdy is chosen between rounds (LAN!)
-    local inGame = state == "game" or (state == "pick" and pickFor == "between")
+    local inGame = state == "game" or betweenRounds()
     if not inGame then
         -- Slow pan over the arena behind the menu
         menuTime = menuTime + dt
@@ -541,6 +640,12 @@ local function nameOf(e)
     return "Player " .. e.id
 end
 
+-- Name with the Yard Pass title, for the result scoreboard ('You "Yard Veteran"')
+local function fullName(e)
+    local title = Cosmetics.get(e.title, "title")
+    return nameOf(e) .. (title and (' "' .. title.name .. '"') or "")
+end
+
 -- What the end-of-round screen shows (src/result.lua)
 local function resultInfo()
     local m = world.match
@@ -554,8 +659,9 @@ local function resultInfo()
     end)
     local lines = {}
     for _, e in ipairs(list) do
-        lines[#lines + 1] = { string.format("%s (%s)   %d kills   %d deaths", nameOf(e),
-            e.def and e.def.name or "?", e.kills, e.deaths), e.id == localId }
+        lines[#lines + 1] = { string.format("%s (%s)   %d kills   %d deaths", fullName(e),
+            e.def and e.def.name or "?", e.kills, e.deaths), e.id == localId,
+            Cosmetics.get(e.badge, "badge") and e.badge }
     end
 
     local info = { lines = lines }
@@ -570,8 +676,9 @@ local function resultInfo()
         lines = {}
         for _, e in ipairs(list) do
             lines[#lines + 1] = { string.format("%s  %s (%s)   %d kills   %d deaths",
-                e.team == player.team and "[Your team]" or "[Enemies]", nameOf(e),
-                e.def and e.def.name or "?", e.kills, e.deaths), e.id == localId }
+                e.team == player.team and "[Your team]" or "[Enemies]", fullName(e),
+                e.def and e.def.name or "?", e.kills, e.deaths), e.id == localId,
+                Cosmetics.get(e.badge, "badge") and e.badge }
         end
         info.lines = lines
         if not m.winnerTeam then
@@ -615,6 +722,7 @@ local function resultInfo()
         info.reward = "+" .. total .. (#parts > 0 and ("  (" .. table.concat(parts, " + ") .. ")") or "")
             .. "   -   you have " .. Profile.coins
     end
+    info.xp = roundXp
     if role == "client" then
         info.buttons = { { "rowdy", "Rowdy" }, { "menu", "Leave" } }
         info.note = "Waiting for the host to start the next round"
@@ -630,6 +738,7 @@ end
 local function resultAction(id)
     Sound.play("click")
     if id == "again" then
+        world:setStyle(player, Pass.style(player.def)) -- (changed in the style screen)
         world:restartMatch()
         Result.selected = 1
     elseif id == "rowdy" then
@@ -843,14 +952,16 @@ local function drawMuteButton()
 end
 
 local function drawScreen()
-    local betweenRounds = state == "pick" and pickFor == "between"
-    if state == "menu" or state == "join" or (state == "pick" and not betweenRounds) then
+    local between = betweenRounds()
+    if state ~= "game" and not between then
         Camera.attach()
         Arena.drawBelow()
         Arena.drawBushes(nil)
         Camera.detach()
         if state == "menu" then Menu.draw(menuFonts, Controls.touchMode)
         elseif state == "join" then Join.draw(menuFonts)
+        elseif state == "pass" then PassView.draw(menuFonts)
+        elseif state == "style" then Wardrobe.draw(menuFonts)
         else Picker.draw(menuFonts) end
         return
     end
@@ -860,7 +971,9 @@ local function drawScreen()
         return
     end
     drawGame()
-    if betweenRounds then
+    if state == "style" then
+        Wardrobe.draw(menuFonts)
+    elseif between then
         Picker.draw(menuFonts, "Choose your rowdy for the next round")
     elseif world.match.over then
         Result.draw(resultInfo(), menuFonts)
@@ -878,7 +991,10 @@ local function press(x, y)
         menuAction(Menu.hit(x, y))
     elseif state == "pick" then
         local what, i = Picker.hit(x, y)
-        if what == "card" then
+        if what == "skins" then
+            Picker.selected, Picker.message = i, nil
+            openStyle("pick", i)
+        elseif what == "card" then
             -- a second tap selects (not buys: that takes the Unlock button)
             if Picker.selected == i and not Picker.locked() then confirmPick()
             elseif Picker.selected ~= i then
@@ -887,6 +1003,17 @@ local function press(x, y)
             end
         elseif what == "confirm" then confirmPick()
         elseif what == "back" then cancelPick() end
+    elseif state == "pass" then
+        passAction(PassView.hit(x, y))
+    elseif state == "style" then
+        local what, chip = Wardrobe.hit(x, y)
+        if what == "back" then closeStyle()
+        elseif what == "prev" or what == "next" then
+            Sound.play("click")
+            Wardrobe.switch(what == "next" and 1 or -1)
+        elseif what == "chip" then
+            Sound.play(Wardrobe.choose(chip) and "coin" or "click")
+        end
     elseif state == "game" and world and world.match.over then
         local id = Result.hit(resultInfo(), x, y)
         if id then resultAction(id) end
@@ -908,17 +1035,20 @@ function love.touchpressed(id, x, y)
         return
     end
     if state == "pick" then Picker.touchStart() end
+    if state == "pass" then PassView.touchStart() end
     if playing() then Controls.touchpressed(id, x, y) end
 end
 function love.touchmoved(id, x, y, dx, dy)
     if id == muteTouch then return end
     if state == "pick" then Picker.drag(dy) end
+    if state == "pass" then PassView.drag(dx) end
     if playing() then Controls.touchmoved(id, x, y) end
 end
 function love.touchreleased(id, x, y)
     if id == muteTouch then muteTouch = nil return end
     if playing() then Controls.touchreleased(id, x, y)
     elseif state == "pick" and Picker.dragged then Controls.touchMode = true -- scrolled
+    elseif state == "pass" and PassView.dragged then Controls.touchMode = true
     else Controls.touchMode = true; press(x, y) end
 end
 
@@ -934,14 +1064,15 @@ end
 
 function love.wheelmoved(x, y)
     if state == "pick" then Picker.wheel(y) end
+    if state == "pass" then PassView.wheel(x, y) end
 end
 
 function love.textinput(t)
     if state == "join" then Join.textinput(t) end
 end
 
--- M: sound on/off. Escape (= Android back button): game/join -> menu, rowdy choice -> back,
--- menu -> quit
+-- M: sound on/off. Escape (= Android back button): game/join -> menu, rowdy choice, pass
+-- and style screens -> back, menu -> quit
 function love.keypressed(key)
     if key == "m" and state ~= "join" then Sound.toggleMute() return end
     if state == "menu" then
@@ -959,6 +1090,14 @@ function love.keypressed(key)
         if Picker.selected ~= before then Picker.message = nil end
         if action == "confirm" then confirmPick()
         elseif action == "back" then cancelPick() end
+        return
+    elseif state == "pass" then
+        passAction(PassView.keypressed(key))
+        return
+    elseif state == "style" then
+        local before = Wardrobe.rowdy
+        if Wardrobe.keypressed(key) == "back" then closeStyle()
+        elseif Wardrobe.rowdy ~= before then Sound.play("click") end
         return
     elseif state == "join" then
         local action = Join.keypressed(key)

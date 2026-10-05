@@ -2,12 +2,15 @@
 -- plus a confirm and a Back button. Mouse (wheel scrolls), touch (tap a card, then the
 -- button; drag scrolls) and keyboard (arrows, Enter, Esc).
 -- Rowdies not bought yet (src/profile.lua) are dark with a lock and their price; the
--- confirm button then says "Unlock" (main.lua buys it).
+-- confirm button then says "Unlock" (main.lua buys it). A rowdy with Yard Pass skins
+-- (src/cosmetics.lua) has a "Skins" button on its card (opens src/wardrobe.lua).
 -- Laid out in HUD units (720 along the short screen side), like the menu.
 local Assets   = require("src.assets")
 local Rowdies = require("src.rowdies")
 local Loot     = require("src.loot")
 local Profile  = require("src.profile")
+local Pass     = require("src.pass")
+local Cosmetics = require("src.cosmetics")
 
 local Picker = {}
 
@@ -93,7 +96,13 @@ function Picker.drag(dy)
     layout()
 end
 
--- Screen position -> "card" + index, "confirm", "back" or nil
+-- The "Skins" button on a card (only for rowdies that have skins)
+local function skinsRect(r, def)
+    if #Cosmetics.skinsOf(def.name) == 0 then return nil end
+    return { x = r.x + r.w - 70, y = r.y + 8, w = 62, h = 28 }
+end
+
+-- Screen position -> "card" + index, "skins" + index, "confirm", "back" or nil
 function Picker.hit(x, y)
     local ui = uiScale()
     x, y = x / ui, y / ui
@@ -103,6 +112,8 @@ function Picker.hit(x, y)
     if inside(rects.back) then return "back" end
     if y < rects.view.y or y > rects.view.y + rects.view.h then return end
     for i, r in ipairs(rects.cards) do
+        local sk = skinsRect(r, Rowdies[i])
+        if sk and inside(sk) then return "skins", i end
         if inside(r) then return "card", i end
     end
 end
@@ -166,7 +177,15 @@ function Picker.draw(fonts, title)
 
             local locked = not Profile.isUnlocked(def)
             Assets.drawPortrait(def, r.x + r.w / 2, r.y + 70, 104, 0,
-                locked and { 0.12, 0.12, 0.18 } or nil)
+                locked and { 0.12, 0.12, 0.18 } or nil, Pass.skinFor(def))
+            local sk = skinsRect(r, def)
+            if sk then
+                love.graphics.setColor(0.85, 0.4, 0.55)
+                love.graphics.rectangle("fill", sk.x, sk.y, sk.w, sk.h, 8, 8)
+                love.graphics.setFont(fonts.text)
+                love.graphics.setColor(1, 1, 1)
+                love.graphics.printf("Skins", sk.x, sk.y + (sk.h - fonts.text:getHeight()) / 2, sk.w, "center")
+            end
             if locked then
                 Loot.drawLock(r.x + r.w / 2, r.y + 62, 0.7)
                 local price = tostring(def.price)

@@ -54,6 +54,12 @@ function Profile.unlock(def)
     return true
 end
 
+-- A rowdy for free (a Yard Pass reward, src/pass.lua)
+function Profile.grant(name)
+    Profile.unlocked[name] = true
+    Profile.save()
+end
+
 function Profile.addCoins(n)
     if n <= 0 then return end
     Profile.coins = Profile.coins + n

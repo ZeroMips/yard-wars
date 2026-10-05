@@ -117,6 +117,11 @@ local DEFS = {
     unlock       = notes({ { C5, 0.08 }, { E5, 0.08 }, { G5, 0.08 }, { C6, 0.08 }, { G5, 0.08 }, { C6, 0.3 } },
                          "square", 0.18,
                          { { wave = "triangle", f1 = C5 / 2, f2 = C5 / 2, dur = 0.7, vol = 0.25, delay = 0.4 } }),
+    -- Yard Pass: a new tier reached, a reward claimed
+    tierUp       = notes({ { G5, 0.07 }, { C6, 0.07 }, { E5 * 2, 0.07 }, { G5 * 2, 0.22 } }, "triangle", 0.3,
+                         { { wave = "sine", f1 = 400, f2 = 1600, dur = 0.3, vol = 0.12, attack = 0.05 } }),
+    claim        = notes({ { E5, 0.05 }, { G5, 0.05 }, { C6, 0.16 } }, "square", 0.16,
+                         { { wave = "noise", f1 = 1, f2 = 1, dur = 0.25, vol = 0.1, lowpass = 0.6, delay = 0.08 } }),
     -- rounds and UI
     roundStart   = notes({ { G5, 0.09 }, { C6, 0.16 } }, "square", 0.18),
     victory      = notes({ { C5, 0.11 }, { E5, 0.11 }, { G5, 0.11 }, { C6, 0.35 } }, "square", 0.2,

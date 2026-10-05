@@ -80,13 +80,16 @@ the official LÖVE for Android 11.5 (same MTP path).
   `tools/build.sh`'s .love into the folder.
 
 ## Layout
-- `main.lua` — client: state (menu/pick/join/game), roles local/host/client, the modes of
+- `main.lua` — client: state (menu/pick/join/game/pass/style), roles local/host/client, the modes of
   the start screen (`Menu.entries`: Duel, Team fight, Waves, Host duel = free-for-all, Host
   team fight, Host waves = co-op, Join); PLAY starts the chosen mode with the chosen
   rowdy (`Menu.rowdy`); result screen (Play again / Rowdy / Menu; LAN clients:
   Rowdy / Leave, the host starts the next round), fixed-step loop (`World.TICK` = 1/60, a shot from the
   controls is kept until a step uses it), local player by id (`localId`), world events →
   particles/shake, camera, HUD, minimap, rowdy switching.
+  Yard Pass: every world event goes to `Pass.onEvent`, `matchOver` to `Pass.onRoundOver`
+  (result screen XP, `tierUp` sound when its bar is full); `Pass.style(def)` (skin/trail/
+  title/badge) goes into `addPlayer`/`setRowdy`/`Net.newClient`/`selectRowdy`.
   Escape / Android back: game → menu, menu → quit. (F2 used to toggle a Kenney
   character style; those sprites were removed 2026-10-04.)
 - `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
@@ -104,15 +107,20 @@ the official LÖVE for Android 11.5 (same MTP path).
   `TIME_LIMIT` 180 s (tie = draw), waves = `LIVES` 3 per player (`out` = no respawn), over
   when all players are out; `restartMatch()`; the world stands still while over; things
   that happened go to `world.events` (also shot/superReady/matchStart/matchOver for sounds) (spawn/death/step/impact/hit/heal)
-  via `emit`, read with `takeEvents()`; also box/boxHit/boxBreak/coin. Snapshots carry medpacks
-  (`m`), boxes (`b`) and coins (`c`).
+  via `emit`, read with `takeEvents()`; also box/boxHit/boxBreak/coin. `death` carries
+  `killer` (shooter id), `boxBreak` carries `by` (for the pass XP). Snapshots carry medpacks
+  (`m`), boxes (`b`) and coins (`c`). `addPlayer(def, x, y, team, style)` / `setStyle`:
+  cosmetics on the entity (`skin`/`trail`/`title`/`badge`, the skin goes into `look`),
+  never used by the simulation.
 - `src/net.lua` — discovery (`Net.newFinder`: query to broadcast + every address of the
   own /24 on UDP 27016 every 2 s, hosts answer with mode/players; one short-lived socket
   per 32 addresses because queries to absent hosts block the send buffer for ~3 s;
   use `socket.udp4()` + bind "0.0.0.0": `socket.udp()` + "*" becomes IPv6 on Android and
   sendto IPv4 fails with "hostname nor servname provided"), enet LAN server (runs next to the World on the host: hello → player,
   input per step, events reliable + 30 Hz snapshots unreliable, 6 s timeout) and client
-  (hello/input/rowdy; input `fire` is a counter so lost packets lose no shot). Version
+  (hello/input/rowdy; input `fire` is a counter so lost packets lose no shot; hello and
+  rowdy carry `style` = cosmetic ids, cleaned by `cleanStyle`; `Net.FIELDS` ends with
+  skin/trail/title/badge; `Net.PROTOCOL` 3 since the Yard Pass). Version
   check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
   `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
   refused with a reason ("The host has a newer build (52): restart to update"), different
@@ -138,7 +146,39 @@ the official LÖVE for Android 11.5 (same MTP path).
   name). Start: only the Shotgunner (`STARTER`, no `price`); Gunner 150, Sniper 300, Robot 500
   (`price` in `src/rowdies.lua`). Coins: own `coin` events (boxes) + round reward on
   `matchOver` (`REWARD`: win 30, draw 10, loss 5, waves 5 per cleared wave), added in
-  main.lua's `playEvents` — so LAN clients earn on their own device too.
+  main.lua's `playEvents` — so LAN clients earn on their own device too. `Profile.grant(name)`:
+  a rowdy for free (pass reward).
+- `src/seasons.lua` — Yard Pass data, checked on load like rowdies.lua: `Seasons.list`
+  (id, name, `starts` date - shown from then on, so a season can ship early - `tierXp`,
+  `tiers` = one reward each: `{coins}`, `{rowdy}` (already owned: `DUPLICATE_COINS`),
+  `{cosmetic}`), `XP` table (win 100 / draw 60 / loss 40, waves 40 + 20 per cleared wave,
+  kill 10, chest 5, first win of the day 100, daily 150, weekly 600), `BONUS_XP`/
+  `BONUS_COINS` after the last tier, challenge pools `daily`/`weekly` (`{id, kind, n, rowdy,
+  mode}`; kinds kills/wins/rounds/coins/chests/supers/medpacks/waves), `describe`.
+  Season 1 "Garden Party" (starts 2026-10-05, 30 tiers x 1200 XP); tier 10 is the Robot as
+  a stand-in for the season's new rowdy (a Gardener - needs art first).
+- `src/pass.lua` — Yard Pass progress in its own `pass.txt` (NOT profile.txt: an older
+  build after a bad update rewrites profile.txt with coins + rowdies only; checked: build
+  53 leaves pass.txt alone): XP per season, claimed tiers, bonus count, selected season
+  (default newest), first-win date, today's dailies (+ rerolls used) and the weekly
+  (picked with a Park-Miller generator seeded by the date / Monday of the week, rowdy
+  challenges only once that rowdy is unlocked), owned + equipped cosmetics. `onEvent`,
+  `roundStart`, `onRoundOver` (returns the breakdown for the result screen), `claim`,
+  `claimBonus`, `claimable`, `reroll`, `level`, `style`, `skinFor`, `equip`.
+  `Pass.clock` can be replaced in tests. All XP goes into the selected season.
+- `src/passview.lua` — pass screen: tier track (cards, scrolls sideways: drag/wheel/arrow
+  keys, `dragged` like the picker), tap = claim (sound `claim` + spark burst), Claim all,
+  daily challenges with a Swap button, weekly, season switcher (only with 2+ seasons).
+  `PassView.drawBar` is also used by the lobby and the result screen.
+- `src/cosmetics.lua` — cosmetics data, checked on load: skins (`rowdy` + `hue`/`sat`/
+  `bright`/`tint` through a shader in assets.lua, or their own `image`), trails
+  (`color`, `style` leaf/spark/bubble, drawn in bullet.lua), pedestals (`flowerpot`),
+  badges (`icon`, `color`), titles. Unknown ids (another build over LAN) = default.
+- `src/decor.lua` — drawing of badges, pedestals, titles and the pass reward icons
+  (`Decor.drawReward`).
+- `src/wardrobe.lua` — STYLE screen: skin for the shown rowdy (arrows switch rowdy),
+  trail, pedestal, badge, title; locked ones dark ("Win it in the Yard Pass"). From the
+  lobby (STYLE, key Y) and the picker cards' "Skins" button (also between rounds).
 - `src/loot.lua` — drawing of loot boxes (treasure chest, shake/flash on hit, HP bar), coins
   (fly out, spin, blink), coin icon/counter and padlock for the menus
 - `src/medpack.lua` — medpack drawing (comic box + red cross, bob, pop-in, blinks last 3 s);
@@ -150,12 +190,16 @@ the official LÖVE for Android 11.5 (same MTP path).
   mouse wheel (`love.wheelmoved` → `Picker.wheel`), touch drag (`Picker.drag`; a touch that
   scrolled more than 12 units sets `Picker.dragged` and its release taps nothing), arrows
   (up/down = one row); `Picker.reveal()` scrolls the selected card into view
-- `src/result.lua` — end-of-round screen (title, scoreboard, buttons)
+- `src/result.lua` — end-of-round screen (title, scoreboard with badge + title, coins, Yard
+  Pass XP: parts, a bar filling over 1.5 s, "TIER 8!", completed challenges, buttons)
 - `src/menu.lua` — start screen in mobile-game lobby style: chosen rowdy big on a pedestal
   (arrows switch, ROWDIES opens the card picker), mode card bottom right (tap: list of all
   modes, solo + LAN), PLAY button (UNLOCK + price for a locked rowdy, grey if too few coins),
-  coin counter next to the logo; landscape + portrait layouts; last rowdy + mode saved
-  in `lobby.txt`. Keys: left/right rowdy, up/down mode, Enter play, B cards
+  coin counter next to the logo; YARD PASS button (season, tier, XP bar, red dot while
+  something is claimable) and STYLE button; the rowdy with its skin, the equipped
+  pedestal, badge (next to the name) and title (under the stats); landscape + portrait
+  layouts; last rowdy + mode saved in `lobby.txt`. Keys: left/right rowdy, up/down mode,
+  Enter play, B cards, P pass, Y style
 - `conf.lua` — title "Yard Wars", identity "yard-wars" (save folder), 1280x720 resizable window.
   Until build 46 the identity had another name; conf.lua is never replaced by an update, so
   devices installed by hand before keep their old save folder (and progress) until they
@@ -163,8 +207,10 @@ the official LÖVE for Android 11.5 (same MTP path).
 - `src/assets.lua` — tilesheet quads (Kenney) + comic sprites; the image list comes from
   `src/rowdies.lua` (every entry + `Rowdies.bot`, `comic.image`): top view required (clear
   error if missing), side view optional; `Assets.look(def)` → plain-data look (image name,
-  origin, muzzle; usable without graphics), `Assets.drawPortrait` (rowdy picture for menus,
-  top view), `Assets.drawStanding` (side view on the lobby pedestal, false if none)
+  origin, muzzle; usable without graphics; `Assets.look(def, skin)` adds the skin's image/
+  hue), `Assets.drawPortrait` (rowdy picture for menus, top view), `Assets.drawStanding`
+  (side view on the lobby pedestal, false if none), both with an optional skin id;
+  `Assets.beginSkin(look)` sets the hue/tint shader (Rowdy:draw uses it)
 - `src/arena.lua` — 40x24 tiles (64px), left half defined and mirrored to the right;
   walls (solid, 2x2), crates (solid), bushes (hiding, 2x2); `resolveCircle`, `hitsSolid`,
   raycast, `hasLineOfSight`, `randomOpenPoint`, spawns
@@ -203,7 +249,7 @@ the official LÖVE for Android 11.5 (same MTP path).
 - `src/sound.lua` — sound effects synthesized at startup (sfxr-style layers: square/saw/
   sine/triangle/noise with pitch slides + envelopes; no files): per-rowdy shots, hit/hurt,
   impact, death, spawn, super, superReady chime, heal, round start, victory/defeat/draw, click,
-  box/boxHit/boxBreak, coin, unlock.
+  box/boxHit/boxBreak, coin, unlock, tierUp, claim.
   `Sound.play(name, x, y)`: quieter with distance from the own rowdy, panned; same sound
   not faster than 35 ms; M mutes (touch: speaker button top right on every screen, the
   minimap moves left for it); the setting is saved in `sound.txt`. ~70 ms to build on desktop (~220 ms without JIT).
@@ -293,6 +339,18 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 - Open: `love.event.quit("restart")` on Android (if it fails, the
   update is still used at the next start), manual install of an updater build on the
   tablet.
+
+## Yard Pass status (2026-10-05, not committed/published yet)
+- Free season pass, phases 1-3 of the plan: XP/tiers/challenges/pass screen, cosmetics
+  (skins, trail, pedestal, badge, title; LAN shows the others' skins), season 1 content +
+  website section. Tested on desktop: headless test of Pass (XP totals, first win, challenge
+  counters + filters, date-seeded choice, reroll, claims incl. rowdy unlock, bonus tiers,
+  save/load), screenshot harness (lobby/pass/style/result/picker, landscape + portrait),
+  LAN host + client (XP on both sides, cosmetics both ways), build 53 refused with the
+  version message and leaves pass.txt alone, smoke tests duel/team/waves.
+- Open: the season's new rowdy (Gardener with a water-hose spray) needs Gemini art, then
+  the rowdies.lua checklist and tier 10 -> `{ rowdy = "Gardener" }`. NOT yet on a device
+  (touch drag on the track, shader on GLES).
 
 ## Next-step ideas
 1. (done: super attack with charge meter + touch button; confirmed on the Pixel 2026-10-01)

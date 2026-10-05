@@ -89,13 +89,13 @@ function World.newMatch(mode)
 end
 
 -- Events: { kind, t = world time, x, y, ... }
---   spawn {id}  death {id, color}  step {id}  bullet {see newBullets}
+--   spawn {id}  death {id, color, killer}  step {id}  bullet {see newBullets}
 --   impact {bullet, owner, color} (wall/crate)  hit {bullet, owner, victim}
 --   heal {id, amount} (picked up a medpack)  super {id} (fired a super, at the muzzle)
 --   matchOver {winner}  matchStart  shot {id} (normal attack, at the muzzle)
 --   superReady {id} (super meter just filled up)
 --   box {box} (a loot box appeared)  boxHit {box, bullet, owner, pierce}
---   boxBreak {box}  coin {id, value} (player `id` picked up a coin)
+--   boxBreak {box, by (who broke it)}  coin {id, value} (player `id` picked up a coin)
 function World:emit(kind, data)
     data.kind = kind
     data.t = self.time
@@ -128,10 +128,22 @@ end
 function World:get(id) return self.byId[id] end
 
 -- def: an entry of src/rowdies.lua. team: default TEAM_PLAYERS (all players together);
--- World:newTeam() gives a team of its own (free-for-all).
-function World:addPlayer(def, x, y, team)
-    return self:add(Player.new(x, y, Assets.look(def), def.stats),
+-- World:newTeam() gives a team of its own (free-for-all). style: the player's Yard Pass
+-- cosmetics { skin, trail, title, badge } (ids from src/cosmetics.lua, see setStyle).
+function World:addPlayer(def, x, y, team, style)
+    local p = self:add(Player.new(x, y, Assets.look(def), def.stats),
         team or World.TEAM_PLAYERS, def)
+    self:setStyle(p, style)
+    return p
+end
+
+-- Cosmetics of a player: only for drawing (the skin is part of its look, the trail
+-- colours its bullets) and the scoreboards; the simulation ignores them. They travel
+-- to LAN clients with the entity (Net.FIELDS).
+function World:setStyle(p, style)
+    style = style or {}
+    p.skin, p.trail, p.title, p.badge = style.skin, style.trail, style.title, style.badge
+    p.look = Assets.look(p.def, p.skin)
 end
 
 function World:newTeam()
@@ -155,10 +167,11 @@ function World:playerSpawn()
     return bx, by
 end
 
--- Switch a player to another rowdy (resets HP and ammo)
-function World:setRowdy(p, def)
+-- Switch a player to another rowdy (resets HP and ammo); style: as in addPlayer
+function World:setRowdy(p, def, style)
     p.def = def
     p:setRowdy(Assets.look(def), def.stats)
+    if style then self:setStyle(p, style) else p.look = Assets.look(def, p.skin) end
 end
 
 function World:isOpponent(a, b) return a.team ~= b.team end
@@ -257,7 +270,7 @@ end
 
 -- Team fight: the humans play together against the bots - a player joins blue and
 -- takes a bot's place (red only once blue has no bots left)
-function World:addTeamPlayer(def)
+function World:addTeamPlayer(def, style)
     local n = self:playersPerTeam()
     local team = ((n[World.TEAM_BLUE] or 0) < World.TEAM_SIZE) and World.TEAM_BLUE
         or World.TEAM_RED
@@ -270,7 +283,7 @@ function World:addTeamPlayer(def)
         end
     end
     if not x then x, y = freeSpot(self, team) end
-    return self:addPlayer(def, x, y, team)
+    return self:addPlayer(def, x, y, team, style)
 end
 
 -- A player leaves; in a team fight a bot takes over the empty place
@@ -370,7 +383,7 @@ local function updateBullets(self, dt)
                     bullet = b.id, owner = b.owner.id, pierce = b.pierce })
                 local shooter = self.byId[b.owner.id]
                 if shooter and not b.super then shooter:addCharge(b.damage) end
-                if victim:takeDamage(b.damage) then
+                if victim:takeDamage(b.damage, b.owner.id) then
                     victim.deaths = victim.deaths + 1
                     if shooter then shooter.kills = shooter.kills + 1 end
                     if shooter and not shooter.isBot then self:dropMedpack(victim.x, victim.y) end
@@ -473,7 +486,7 @@ function World:hitBox(box, b)
     for i, other in ipairs(self.boxes) do
         if other == box then table.remove(self.boxes, i) break end
     end
-    self:emit("boxBreak", { x = box.x, y = box.y, box = box.id })
+    self:emit("boxBreak", { x = box.x, y = box.y, box = box.id, by = b.owner.id })
     local turn = math.random() * math.pi * 2
     for i = 1, World.BOX_COINS do
         local a = turn + i / World.BOX_COINS * math.pi * 2
