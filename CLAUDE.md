@@ -286,11 +286,13 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   manifest rejected, crashing build marked bad (fallback to the built-in build), no server /
   timeout / 301 -> "update failed: ..." while the lobby keeps working.
 - moto g67: build 38 + uncommitted changes installed by hand (has the updater) 2026-10-04.
+- Pixel 6a: build 53 (the published .love, unzipped) installed by hand 2026-10-05; before it
+  had a build from 2026-10-01 with the old identity, so its progress started fresh.
 - Published to the real server: builds 47, 51 (replaced), build 53 (2026-10-04, current:
   rowdy entry check + LAN version check; latest.txt + .love answer 200 over plain http).
 - Open: `love.event.quit("restart")` on Android (if it fails, the
   update is still used at the next start), manual install of an updater build on the
-  tablet and the Pixel 6a.
+  tablet.
 
 ## Next-step ideas
 1. (done: super attack with charge meter + touch button; confirmed on the Pixel 2026-10-01)
