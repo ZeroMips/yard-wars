@@ -334,13 +334,15 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 - moto g67: build 38 + uncommitted changes installed by hand (has the updater) 2026-10-04.
 - Pixel 6a: build 53 (the published .love, unzipped) installed by hand 2026-10-05; before it
   had a build from 2026-10-01 with the old identity, so its progress started fresh.
-- Published to the real server: builds 47, 51 (replaced), build 53 (2026-10-04, current:
-  rowdy entry check + LAN version check; latest.txt + .love answer 200 over plain http).
+- Published to the real server: builds 47, 51 (replaced), 53 (2026-10-04: rowdy entry
+  check + LAN version check), build 57 (2026-10-05, current: Yard Pass, protocol 3;
+  latest.txt + .love answer 200 over plain http). Website with the Yard Pass section
+  uploaded the same day.
 - Open: `love.event.quit("restart")` on Android (if it fails, the
   update is still used at the next start), manual install of an updater build on the
   tablet.
 
-## Yard Pass status (2026-10-05, not committed/published yet)
+## Yard Pass status (2026-10-05, published as build 57)
 - Free season pass, phases 1-3 of the plan: XP/tiers/challenges/pass screen, cosmetics
   (skins, trail, pedestal, badge, title; LAN shows the others' skins), season 1 content +
   website section. Tested on desktop: headless test of Pass (XP totals, first win, challenge
