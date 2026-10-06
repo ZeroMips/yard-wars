@@ -59,6 +59,9 @@ existing things that break it.
   to the web root; robots.txt/sitemap.xml there are the hoster's). Shows the newest build
   from updates/latest.txt. Never mention the game that inspired this one on the website or
   in the shipped code - describe it on its own terms.
+  "Our promise" section (after "What is it?", linked from the hero): the charter's main
+  points for parents, linking CHARTER.md on GitHub. Only promise what is true NOW (no
+  "toy weapons" while the guns still look real).
   Legal pages (German law): `impressum.html` (§ 5 DDG, noindex) and `datenschutz.html`
   (DSGVO: no cookies/tracking/third-party content; manitu server logs ~21 days with IP
   anonymization switched on in the manitu panel + AV-Vertrag; the game's update check; LAN

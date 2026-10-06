@@ -106,6 +106,9 @@ section.wrap { padding-top: 72px; } /* section.wrap: .wrap alone resets padding 
   padding: 18px 22px;
 }
 .box ol, .box ul { padding-left: 1.3em; margin: 0.4em 0; }
+.promise { margin-top: 18px; gap: 18px; }
+.promise .box h3 { margin-top: 0.2em; }
+.promise .box p { margin-bottom: 0.3em; }
 .box li { margin-bottom: 0.45em; }
 .note { color: var(--muted); font-size: 0.92rem; }
 
