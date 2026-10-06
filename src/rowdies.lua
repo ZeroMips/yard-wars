@@ -102,9 +102,10 @@ local Rowdies = {
                             bulletSpeed = 700, radius = 10, wallRadius = 6, pierce = true } },
     },
     {
-        -- STAND-IN LOOK (shotgunner) until the Pirate art exists - don't publish like this
+        -- Bought with coins (not a pass reward). Origin + muzzle by hand: the tool took
+        -- the fuse spark as the muzzle; bombs start at the bomb in his hands.
         name = "Pirate", role = "Bombs over walls", price = 450, shot = "shot_throw",
-        comic = { image = "shotgunner", origin = { 48, 91 }, muzzle = { 88, 0.5 } },
+        comic = { image = "pirate", origin = { 55, 98 }, muzzle = { 55, 0 } },
         stats = { speed = 235, hp = 100, damage = 40, range = 420, bulletSpeed = 520,
                   reload = 0.7, maxAmmo = 2, ammoRefill = 1.9, lob = true, blast = 90,
                   bulletColor = { 1, 0.55, 0.15 },

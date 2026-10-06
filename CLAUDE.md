@@ -45,7 +45,7 @@ the official LÖVE for Android 11.5 (same MTP path).
   keeps only the current build in /updates/ (deletes the others before and after the
   upload) and uploads it once more as `download/yard-wars.zip` for the website;
   `download/.htaccess` rewrites `yard-wars.love` to that zip (a .love is a zip). Keep the
-  package small: the lobby side views are 256-colour PNGs (~130 KB for all five). `.gitattributes` keeps CLAUDE.md, tools/ and website/ out of
+  package small: the lobby side views are 256-colour PNGs (~160 KB for all six). `.gitattributes` keeps CLAUDE.md, tools/ and website/ out of
   the package (export-ignore).
 - Website (`website/`: index.html, style.css, images/): static page about the game and its
   installation at http://yardwars.zeromips.org/, uploaded by `tools/publish-site.sh` (FTPS
@@ -236,8 +236,8 @@ the official LÖVE for Android 11.5 (same MTP path).
 - `src/rowdies.lua` — data: Gunner (pistol), Shotgunner (5 pellets, 0.6 rad cone),
   Sniper (range 720), Robot (tank: 160 HP, slow, heavy single bolts), Gardener (season 1
   rowdy, 400 coins or free at pass tier 10: spray of 4 water drops, narrow cone; origin set
-  by hand - the water tank made the tool's guess too low), Pirate (bomb thrower, 450 coins;
-  STAND-IN look = the Shotgunner's sprite until its art exists - don't publish before),
+  by hand - the water tank made the tool's guess too low), Pirate (bomb thrower, 450 coins,
+  bought only; origin/muzzle by hand: the tool took the fuse spark as the muzzle),
   plus `Rowdies.bot` (enemy look + stats).
   Bombs: `lob = true` + `blast` (radius) on an attack (normal or super): the bomb flies
   `aimDist` far (clamped `Bullet.MIN_THROW`..range, measured from the body centre:
@@ -372,15 +372,15 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   gardener-prompts.md there). Tested on desktop (lobby, picker, staged firing + super).
 - Open: NOT yet on a device (touch drag on the track, skin shader on GLES).
 
-## Pirate status (2026-10-06, committed, NOT published)
+## Pirate status (2026-10-06)
 - Bomb mechanics done and tested on desktop: headless (lands where aimed over a wall,
   only the radius is hit, chests too, range clamp, super radius), screenshot harness
   (arc + shadow + fuse, preview arc + blast circle, explosion), LAN (client throw lands
   at the aimed distance via `shotDist`), smoke tests.
-- Open: the art (prompt in ~/Downloads/yard-wars-art-new/pirate-prompts.md: one sheet,
-  top + side view with the face towards the camera) -> make_comic_sprites (check the
-  origin), replace the stand-in `comic` line; touch throw distance on a phone; maybe the
-  rowdy of season 2.
+- Art: one Gemini sheet (1376x768, so `--scale 0.253` = 0.27 x 720/768 for the same size),
+  the side half mirrored (Gemini drew it facing left); prompt in
+  ~/Downloads/yard-wars-art-new/pirate-prompts.md.
+- Open: touch throw distance on a phone.
 
 ## Next-step ideas
 1. (done: super attack with charge meter + touch button; confirmed on the Pixel 2026-10-01)
