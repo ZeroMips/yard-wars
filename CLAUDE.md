@@ -352,7 +352,8 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 - Pixel 6a: build 53 (the published .love, unzipped) installed by hand 2026-10-05; before it
   had a build from 2026-10-01 with the old identity, so its progress started fresh.
 - Published to the real server: builds 47, 51 (replaced), 53 (2026-10-04: rowdy entry
-  check + LAN version check), 57 (2026-10-05: Yard Pass, protocol 3), build 59 (2026-10-05, current: Gardener;
+  check + LAN version check), 57 (2026-10-05: Yard Pass, protocol 3), 59 (2026-10-05: Gardener), build 62 (2026-10-06,
+  current: Pirate + bombs, protocol 4;
   latest.txt + .love answer 200 over plain http). Website with the Yard Pass section
   uploaded the same day.
 - Open: `love.event.quit("restart")` on Android (if it fails, the
