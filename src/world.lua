@@ -95,6 +95,7 @@ end
 --   matchOver {winner}  matchStart  shot {id} (normal attack, at the muzzle)
 --   superReady {id} (super meter just filled up)
 --   box {box} (a loot box appeared)  boxHit {box, bullet, owner, pierce}
+--   blast {radius, bullet, owner, super} (a bomb exploded)
 --   boxBreak {box, by (who broke it)}  coin {id, value} (player `id` picked up a coin)
 function World:emit(kind, data)
     data.kind = kind
@@ -339,6 +340,43 @@ local function bulletHits(b, victim)
     return dx * dx + dy * dy < r * r
 end
 
+-- Bullet (or bomb) b hits a rowdy at x, y: damage, super charge, kills, medpack, lives
+local function damage(self, b, victim, x, y)
+    self:emit("hit", { x = x, y = y, victim = victim.id,
+        bullet = b.id, owner = b.owner.id, pierce = b.pierce or b.lob })
+    local shooter = self.byId[b.owner.id]
+    if shooter and not b.super then shooter:addCharge(b.damage) end
+    if victim:takeDamage(b.damage, b.owner.id) then
+        victim.deaths = victim.deaths + 1
+        if shooter then shooter.kills = shooter.kills + 1 end
+        if shooter and not shooter.isBot then self:dropMedpack(victim.x, victim.y) end
+        -- Waves: out of lives = no more respawns
+        if self.mode.waves and not victim.isBot and victim.deaths >= World.LIVES then
+            victim.out = true
+        end
+    end
+end
+
+-- A bomb lands: every opponent and loot box within the blast radius takes its damage
+-- once (walls don't shield - it's an explosion right there)
+local function explode(self, b)
+    local x, y, r = b.x, b.y, b.blast
+    self:emit("blast", { x = x, y = y, radius = r, bullet = b.id, owner = b.owner.id,
+        super = b.super })
+    for _, e in ipairs(self.entities) do
+        local reach = r + e.radius
+        if e.team ~= b.team and not e.dead and (e.x - x) ^ 2 + (e.y - y) ^ 2 < reach * reach then
+            damage(self, b, e, e.x, e.y)
+        end
+    end
+    local boxes = {}
+    for _, box in ipairs(self.boxes) do boxes[#boxes + 1] = box end
+    local reach = r + World.BOX_HALF
+    for _, box in ipairs(boxes) do
+        if (box.x - x) ^ 2 + (box.y - y) ^ 2 < reach * reach then self:hitBox(box, b) end
+    end
+end
+
 local function updateBullets(self, dt)
     local bullets = self.bullets
     for i = #bullets, 1, -1 do
@@ -347,6 +385,15 @@ local function updateBullets(self, dt)
         local speed = math.sqrt(b.vx * b.vx + b.vy * b.vy)
         local steps = math.max(1, math.ceil(speed * dt / 10))
         local remove = false
+
+        if b.lob then -- a bomb flies over everything and explodes where it lands
+            b:update(math.min(dt, b.life))
+            if b.life <= 1e-9 then
+                explode(self, b)
+                remove = true
+            end
+            steps = 0
+        end
 
         for _ = 1, steps do
             b:update(dt / steps)
@@ -379,19 +426,7 @@ local function updateBullets(self, dt)
                 end
             end
             if victim then
-                self:emit("hit", { x = b.x, y = b.y, victim = victim.id,
-                    bullet = b.id, owner = b.owner.id, pierce = b.pierce })
-                local shooter = self.byId[b.owner.id]
-                if shooter and not b.super then shooter:addCharge(b.damage) end
-                if victim:takeDamage(b.damage, b.owner.id) then
-                    victim.deaths = victim.deaths + 1
-                    if shooter then shooter.kills = shooter.kills + 1 end
-                    if shooter and not shooter.isBot then self:dropMedpack(victim.x, victim.y) end
-                    -- Waves: out of lives = no more respawns
-                    if self.mode.waves and not victim.isBot and victim.deaths >= World.LIVES then
-                        victim.out = true
-                    end
-                end
+                damage(self, b, victim, b.x, b.y)
                 if b.pierce then
                     b.hitIds = b.hitIds or {}
                     b.hitIds[victim.id] = true
@@ -564,7 +599,8 @@ local function newBullets(self)
             b.id, b.t0 = self.nextBulletId, self.time
             self.nextBulletId = self.nextBulletId + 1
             self:emit("bullet", { id = b.id, owner = b.owner.id, x = b.x, y = b.y,
-                vx = b.vx, vy = b.vy, life = b.life, radius = b.radius, super = b.super })
+                vx = b.vx, vy = b.vy, life = b.life, radius = b.radius, super = b.super,
+                lob = b.lob })
         end
     end
 end

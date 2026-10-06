@@ -28,6 +28,8 @@ function Rowdy:applyStats(stats)
     self.bulletSpeed = stats.bulletSpeed or Bullet.speed
     self.barColor    = stats.barColor or self.barColor or { 0.3, 0.9, 0.3 }
     self.bulletColor = stats.bulletColor or self.bulletColor or { 1, 0.85, 0.2 }
+    self.lob         = stats.lob               -- throws bombs (see src/rowdies.lua)
+    self.blast       = stats.blast             -- their explosion radius
     self.super       = stats.super             -- nil: no super attack
 end
 
@@ -158,7 +160,8 @@ function Rowdy:muzzle()
 end
 
 -- Fire `attack.pellets` projectiles in a cone of `attack.spread` (attack: self for the
--- normal attack, or self.super); spread >= pi: an even ring from the body centre
+-- normal attack, or self.super); spread >= pi: an even ring from the body centre.
+-- Bombs (attack.lob) fly self.aimDist far (where the player aimed).
 local function fire(self, bullets, attack)
     local bx, by = self:muzzle()
     local n, spread = attack.pellets or 1, attack.spread or 0
@@ -171,13 +174,28 @@ local function fire(self, bullets, attack)
             a = a + t * spread
             if not ring then a = a + (math.random() - 0.5) * spread * 0.15 end
         end
-        bullets[#bullets + 1] = Bullet.new(bx, by, a, self, attack ~= self and attack or nil)
+        bullets[#bullets + 1] = Bullet.new(bx, by, a, self, attack ~= self and attack or nil,
+            self:throwDist())
     end
     self.cooldown = self.reload
     self.recoil = 1
     self.flashTimer = FLASH_TIME
     self.flashSize = (n > 1) and 1.5 or 1
     if attack == self then self:emit("shot", { id = self.id, x = bx, y = by }) end
+end
+
+-- How far a bomb flies from the muzzle: aimDist is measured from the body centre, so
+-- the bomb lands where the player aimed (nil = full range)
+function Rowdy:throwDist()
+    return self.aimDist and (self.aimDist - self.look.muzzle[1])
+end
+
+-- Where a bomb of `attack` (self or self.super) would land now
+function Rowdy:landing(attack)
+    local mx, my = self:muzzle()
+    local range = attack.range or Bullet.range
+    local d = math.max(Bullet.MIN_THROW, math.min(range, self:throwDist() or range))
+    return mx + math.cos(self.aim) * d, my + math.sin(self.aim) * d
 end
 
 -- One attack: uses one ammo bar and fires `pellets` projectiles in a cone.
@@ -222,6 +240,25 @@ function Rowdy:drawAim(useSuper)
     local a = (useSuper and self.super) or self
     local spread, radius = a.spread or 0, a.radius or Bullet.radius
     local c = (a == self) and self.bulletColor or SUPER_COLOR
+    if a.lob then -- bomb: a dotted arc to where it lands and the blast circle there
+        local mx, my = self:muzzle()
+        local lx, ly = self:landing(a)
+        local d = math.sqrt((lx - mx) ^ 2 + (ly - my) ^ 2)
+        local h = math.min(140, d * 0.35)
+        love.graphics.setColor(c[1], c[2], c[3], 0.75)
+        for i = 1, 11 do
+            local t = i / 12
+            love.graphics.circle("fill", mx + (lx - mx) * t, my + (ly - my) * t - math.sin(t * math.pi) * h, 2.5)
+        end
+        love.graphics.setColor(c[1], c[2], c[3], 0.18)
+        love.graphics.circle("fill", lx, ly, a.blast)
+        love.graphics.setColor(c[1], c[2], c[3], 0.7)
+        love.graphics.setLineWidth(2)
+        love.graphics.circle("line", lx, ly, a.blast)
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(1, 1, 1, 1)
+        return
+    end
     if spread >= math.pi then -- ring attack: a circle of its range around the rowdy
         local r = a.range or Bullet.range
         love.graphics.setColor(c[1], c[2], c[3], 0.12)

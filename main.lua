@@ -87,6 +87,7 @@ local finder              -- looks for LAN games while the join screen is open
 local accumulator = 0
 local pendingFire    -- a shot requested since the last simulation step
 local pendingSuper   -- same for the super attack
+local pendingDist    -- how far that shot's bomb flies (input.aimDist of its frame)
 local input -- last controls reading
 local muteTouch -- id of the touch that pressed the mute button (its release is ignored)
 local hudFont
@@ -435,6 +436,22 @@ local function playEvents(events)
             else
                 Sound.play("hit", ev.x, ev.y)
             end
+        elseif ev.kind == "blast" then -- a bomb exploded: fire ring, smoke, sparks
+            local r = tonumber(ev.radius) or 90
+            Effects.ring(ev.x, ev.y, r, { 1, 0.55, 0.15 })
+            Effects.ring(ev.x, ev.y, r * 0.6, { 1, 0.9, 0.4 })
+            Effects.burst(ev.x, ev.y, { 1, 0.5, 0.1 }, math.floor(10 + r / 10))
+            Effects.burst(ev.x, ev.y, { 0.35, 0.33, 0.32 }, 8)
+            Effects.sparks(ev.x, ev.y, 14, { 1, 0.85, 0.4 }, 320)
+            for i = 1, 8 do
+                local a = i / 8 * math.pi * 2
+                Effects.puff(ev.x + math.cos(a) * r * 0.5, ev.y + math.sin(a) * r * 0.5)
+            end
+            if player then
+                local d = math.sqrt((player.x - ev.x) ^ 2 + (player.y - ev.y) ^ 2)
+                if d < 500 then Camera.shake((ev.super and 9 or 6) * (1 - d / 500)) end
+            end
+            Sound.play(ev.super and "blastBig" or "blast", ev.x, ev.y)
         elseif ev.kind == "box" then
             Effects.ring(ev.x, ev.y, 50, GOLD)
             Sound.play("box", ev.x, ev.y)
@@ -493,11 +510,13 @@ local function updateWorld(dt)
     readInput()
     if input.fire then pendingFire = true end -- kept until a step uses it
     if input.super then pendingSuper = true end
+    if input.fire or input.super then pendingDist = input.aimDist end
 
     accumulator = math.min(accumulator + dt, World.TICK * MAX_STEPS)
     while accumulator >= World.TICK do
         accumulator = accumulator - World.TICK
         local inputs = { [localId] = { dx = input.dx, dy = input.dy, aim = input.aim,
+            aimDist = (pendingFire or pendingSuper) and pendingDist or input.aimDist,
             fire = pendingFire, super = pendingSuper } }
         pendingFire, pendingSuper = nil, nil
         if server then server:addInputs(inputs) end
@@ -522,7 +541,7 @@ local function updateClient()
     readInput()
     client:sendInput(input)
     -- Show the own aim right away (the host's answer takes a moment)
-    if input.aim then player.aim = input.aim end
+    if input.aim then player.aim, player.aimDist = input.aim, input.aimDist end
 end
 
 function love.update(dt)

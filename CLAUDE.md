@@ -120,7 +120,8 @@ the official LÖVE for Android 11.5 (same MTP path).
   input per step, events reliable + 30 Hz snapshots unreliable, 6 s timeout) and client
   (hello/input/rowdy; input `fire` is a counter so lost packets lose no shot; hello and
   rowdy carry `style` = cosmetic ids, cleaned by `cleanStyle`; `Net.FIELDS` ends with
-  skin/trail/title/badge; `Net.PROTOCOL` 3 since the Yard Pass). Version
+  skin/trail/title/badge; `Net.PROTOCOL` 3 since the Yard Pass, 4 since bombs: input
+  `dist`/`shotDist`, bullet `lob`, `blast` event). Version
   check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
   `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
   refused with a reason ("The host has a newer build (52): restart to update"), different
@@ -225,13 +226,24 @@ the official LÖVE for Android 11.5 (same MTP path).
     of the aim stick, charge ring, glows when full) = same gestures for the super.
     No in-game rowdy switching (chosen before each round; switching healed fully)
   - desktop super: hold right mouse button or E to aim, release to fire
+  - `aimDist` (bombs): touch = how far the aim stick is pulled (dead zone = shortest
+    throw, rim = full range), tap = distance to the auto-aim spot, desktop = mouse
+    distance; main.lua keeps it with the pending shot (`pendingDist`), the LAN client
+    sends it as `shotDist` too (a lost packet loses no distance)
 - `src/rowdy.lua` — base class: stats, HP, ammo (3 bars + refill timer), shoot
   (pellets/spread), aim beam/cone (`drawAim`), health/ammo bars, animation (pose, walk
   sway/bob, breathing, recoil, muzzle flash, spawn pop-in); logic reports via `self:emit`
 - `src/rowdies.lua` — data: Gunner (pistol), Shotgunner (5 pellets, 0.6 rad cone),
   Sniper (range 720), Robot (tank: 160 HP, slow, heavy single bolts), Gardener (season 1
   rowdy, 400 coins or free at pass tier 10: spray of 4 water drops, narrow cone; origin set
-  by hand - the water tank made the tool's guess too low), plus `Rowdies.bot` (enemy look + stats). Supers (`stats.super`,
+  by hand - the water tank made the tool's guess too low), Pirate (bomb thrower, 450 coins;
+  STAND-IN look = the Shotgunner's sprite until its art exists - don't publish before),
+  plus `Rowdies.bot` (enemy look + stats).
+  Bombs: `lob = true` + `blast` (radius) on an attack (normal or super): the bomb flies
+  `aimDist` far (clamped `Bullet.MIN_THROW`..range, measured from the body centre:
+  `Rowdy:throwDist`/`landing`) in an arc over walls, rowdies and chests and explodes
+  (world `explode`: every opponent and chest in the radius once, walls don't shield;
+  `blast` event). Pirate: 40 dmg, radius 90, 2 bombs; super "Powder Keg" 90 dmg, radius 170. Supers (`stats.super`,
   charged by normal-attack damage, `charge` = damage needed): Gunner "Bullet Storm" (10-bullet
   fan), Shotgunner "Wrecking Ball" (big slow piercing ball), Sniper "Railgun" (fast,
   long, piercing), Gardener "Sprinkler Burst" (fan of 7 big piercing drops), Robot "Shockwave" (ring of 16 bolts: `spread` >= pi means an even ring
@@ -359,6 +371,16 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   halves into ~/Downloads/yard-wars-art-new/top|side/gardener.png; prompts in
   gardener-prompts.md there). Tested on desktop (lobby, picker, staged firing + super).
 - Open: NOT yet on a device (touch drag on the track, skin shader on GLES).
+
+## Pirate status (2026-10-06, committed, NOT published)
+- Bomb mechanics done and tested on desktop: headless (lands where aimed over a wall,
+  only the radius is hit, chests too, range clamp, super radius), screenshot harness
+  (arc + shadow + fuse, preview arc + blast circle, explosion), LAN (client throw lands
+  at the aimed distance via `shotDist`), smoke tests.
+- Open: the art (prompt in ~/Downloads/yard-wars-art-new/pirate-prompts.md: one sheet,
+  top + side view with the face towards the camera) -> make_comic_sprites (check the
+  origin), replace the stand-in `comic` line; touch throw distance on a phone; maybe the
+  rowdy of season 2.
 
 ## Next-step ideas
 1. (done: super attack with charge meter + touch button; confirmed on the Pixel 2026-10-01)

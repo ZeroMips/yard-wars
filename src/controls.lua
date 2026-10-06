@@ -5,10 +5,13 @@
 --   right half : aim stick. Drag = aim beam, RELEASE = fire.
 --                Drag back to the center before releasing = cancel.
 --                Quick TAP = auto-aim at the nearest enemy in range and fire.
+--                Bombs (src/rowdies.lua: lob) fly as far as the stick is pulled
+--                (desktop: to the mouse pointer; a tap: to the target).
 --   super button (left of the aim stick, glows when charged): same gestures as the
 --                aim stick, but for the super attack
 -- Both input modes return the same table, so the rest of the game doesn't care.
 local Camera = require("src.camera")
+local Bullet = require("src.bullet")
 
 local Controls = {}
 
@@ -43,6 +46,15 @@ local function stickVector(s)
     if len < 1 then return 0, 0, 0 end
     local mag = math.min(1, len / stickRadius())
     return dx / len * mag, dy / len * mag, mag
+end
+
+-- How far a bomb flies for a stick pulled `mag` (0..1) far: the dead zone throws the
+-- shortest distance, the rim the attack's full range
+local function throwDist(player, super, mag)
+    local attack = (super and player.super) or player
+    local range = attack.range or player.range or Bullet.range
+    local f = math.max(0, math.min(1, (mag - DEADZONE) / (1 - DEADZONE)))
+    return Bullet.MIN_THROW + (range - Bullet.MIN_THROW) * f
 end
 
 -- Forget all active touches and queued shots (new game / back to menu)
@@ -93,7 +105,8 @@ function Controls.touchreleased(id, x, y)
         if aim.maxMag < DEADZONE then
             pendingShot = { tap = true, super = aim.super }        -- quick tap: auto-aim
         elseif mag >= DEADZONE then
-            pendingShot = { angle = lastAim, super = aim.super }   -- released: fire
+            pendingShot = { angle = lastAim, super = aim.super,     -- released: fire
+                            mag = mag }
         end                                                        -- in the center: cancel
         aim.id = nil
     end
@@ -125,8 +138,9 @@ local function trackTarget(target)
     end
 end
 
--- Angle to the target if it is within attack range, else nil. Aims where a walking
--- target will be when the shot arrives (fast shots barely lead, slow ones more).
+-- Angle to the target if it is within attack range, else nil (+ the distance to the aimed
+-- spot, for bombs). Aims where a walking target will be when the shot arrives (fast
+-- shots barely lead, slow ones more).
 -- (Walls are ignored on purpose: a quick tap should always fire at someone.)
 local function autoAimAngle(player, target, super)
     if not target then return nil end
@@ -140,13 +154,15 @@ local function autoAimAngle(player, target, super)
         local t = math.min(math.sqrt((px - player.x) ^ 2 + (py - player.y) ^ 2), range) / speed
         px, py = target.x + track.vx * t, target.y + track.vy * t
     end
-    return math.atan2(py - player.y, px - player.x)
+    return math.atan2(py - player.y, px - player.x),
+        math.sqrt((px - player.x) ^ 2 + (py - player.y) ^ 2)
 end
 
 -- ---- Read input for this frame ----
 -- target: the enemy to auto-aim at on a tap (nil if none / not visible)
--- Returns { dx, dy, aim (angle or nil), fire (bool), super (bool: fire the super),
---           aiming (show the beam), aimingSuper (show the super's aim) }
+-- Returns { dx, dy, aim (angle or nil), aimDist (px a bomb flies, or nil), fire (bool),
+--           super (bool: fire the super), aiming (show the beam), aimingSuper (show the
+--           super's aim) }
 function Controls.get(player, target)
     trackTarget(target)
     if Controls.touchMode then
@@ -157,13 +173,15 @@ function Controls.get(player, target)
         -- aim gesture never starts from a stale direction.
         if not aim.id and not pendingShot then lastAim = player.aim end
 
-        local angle, fire = nil, false
+        local angle, fire, dist = nil, false, nil
         if aim.id then
             if aim.maxMag < DEADZONE then
                 -- finger down but not dragged yet: preview the auto-aim direction
-                angle = autoAimAngle(player, target, aim.super) or lastAim
+                angle, dist = autoAimAngle(player, target, aim.super)
+                angle = angle or lastAim
             else
                 angle = lastAim
+                dist = throwDist(player, aim.super, select(3, stickVector(aim)))
             end
         elseif dx ~= 0 or dy ~= 0 then
             lastAim = math.atan2(dy, dx)            -- face walking direction
@@ -174,14 +192,16 @@ function Controls.get(player, target)
         if pendingShot then
             if pendingShot.super then super = true else fire = true end
             if pendingShot.tap then
-                angle = autoAimAngle(player, target, pendingShot.super) or lastAim
+                angle, dist = autoAimAngle(player, target, pendingShot.super)
+                angle = angle or lastAim
             else
                 angle = pendingShot.angle
+                dist = throwDist(player, pendingShot.super, pendingShot.mag)
             end
             pendingShot = nil
         end
         if angle then lastAim = angle end
-        return { dx = dx, dy = dy, aim = angle, fire = fire, super = super,
+        return { dx = dx, dy = dy, aim = angle, aimDist = dist, fire = fire, super = super,
                  aiming = aim.id ~= nil and not aim.super,
                  aimingSuper = aim.id ~= nil and aim.super }
     end
@@ -199,6 +219,7 @@ function Controls.get(player, target)
     return {
         dx = dx, dy = dy,
         aim = math.atan2(my - player.y, mx - player.x),
+        aimDist = math.sqrt((mx - player.x) ^ 2 + (my - player.y) ^ 2),
         fire = love.mouse.isDown(1) and not held,
         super = super,
         aiming = not held,

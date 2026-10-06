@@ -6,7 +6,10 @@
 --   client -> host   hello {rowdy, style, protocol, content, build}
 --                                           reliable, once after connecting; style =
 --                                           Yard Pass cosmetics {skin, trail, title, badge}
---                    input {dx, dy, aim, fire, super} unreliable, every frame; fire
+--                    input {dx, dy, aim, dist, shotDist, fire, super} unreliable,
+--                                             every frame; dist = how far a bomb would
+--                                             fly, shotDist = that of the last shot (kept,
+--                                             so a lost packet loses no distance); fire
 --                                             and super are counters, so a lost packet
 --                                             loses no shot
 --                    rowdy {index, style}   reliable
@@ -39,7 +42,8 @@ local CH_RELIABLE, CH_FAST = 0, 1
 -- list indexes, the client draws with its own stats). Bump PROTOCOL when messages or
 -- Net.FIELDS change; the content id is a hash of src/rowdies.lua's data, so a new or
 -- changed rowdy needs no manual bump. Builds may differ otherwise (git checkout <-> phone).
-Net.PROTOCOL = 3 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
+Net.PROTOCOL = 4 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
+                 -- 4: bombs (input dist, bullet lob, blast event)
 
 local function serialize(v, out)
     if type(v) == "table" then
@@ -231,8 +235,11 @@ function Server:addInputs(inputs)
         local i = c.input
         if c.id and i then
             local fire, super = tonumber(i.fire) or 0, tonumber(i.super) or 0
+            local shot = fire ~= c.fireSeen or super ~= (c.superSeen or 0)
+            local dist = tonumber(shot and i.shotDist or i.dist)
             inputs[c.id] = { dx = clampAxis(i.dx), dy = clampAxis(i.dy),
-                aim = tonumber(i.aim), fire = fire ~= c.fireSeen,
+                aim = tonumber(i.aim), aimDist = dist and math.max(0, math.min(5000, dist)),
+                fire = fire ~= c.fireSeen,
                 super = super ~= (c.superSeen or 0) }
             c.fireSeen, c.superSeen = fire, super
         end
@@ -491,8 +498,9 @@ function Client:sendInput(input)
     if self.state ~= "joined" then return end
     if input.fire then self.fire = self.fire + 1 end
     if input.super then self.super = self.super + 1 end
+    if input.fire or input.super then self.shotDist = input.aimDist end
     send(self.peer, { type = "input", dx = input.dx, dy = input.dy, aim = input.aim,
-        fire = self.fire, super = self.super })
+        dist = input.aimDist, shotDist = self.shotDist, fire = self.fire, super = self.super })
     self.host:flush()
 end
 

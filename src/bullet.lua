@@ -9,13 +9,20 @@ Bullet.speed = 600
 Bullet.life = 0.8
 Bullet.range = Bullet.speed * Bullet.life -- 480px
 
+Bullet.MIN_THROW = 60 -- px: the shortest throw of a bomb
+Bullet.BOMB_RADIUS = 9 -- drawn size of a bomb without its own radius
+
 -- attack: the parameters of this shot (rowdy stats or its super, see
 -- src/rowdies.lua); defaults to the owner's normal attack.
-function Bullet.new(x, y, angle, owner, attack)
+-- dist: how far a bomb (attack.lob) flies, clamped to MIN_THROW..range (nil = range)
+function Bullet.new(x, y, angle, owner, attack, dist)
     local super = attack ~= nil
     attack = attack or owner
     local speed = attack.bulletSpeed or Bullet.speed
     local range = attack.range or Bullet.range
+    if attack.lob then -- flies `dist`, then explodes (src/world.lua)
+        range = math.max(Bullet.MIN_THROW, math.min(range, tonumber(dist) or range))
+    end
     return setmetatable({
         x = x, y = y,
         vx = math.cos(angle) * speed,
@@ -29,6 +36,9 @@ function Bullet.new(x, y, angle, owner, attack)
         -- size against walls/crates (default: radius); smaller lets a big ball graze them
         wallRadius = super and attack.wallRadius or nil,
         pierce = super and attack.pierce, -- flies through rowdies (hits each one once)
+        lob = attack.lob,       -- a bomb: over everything, explodes when life runs out
+        blast = attack.lob and attack.blast or nil,
+        flight = range / speed, -- whole flight time (a bomb's arc is drawn from it)
         super = super,
         color = owner.bulletColor,
         trail = owner.trail, -- Yard Pass trail (src/cosmetics.lua), only drawn
@@ -41,7 +51,45 @@ function Bullet:update(dt)
     self.life = self.life - dt
 end
 
+-- A bomb in flight: a shadow on the ground where it is, the bomb above it on an arc
+-- (highest in the middle of the flight), with a sparking fuse
+function Bullet:drawBomb()
+    local r = math.max(self.radius or 0, Bullet.BOMB_RADIUS)
+    local p = math.max(0, math.min(1, 1 - self.life / self.flight))
+    local speed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
+    local h = math.sin(p * math.pi) * math.min(140, self.flight * speed * 0.35)
+    local k = 1 - 0.4 * h / 140
+    love.graphics.setColor(0, 0, 0, 0.3)
+    love.graphics.ellipse("fill", self.x, self.y, r * k, r * 0.55 * k)
+    local x, y = self.x, self.y - h
+    local spin = p * 9
+    love.graphics.setColor(0.08, 0.08, 0.1)
+    love.graphics.circle("fill", x, y, r + 2)
+    love.graphics.setColor(0.22, 0.22, 0.28)
+    love.graphics.circle("fill", x, y, r)
+    if self.super then -- powder keg: gold bands
+        love.graphics.setColor(1, 0.75, 0.2)
+        love.graphics.setLineWidth(3)
+        love.graphics.line(x - r * 0.9, y - r * 0.35, x + r * 0.9, y - r * 0.35)
+        love.graphics.line(x - r * 0.9, y + r * 0.35, x + r * 0.9, y + r * 0.35)
+        love.graphics.setLineWidth(1)
+    end
+    love.graphics.setColor(1, 1, 1, 0.35)
+    love.graphics.circle("fill", x - r * 0.35, y - r * 0.35, r * 0.28)
+    local fx, fy = x + math.cos(spin) * r, y + math.sin(spin) * r
+    love.graphics.setColor(0.6, 0.45, 0.25)
+    love.graphics.setLineWidth(2)
+    love.graphics.line(x + math.cos(spin) * r * 0.7, y + math.sin(spin) * r * 0.7, fx, fy)
+    love.graphics.setLineWidth(1)
+    love.graphics.setBlendMode("add")
+    local flicker = 0.6 + 0.4 * math.sin(love.timer.getTime() * 40)
+    love.graphics.setColor(1, 0.7, 0.2, flicker)
+    love.graphics.circle("fill", fx, fy, 3 + 2 * flicker)
+    love.graphics.setBlendMode("alpha")
+end
+
 function Bullet:draw()
+    if self.lob then return self:drawBomb() end
     local r, c = self.radius or Bullet.radius, self.color
     if self.super then -- glowing trail + halo
         love.graphics.setBlendMode("add")

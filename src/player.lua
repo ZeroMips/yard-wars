@@ -10,21 +10,23 @@ function Player.new(x, y, image, stats)
     return self
 end
 
--- input = { dx, dy, aim (angle or nil), fire, super, aiming } from src/controls.lua
+-- input = { dx, dy, aim (angle or nil), aimDist (px, how far a bomb flies; nil = its
+-- full range), fire, super, aiming } from src/controls.lua
 function Player:update(dt, input, bullets)
     self:tick(dt)
     if self.dead then return end
 
     self:move(input.dx, input.dy, dt)
     if input.aim then self.aim = input.aim end
+    self.aimDist = tonumber(input.aimDist)
 
     -- A requested shot is remembered for a moment (with its direction), so it
     -- still fires if it arrives while reloading. Same for a super (it needs no ammo,
     -- only the attack cooldown).
-    if input.super then self.superBuffer = { angle = self.aim, time = 0.25 } end
+    if input.super then self.superBuffer = { angle = self.aim, dist = self.aimDist, time = 0.25 } end
     local sb = self.superBuffer
     if sb then
-        self.aim = sb.angle
+        self.aim, self.aimDist = sb.angle, sb.dist
         if self:shootSuper(bullets) then
             self.superBuffer = nil
         else
@@ -33,10 +35,10 @@ function Player:update(dt, input, bullets)
         end
     end
 
-    if input.fire then self.fireBuffer = { angle = self.aim, time = 0.25 } end
+    if input.fire then self.fireBuffer = { angle = self.aim, dist = self.aimDist, time = 0.25 } end
     local fb = self.fireBuffer
     if fb then
-        self.aim = fb.angle
+        self.aim, self.aimDist = fb.angle, fb.dist
         if self:shoot(bullets) then
             self.fireBuffer = nil
         else

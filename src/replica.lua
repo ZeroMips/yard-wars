@@ -99,12 +99,14 @@ end
 function Replica:addEvent(ev)
     if ev.kind == "bullet" then
         self.bullets[ev.id] = { owner = ev.owner, x0 = ev.x, y0 = ev.y, vx = ev.vx, vy = ev.vy,
-            t0 = ev.t, tEnd = ev.t + (ev.life or 1), radius = ev.radius, super = ev.super }
+            t0 = ev.t, tEnd = ev.t + (ev.life or 1), radius = ev.radius, super = ev.super,
+            lob = ev.lob == true, flight = tonumber(ev.life) or 1 }
         return
     end
-    -- A hit ends the bullet, unless it pierces (flies on through rowdies and boxes)
+    -- A hit ends the bullet, unless it pierces (flies on through rowdies and boxes);
+    -- a bomb ends with its blast
     local hit = ev.kind == "hit" or ev.kind == "boxHit"
-    if (ev.kind == "impact" or (hit and not ev.pierce)) and self.bullets[ev.bullet] then
+    if (ev.kind == "impact" or ev.kind == "blast" or (hit and not ev.pierce)) and self.bullets[ev.bullet] then
         local b = self.bullets[ev.bullet]
         b.tEnd = math.min(b.tEnd, ev.t)
     end
@@ -209,6 +211,7 @@ function Replica:update()
                 vx = b.vx, vy = b.vy, radius = b.radius, super = b.super,
                 color = owner and owner.bulletColor or { 1, 0.85, 0.2 },
                 trail = owner and owner.trail,
+                lob = b.lob, flight = b.flight, life = b.t0 + b.flight - t,
             }, Bullet)
         elseif remoteT > b.tEnd and ownT > b.tEnd then
             self.bullets[id] = nil

@@ -31,12 +31,18 @@
 --   reload       minimum delay between two attacks (s)
 --   maxAmmo      ammo bars
 --   ammoRefill   seconds until one ammo bar refills
+--   lob          true: throws bombs - they fly in an arc over walls, rowdies and
+--                chests to where the player aims (how far the aim stick is pulled /
+--                the mouse distance, at most `range`) and explode there
+--   blast        radius of the explosion (px) of a lob attack: every opponent and chest
+--                in it takes `damage` once
 --   super        special attack, charged by dealing damage (optional):
 --                  name, description, charge (damage needed to fill the meter), and
 --                  like above pellets, spread, damage, range, bulletSpeed, plus
 --                  radius (bullet size, default 6), wallRadius (size against walls and
 --                  crates, default radius) and pierce (flies through rowdies);
---                  spread >= pi: a ring around the rowdy instead of a cone
+--                  spread >= pi: a ring around the rowdy instead of a cone; lob +
+--                  blast as above
 local Rowdies = {
     {
         name = "Gunner", role = "All-rounder", price = 150, shot = "shot_gunner",
@@ -95,6 +101,17 @@ local Rowdies = {
                             charge = 170, pellets = 7, spread = 1.2, damage = 20, range = 460,
                             bulletSpeed = 700, radius = 10, wallRadius = 6, pierce = true } },
     },
+    {
+        -- STAND-IN LOOK (shotgunner) until the Pirate art exists - don't publish like this
+        name = "Pirate", role = "Bombs over walls", price = 450, shot = "shot_throw",
+        comic = { image = "shotgunner", origin = { 48, 91 }, muzzle = { 88, 0.5 } },
+        stats = { speed = 235, hp = 100, damage = 40, range = 420, bulletSpeed = 520,
+                  reload = 0.7, maxAmmo = 2, ammoRefill = 1.9, lob = true, blast = 90,
+                  bulletColor = { 1, 0.55, 0.15 },
+                  super = { name = "Powder Keg", description = "Huge blast, thrown over walls",
+                            charge = 160, damage = 90, range = 400, bulletSpeed = 450,
+                            radius = 16, lob = true, blast = 170 } },
+    },
 }
 
 -- The enemy bots (not playable, so not part of the list above)
@@ -114,10 +131,10 @@ local COMIC = { image = STRING, origin = TABLE, muzzle = TABLE }
 local STATS = { speed = NUMBER, hp = NUMBER, damage = NUMBER, pellets = NUMBER,
                 spread = NUMBER, range = NUMBER, bulletSpeed = NUMBER, reload = NUMBER,
                 maxAmmo = NUMBER, ammoRefill = NUMBER, super = TABLE,
-                barColor = TABLE, bulletColor = TABLE }
+                barColor = TABLE, bulletColor = TABLE, lob = BOOL, blast = NUMBER }
 local SUPER = { name = STRING, description = STRING, charge = NUMBER, pellets = NUMBER,
                 spread = NUMBER, damage = NUMBER, range = NUMBER, bulletSpeed = NUMBER,
-                radius = NUMBER, wallRadius = NUMBER, pierce = BOOL }
+                radius = NUMBER, wallRadius = NUMBER, pierce = BOOL, lob = BOOL, blast = NUMBER }
 
 local function validate(def, label)
     local function fail(msg) error("src/rowdies.lua: " .. label .. ": " .. msg, 0) end
@@ -148,6 +165,12 @@ local function validate(def, label)
     if sup then
         check(sup, SUPER, "stats.super.")
         if not sup.name or not sup.charge then fail("stats.super needs name and charge") end
+    end
+    for _, a in ipairs({ { def.stats, "stats." }, { sup, "stats.super." } }) do
+        local t = a[1]
+        if t and (t.lob or t.blast) and not (t.lob and t.blast and t.blast > 0) then
+            fail(a[2] .. "lob and " .. a[2] .. "blast belong together (blast = radius > 0)")
+        end
     end
     if def.price and (def.price <= 0 or def.price % 1 ~= 0) then
         fail("price must be a whole number > 0 (none = free)")
