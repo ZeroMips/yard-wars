@@ -114,6 +114,7 @@ local function lobbyLayout()
         L.k = math.min(1.25, room / 560)
         L.cx, L.cy = sw / 2, 60 + room * 0.5
     end
+    L.version = { x = 0, y = sh - 30, w = 320, h = 30 } -- tapped 7 times: test mode
     local k = L.k
     L.prev = { x = L.cx - 230 * k - 36, y = L.cy - 36, w = 72, h = 72 }
     L.next = { x = L.cx + 230 * k - 36, y = L.cy - 36, w = 72, h = 72 }
@@ -151,7 +152,8 @@ end
 
 local function inside(r, x, y) return x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h end
 
--- Screen position -> "play", "prev", "next", "rowdies", "pass", "style", "mode", "pick" + index (mode
+-- Screen position -> "play", "prev", "next", "rowdies", "pass", "style", "mode", "version"
+-- (the build line, see Profile.testMode), "pick" + index (mode
 -- list), "close" (mode list: the OK button), "outside" (mode list: elsewhere) or nil
 function Menu.hit(x, y)
     local ui = uiScale()
@@ -164,7 +166,7 @@ function Menu.hit(x, y)
         return inside(L.close, x, y) and "close" or "outside"
     end
     local L = lobbyLayout()
-    for _, name in ipairs({ "play", "mode", "rowdies", "pass", "style", "prev", "next" }) do
+    for _, name in ipairs({ "play", "mode", "rowdies", "pass", "style", "prev", "next", "version" }) do
         if inside(L[name], x, y) and (name ~= "pass" or Pass.season()) then return name end
     end
 end
@@ -484,6 +486,14 @@ function Menu.draw(fonts, touchMode)
     love.graphics.setFont(fonts.text)
     love.graphics.setColor(1, 1, 1, 0.35)
     love.graphics.print(Menu.version .. (Menu.status and "  -  " .. Menu.status or ""), 8, L.sh - 24)
+    if Profile.testMode then
+        local w = fonts.text:getWidth("TEST MODE") + 16
+        local x = 16 + fonts.text:getWidth(Menu.version .. (Menu.status and "  -  " .. Menu.status or ""))
+        love.graphics.setColor(0.85, 0.15, 0.15, 0.9)
+        love.graphics.rectangle("fill", x, L.sh - 27, w, 24, 6, 6)
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.print("TEST MODE", x + 8, L.sh - 24)
+    end
     if not touchMode and not L.portrait then
         love.graphics.setColor(1, 1, 1, 0.45)
         love.graphics.printf("Left/Right rowdy  -  Up/Down mode  -  Enter play  -  P pass  -  Esc quit",

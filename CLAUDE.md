@@ -149,6 +149,11 @@ the official LÖVE for Android 11.5 (same MTP path).
   `matchOver` (`REWARD`: win 30, draw 10, loss 5, waves 5 per cleared wave), added in
   main.lua's `playEvents` — so LAN clients earn on their own device too. `Profile.grant(name)`:
   a rowdy for free (pass reward).
+  Hidden test mode (`Profile.testMode`, file `testmode.txt`): tap the build line bottom
+  left in the lobby 7 times within 4 s (on/off, red "TEST MODE" tag). Every rowdy
+  (`Profile.isUnlocked`) and every cosmetic (`Pass.owns`) counts as owned, nothing is
+  written to profile.txt / pass.txt's `own`; rewards and challenge choice use the real
+  ownership (`Profile.owns`).
 - `src/seasons.lua` — Yard Pass data, checked on load like rowdies.lua: `Seasons.list`
   (id, name, `starts` date - shown from then on, so a season can ship early - `tierXp`,
   `tiers` = one reward each: `{coins}`, `{rowdy}` (already owned: `DUPLICATE_COINS`),

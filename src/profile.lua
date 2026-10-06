@@ -14,9 +14,22 @@ Profile.REWARD = { win = 30, draw = 10, loss = 5, wave = 5 }
 Profile.coins = 0
 Profile.unlocked = {} -- name -> true (bought ones)
 
+-- Test mode (hidden: tap the version line in the lobby 7 times): every rowdy and every
+-- Yard Pass cosmetic counts as owned (src/pass.lua), without writing that into
+-- profile.txt / pass.txt - switched off, the real progress is back. Remembered in
+-- testmode.txt.
+Profile.testMode = false
+
 local FILE = "profile.txt"
+local TEST_FILE = "testmode.txt"
+
+function Profile.setTestMode(on)
+    Profile.testMode = on
+    if on then love.filesystem.write(TEST_FILE, "on\n") else love.filesystem.remove(TEST_FILE) end
+end
 
 function Profile.load()
+    Profile.testMode = love.filesystem.getInfo(TEST_FILE) ~= nil
     if not love.filesystem.getInfo(FILE) then return end
     for line in (love.filesystem.read(FILE) or ""):gmatch("[^\n]+") do
         local key, rest = line:match("^(%S+)%s*(.*)$")
@@ -36,7 +49,13 @@ function Profile.save()
         table.concat(names, " ") .. "\n")
 end
 
+-- Usable (bought, free, or test mode)
 function Profile.isUnlocked(def)
+    return Profile.testMode or Profile.owns(def)
+end
+
+-- Really bought or free (ignores the test mode)
+function Profile.owns(def)
     return Profile.unlocked[def.name] == true or not def.price
 end
 

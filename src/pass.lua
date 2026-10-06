@@ -222,7 +222,7 @@ local function give(r)
         return "+" .. r.coins .. " coins"
     elseif r.rowdy then
         local def = rowdyDef(r.rowdy)
-        if Profile.isUnlocked(def) then
+        if Profile.owns(def) then -- (not test mode: that unlocks nothing for real)
             Profile.addCoins(Seasons.DUPLICATE_COINS)
             return "+" .. Seasons.DUPLICATE_COINS .. " coins (you already have the " .. r.rowdy .. ")"
         end
@@ -272,7 +272,7 @@ end
 local function available(c)
     if not c.rowdy then return true end
     local def = rowdyDef(c.rowdy)
-    return def and Profile.isUnlocked(def)
+    return def and Profile.owns(def)
 end
 
 -- Add `count` challenges from `pool` to `list`, not ones already in it
@@ -467,7 +467,8 @@ end
 
 ---------------------------------------------------------------------------- cosmetics
 
-function Pass.owns(id) return Pass.owned[id] == true end
+-- Owned (or test mode, src/profile.lua)
+function Pass.owns(id) return Pass.owned[id] == true or (Profile.testMode and Cosmetics.get(id) ~= nil) end
 
 -- Equipped skin id for a rowdy definition (nil = default look)
 function Pass.skinFor(def)

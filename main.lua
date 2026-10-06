@@ -310,9 +310,24 @@ local function play()
     if entry.join then openJoin() else newGame(entry.mode, entry.host) end
 end
 
+-- Hidden test mode (Profile.testMode): 7 taps on the build line within 4 seconds
+local versionTaps = {}
+local function tapVersion()
+    local now = love.timer.getTime()
+    versionTaps[#versionTaps + 1] = now
+    while versionTaps[1] and now - versionTaps[1] > 4 do table.remove(versionTaps, 1) end
+    if #versionTaps < 7 then return end
+    versionTaps = {}
+    Profile.setTestMode(not Profile.testMode)
+    Sound.play(Profile.testMode and "unlock" or "click")
+    Menu.notice = Profile.testMode and "Test mode: all rowdies and Yard Pass items unlocked"
+        or "Test mode off"
+end
+
 -- Start screen actions (from Menu.hit / Menu.keypressed)
 local function menuAction(what, i)
     if what == "play" then play()
+    elseif what == "version" then tapVersion()
     elseif what == "rowdies" then openPicker("lobby")
     elseif what == "pass" then openPass()
     elseif what == "style" then openStyle("menu", Menu.rowdy)
