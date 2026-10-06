@@ -1,5 +1,5 @@
 -- Yard Pass screen: the season's tier track (scrolls sideways; tap a reached tier to
--- claim its reward), today's challenges with a swap button, the weekly challenge and a
+-- claim its reward), the open challenges with a swap button, the big challenge and a
 -- season switcher (old seasons can still be finished). Data: src/seasons.lua, progress:
 -- src/pass.lua. Mouse (wheel scrolls), touch (drag scrolls, tap claims) and keyboard
 -- (left/right scroll, up/down season, Enter claims all, Esc back).
@@ -54,20 +54,20 @@ local function layout()
     local cw = math.min(sw - 48, 820)
     local cx = (sw - cw) / 2
     local y = TRACK_Y + CARD_H + 30
-    L.dailyHead = y
+    L.openHead = y
     y = y + 26
     L.rows = {}
     local list = Pass.challenges()
     local rowH = 50
     for i, c in ipairs(list) do
-        if c.weekly then
+        if c.big then
             y = y + 6
-            L.weeklyHead = y
+            L.bigHead = y
             y = y + 26
         end
         local r = { x = cx, y = y, w = cw, h = rowH, c = c }
-        if not c.weekly and Pass.canReroll(c.index) then
-            r.reroll = { x = cx + cw - 96, y = y + 8, w = 88, h = rowH - 16 }
+        if not c.big and Pass.canSwap(c.index) then
+            r.swap = { x = cx + cw - 96, y = y + 8, w = 88, h = rowH - 16 }
         end
         L.rows[i] = r
         y = y + rowH + 8
@@ -99,6 +99,7 @@ function PassView.reveal()
 end
 
 function PassView.open()
+    Pass.refresh(true) -- done challenges make room for new ones
     PassView.message = nil
     particles = {}
     PassView.reveal()
@@ -121,7 +122,7 @@ function PassView.drag(dx)
     layout()
 end
 
--- Screen position -> "tier" + n, "bonus", "reroll" + i, "claimAll", "back", "prev",
+-- Screen position -> "tier" + n, "bonus", "swap" + i, "claimAll", "back", "prev",
 -- "next" or nil
 function PassView.hit(x, y)
     local ui = uiScale()
@@ -141,7 +142,7 @@ function PassView.hit(x, y)
         end
     end
     for _, r in ipairs(L.rows) do
-        if inside(r.reroll, x, y) then return "reroll", r.c.index end
+        if inside(r.swap, x, y) then return "swap", r.c.index end
     end
 end
 
@@ -294,7 +295,7 @@ local function drawChallenge(r, fonts)
     local c = r.c
     panel(r, 0.85)
     local def = c.def
-    local xp = c.weekly and Seasons.XP.weekly or Seasons.XP.daily
+    local xp = c.big and Seasons.XP.big or Seasons.XP.challenge
     love.graphics.setFont(fonts.text)
     love.graphics.setColor(c.done and DONE_GREEN or { 1, 1, 1 })
     local textW = r.w - 260
@@ -304,9 +305,9 @@ local function drawChallenge(r, fonts)
     love.graphics.print(c.progress .. " / " .. def.n, r.x + textW - 40, r.y + 26)
     love.graphics.setColor(GOLD)
     love.graphics.printf((c.done and "DONE  " or "") .. "+" .. xp .. " XP", r.x + textW, r.y + 15,
-        r.reroll and 140 or 230, "right")
-    if r.reroll then
-        local b = r.reroll
+        r.swap and 140 or 230, "right")
+    if r.swap then
+        local b = r.swap
         love.graphics.setColor(0.25, 0.45, 0.8)
         love.graphics.rectangle("fill", b.x, b.y, b.w, b.h, 8, 8)
         love.graphics.setColor(1, 1, 1)
@@ -366,14 +367,13 @@ function PassView.draw(fonts)
         love.graphics.setFont(fonts.text)
         local x0 = L.rows[1] and L.rows[1].x or 24
         love.graphics.setColor(1, 0.82, 0.3)
-        love.graphics.print("DAILY CHALLENGES", x0, L.dailyHead)
+        love.graphics.print("CHALLENGES", x0, L.openHead)
         love.graphics.setColor(1, 1, 1, 0.55)
-        local left = Seasons.REROLLS - Pass.rerolls
-        love.graphics.print("new ones every day" .. (left > 0 and ("  -  " .. left .. " swap left") or ""),
-            x0 + 200, L.dailyHead)
-        if L.weeklyHead then
+        love.graphics.print("take your time - a new one comes when you finish one" ..
+            (Pass.swaps > 0 and ("  -  " .. Pass.swaps .. " swap") or ""), x0 + 140, L.openHead)
+        if L.bigHead then
             love.graphics.setColor(1, 0.82, 0.3)
-            love.graphics.print("WEEKLY CHALLENGE", x0, L.weeklyHead)
+            love.graphics.print("BIG CHALLENGE", x0, L.bigHead)
         end
         for _, r in ipairs(L.rows) do drawChallenge(r, fonts) end
     end

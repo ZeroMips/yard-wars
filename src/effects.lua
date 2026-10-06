@@ -50,7 +50,27 @@ function Effects.heal(x, y)
     end
 end
 
--- Expanding ring (death, respawn)
+-- A rowdy is knocked out: a cartoon "poof" - white smoke clouds and spinning stars
+-- (CHARTER.md: no blood, no bursting bodies)
+function Effects.poof(x, y)
+    for i = 1, 9 do
+        local a = i / 9 * math.pi * 2 + math.random() * 0.4
+        local v = 40 + math.random() * 50
+        local l = 0.55 + math.random() * 0.25
+        add { kind = "cloud", layer = "above", x = x + math.cos(a) * 8, y = y + math.sin(a) * 8,
+              vx = math.cos(a) * v, vy = math.sin(a) * v - 20,
+              life = l, max = l, size = 10 + math.random() * 6 }
+    end
+    for i = 1, 5 do
+        local a = -math.pi / 2 + (i - 3) * 0.5
+        local l = 0.8 + math.random() * 0.2
+        add { kind = "star", layer = "above", x = x, y = y - 10,
+              vx = math.cos(a) * 110, vy = math.sin(a) * 110,
+              life = l, max = l, size = 6 + math.random() * 3, spin = (math.random() - 0.5) * 10 }
+    end
+end
+
+-- Expanding ring (knockout, respawn)
 function Effects.ring(x, y, radius, color)
     add { kind = "ring", layer = "below", x = x, y = y, radius = radius,
           life = 0.4, max = 0.4, color = color or { 1, 1, 1 } }
@@ -99,6 +119,28 @@ local function draw(layer)
                 love.graphics.setColor(0.4, 1, 0.4, k)
                 love.graphics.rectangle("fill", p.x - w, p.y - s, 2 * w, 2 * s)
                 love.graphics.rectangle("fill", p.x - s, p.y - w, 2 * s, 2 * w)
+            elseif p.kind == "cloud" then -- white smoke ball with a soft grey edge
+                local r = p.size * (1.4 - 0.6 * k)
+                love.graphics.setColor(0.55, 0.55, 0.6, 0.6 * k)
+                love.graphics.circle("fill", p.x, p.y + 2, r + 2)
+                love.graphics.setColor(1, 1, 1, 0.9 * k)
+                love.graphics.circle("fill", p.x, p.y, r)
+            elseif p.kind == "star" then -- yellow cartoon star
+                local pts = {}
+                local rot = (p.spin or 0) * (1 - k)
+                for j = 0, 9 do
+                    local a = rot + j / 10 * math.pi * 2 - math.pi / 2
+                    local d = (j % 2 == 0) and p.size or p.size * 0.45
+                    pts[#pts + 1] = p.x + math.cos(a) * d
+                    pts[#pts + 1] = p.y + math.sin(a) * d
+                end
+                love.graphics.setColor(1, 0.85, 0.2, k)
+                for j = 1, 10 do -- as triangles from the centre (the outline isn't convex)
+                    local n = j % 10 + 1
+                    love.graphics.polygon("fill", p.x, p.y, pts[2 * j - 1], pts[2 * j], pts[2 * n - 1], pts[2 * n])
+                end
+                love.graphics.setColor(0.45, 0.3, 0.05, k)
+                love.graphics.polygon("line", pts)
             elseif p.kind == "blob" then
                 local c = p.color
                 love.graphics.setColor(c[1], c[2], c[3], k)

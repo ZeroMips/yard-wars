@@ -165,23 +165,29 @@ existing things that break it.
   (id, name, `starts` date - shown from then on, so a season can ship early - `tierXp`,
   `tiers` = one reward each: `{coins}`, `{rowdy}` (already owned: `DUPLICATE_COINS`),
   `{cosmetic}`), `XP` table (win 100 / draw 60 / loss 40, waves 40 + 20 per cleared wave,
-  kill 10, chest 5, first win of the day 100, daily 150, weekly 600), `BONUS_XP`/
-  `BONUS_COINS` after the last tier, challenge pools `daily`/`weekly` (`{id, kind, n, rowdy,
-  mode}`; kinds kills/wins/rounds/coins/chests/supers/medpacks/waves), `describe`.
+  knockout (`kill`) 10, chest 5, challenge 150, big challenge 600; no first-win-of-the-day
+  bonus - removed for the charter), `BONUS_XP`/`BONUS_COINS` after the last tier,
+  challenge pools `challenges`/`big` (`{id, kind, n, rowdy, mode}`; kinds kills (=
+  knockouts)/wins/rounds/coins/chests/supers/medpacks/waves; ids stay "d."/"w." from the
+  old daily/weekly pools), `OPEN` 3, `SWAPS` 1, `describe` ("Knock out 20 opponents").
   Season 1 "Garden Party" (starts 2026-10-05, 30 tiers x 1200 XP); tier 10 is the Gardener
   (build 57 still gave the Robot there).
 - `src/pass.lua` — Yard Pass progress in its own `pass.txt` (NOT profile.txt: an older
   build after a bad update rewrites profile.txt with coins + rowdies only; checked: build
   53 leaves pass.txt alone): XP per season, claimed tiers, bonus count, selected season
-  (default newest), first-win date, today's dailies (+ rerolls used) and the weekly
-  (picked with a Park-Miller generator seeded by the date / Monday of the week, rowdy
-  challenges only once that rowdy is unlocked), owned + equipped cosmetics. `onEvent`,
-  `roundStart`, `onRoundOver` (returns the breakdown for the result screen), `claim`,
-  `claimBonus`, `claimable`, `reroll`, `level`, `style`, `skinFor`, `equip`.
-  `Pass.clock` can be replaced in tests. All XP goes into the selected season.
+  (default newest), the 3 open challenges + the big one (NOTHING depends on the date -
+  CHARTER.md: they never expire; a done one stays until the next round starts / the pass
+  screen opens - `Pass.refresh(true)` - then a new one takes its place; picked with a
+  Park-Miller generator seeded by the number drawn so far, rowdy challenges only for
+  really owned rowdies), swaps (1 in stock, finishing a challenge gives it back), owned +
+  equipped cosmetics. Reads the old daily/weekly lines (before build 66) as open/big ones.
+  `onEvent`, `roundStart`, `onRoundOver` (returns the breakdown for the result screen),
+  `claim`, `claimBonus`, `claimable`, `swap`, `level`, `style`, `skinFor`, `equip`.
+  `Pass.clock` (only for season start dates) can be replaced in tests. All XP goes into
+  the selected season.
 - `src/passview.lua` — pass screen: tier track (cards, scrolls sideways: drag/wheel/arrow
   keys, `dragged` like the picker), tap = claim (sound `claim` + spark burst), Claim all,
-  daily challenges with a Swap button, weekly, season switcher (only with 2+ seasons).
+  challenges with a Swap button, the big challenge, season switcher (only with 2+ seasons).
   `PassView.drawBar` is also used by the lobby and the result screen.
 - `src/cosmetics.lua` — cosmetics data, checked on load: skins (`rowdy` + `hue`/`sat`/
   `bright`/`tint` through a shader in assets.lua, or their own `image`), trails
@@ -274,7 +280,7 @@ existing things that break it.
 - `src/bullet.lua` — owner/team/damage/color; speed+range read from owner (default range 480)
 - `src/sound.lua` — sound effects synthesized at startup (sfxr-style layers: square/saw/
   sine/triangle/noise with pitch slides + envelopes; no files): per-rowdy shots, hit/hurt,
-  impact, death, spawn, super, superReady chime, heal, round start, victory/defeat/draw, click,
+  impact, poof (knockout), spawn, super, superReady chime, heal, round start, victory/defeat/draw, click,
   box/boxHit/boxBreak, coin, unlock, tierUp, claim.
   `Sound.play(name, x, y)`: quieter with distance from the own rowdy, panned; same sound
   not faster than 35 ms; M mutes (touch: speaker button top right on every screen, the
@@ -282,7 +288,10 @@ existing things that break it.
 - `src/scoreboard.lua` — in-game scoreboard top centre (duel/team: scores with bars to the kill
   target + timer, red in the last 30 s; waves: wave, lives as hearts, bots left; below the
   minimap on narrow screens) and banners (time marks, new wave, lost life, 1 kill to win)
-- `src/effects.lua` — particles: puff, sparks, burst, ring, heal ("+" signs) (`drawBelow`/`drawAbove` layers)
+- `src/effects.lua` — particles: puff, sparks, burst, ring, heal ("+" signs), poof (a
+  knocked-out rowdy: white clouds + yellow stars, no coloured blobs - charter)
+  (`drawBelow`/`drawAbove` layers). On screen it's "knockouts" / "out", never kills/deaths
+  (internally the fields and events keep the names kills/deaths/death).
 - `assets/images/` — `tilesheet.png` (Kenney arena tiles), `comic/<name>.png` (top views),
   `side/<name>.png` (lobby side views)
 - `tools/build.sh`, `tools/publish.sh`, `tools/publish.conf` — packing + signed upload (see
@@ -375,7 +384,7 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 ## Yard Pass status (2026-10-05, published as build 57)
 - Free season pass, phases 1-3 of the plan: XP/tiers/challenges/pass screen, cosmetics
   (skins, trail, pedestal, badge, title; LAN shows the others' skins), season 1 content +
-  website section. Tested on desktop: headless test of Pass (XP totals, first win, challenge
+  website section. Tested on desktop: headless test of Pass (XP totals, challenge
   counters + filters, date-seeded choice, reroll, claims incl. rowdy unlock, bonus tiers,
   save/load), screenshot harness (lobby/pass/style/result/picker, landscape + portrait),
   LAN host + client (XP on both sides, cosmetics both ways), build 53 refused with the

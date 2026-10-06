@@ -110,8 +110,10 @@ local DEFS = {
     hurt         = { { wave = "square", f1 = 240, f2 = 110, dur = 0.14, vol = 0.25, duty = 0.4 },
                      { wave = "noise", f1 = 1, f2 = 1, dur = 0.08, vol = 0.35, lowpass = 0.3 } },
     impact       = { { wave = "noise", f1 = 1, f2 = 1, dur = 0.035, vol = 0.22, lowpass = 0.6 } },
-    death        = { { wave = "square", f1 = 620, f2 = 90, dur = 0.38, vol = 0.22, duty = 0.3 },
-                     { wave = "noise", f1 = 1, f2 = 1, dur = 0.3, vol = 0.35, lowpass = 0.2 } },
+    -- a rowdy is knocked out: soft puff + cartoon slide whistle (no sad or harsh sound)
+    poof         = { { wave = "noise", f1 = 1, f2 = 1, dur = 0.25, vol = 0.35, lowpass = 0.12, attack = 0.02 },
+                     { wave = "sine", f1 = 900, f2 = 1500, dur = 0.12, vol = 0.18, delay = 0.03 },
+                     { wave = "sine", f1 = 1500, f2 = 500, dur = 0.22, vol = 0.18, delay = 0.15 } },
     spawn        = { { wave = "sine", f1 = 300, f2 = 950, dur = 0.25, vol = 0.3, attack = 0.05 },
                      { wave = "noise", f1 = 1, f2 = 1, dur = 0.2, vol = 0.08, lowpass = 0.15, attack = 0.08 } },
     heal         = notes({ { C5, 0.06 }, { E5, 0.06 }, { G5, 0.06 }, { C6, 0.1 } }, "triangle", 0.3),

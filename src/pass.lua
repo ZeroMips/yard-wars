@@ -1,5 +1,5 @@
--- Yard Pass progress on this device: XP per season, claimed tier rewards, the daily and
--- weekly challenges, owned and equipped cosmetics. The data (seasons, rewards,
+-- Yard Pass progress on this device: XP per season, claimed tier rewards, the open
+-- challenges and the big one, owned and equipped cosmetics. The data (seasons, rewards,
 -- challenge pool, XP numbers) is in src/seasons.lua, the screen in src/passview.lua.
 --
 -- Like the coins, XP is earned per device for the own rowdy: main.lua passes the world
@@ -13,9 +13,13 @@
 --   xp <season> <n>
 --   claimed <season> <tier> <tier> ...
 --   bonus <season> <n>               bonus rewards (after the last tier) claimed
---   firstwin <date>                  date of the last first-win-of-the-day bonus
---   day <date> <rerolls used>        followed by "daily <id> <progress> <0|1>" lines
---   week <date of monday>            followed by a "weekly <id> <progress> <0|1>" line
+--   challenge <id> <progress> <0|1>  an open challenge (0|1: done)
+--   big <id> <progress> <0|1>        the big challenge
+--   swaps <n>                        swaps left
+--   drawn <n>                        challenges drawn so far (seed of the next choice)
+-- Before build 66 the challenges were daily/weekly ("day", "daily", "week", "weekly",
+-- "firstwin" lines): daily/weekly ones are taken over as open/big ones, the rest is
+-- dropped (CHARTER.md: nothing expires).
 --   own <id> <id> ...                cosmetics (src/cosmetics.lua)
 --   skin <rowdy name> <id>           equipped skin per rowdy
 --   equip <kind> <id>                equipped trail / pedestal / badge / title
@@ -36,9 +40,10 @@ local function fresh()
     Pass.xp = {}         -- season id -> XP
     Pass.claimed = {}    -- season id -> { [tier] = true }
     Pass.bonus = {}      -- season id -> bonus rewards claimed
-    Pass.firstWin = nil  -- date
-    Pass.day, Pass.rerolls, Pass.dailies = nil, 0, {} -- { id, progress, done }
-    Pass.week, Pass.weeklies = nil, {}
+    Pass.open = {}       -- open challenges { id, progress, done }
+    Pass.big = {}        -- the big challenge (0 or 1 entry, same form)
+    Pass.swaps = Seasons.SWAPS
+    Pass.drawn = 0
     Pass.owned = {}      -- cosmetic id -> true
     Pass.skins = {}      -- rowdy name -> skin id
     Pass.equipped = {}   -- kind -> cosmetic id
@@ -47,23 +52,14 @@ fresh()
 
 local round -- this round's XP for the result screen (Pass.roundStart)
 
----------------------------------------------------------------------------- dates
-
+-- Today (device date): only for a season's start date
 function Pass.today() return os.date("%Y-%m-%d", Pass.clock()) end
-
--- Monday of the current week (the weekly challenge's key)
-function Pass.weekStart()
-    local t = os.date("*t", Pass.clock())
-    local back = (t.wday + 5) % 7 -- wday: 1 = Sunday
-    return os.date("%Y-%m-%d", os.time({ year = t.year, month = t.month, day = t.day - back, hour = 12 }))
-end
 
 ---------------------------------------------------------------------------- file
 
 function Pass.load()
     fresh()
     if not love.filesystem.getInfo(FILE) then return end
-    local list -- the challenge list the next "daily"/"weekly" lines go to
     for line in (love.filesystem.read(FILE) or ""):gmatch("[^\n]+") do
         local w = {}
         for word in line:gmatch("%S+") do w[#w + 1] = word end
@@ -78,14 +74,16 @@ function Pass.load()
             end
             Pass.claimed[w[2]] = set
         elseif key == "bonus" and w[2] then Pass.bonus[w[2]] = math.max(0, math.floor(tonumber(w[3]) or 0))
-        elseif key == "firstwin" then Pass.firstWin = w[2]
-        elseif key == "day" then
-            Pass.day, Pass.rerolls, Pass.dailies = w[2], tonumber(w[3]) or 0, {}
-        elseif key == "week" then
-            Pass.week, Pass.weeklies = w[2], {}
-        elseif (key == "daily" or key == "weekly") and Seasons.challenge(w[2]) then
-            list = (key == "daily") and Pass.dailies or Pass.weeklies
-            list[#list + 1] = { id = w[2], progress = math.max(0, tonumber(w[3]) or 0), done = w[4] == "1" }
+        elseif key == "challenge" or key == "big" or key == "daily" or key == "weekly" then
+            local def = Seasons.challenge(w[2])
+            local list = (key == "challenge" or key == "daily") and Pass.open or Pass.big
+            local want = (list == Pass.open) and "challenges" or "big"
+            if def and def.pool == want and #list < ((list == Pass.open) and Seasons.OPEN or 1) then
+                list[#list + 1] = { id = w[2], progress = math.max(0, tonumber(w[3]) or 0),
+                    done = w[4] == "1" }
+            end
+        elseif key == "swaps" then Pass.swaps = math.max(0, math.min(Seasons.SWAPS, tonumber(w[2]) or 0))
+        elseif key == "drawn" then Pass.drawn = math.max(0, math.floor(tonumber(w[2]) or 0))
         elseif key == "own" then
             for i = 2, #w do
                 if Cosmetics.get(w[i]) then Pass.owned[w[i]] = true end
@@ -115,19 +113,14 @@ function Pass.save()
         add("claimed " .. id .. " " .. table.concat(tiers, " "))
     end
     for _, id in ipairs(sortedKeys(Pass.bonus)) do add("bonus " .. id .. " " .. Pass.bonus[id]) end
-    if Pass.firstWin then add("firstwin " .. Pass.firstWin) end
-    if Pass.day then
-        add("day " .. Pass.day .. " " .. Pass.rerolls)
-        for _, c in ipairs(Pass.dailies) do
-            add("daily " .. c.id .. " " .. c.progress .. " " .. (c.done and 1 or 0))
-        end
+    for _, c in ipairs(Pass.open) do
+        add("challenge " .. c.id .. " " .. c.progress .. " " .. (c.done and 1 or 0))
     end
-    if Pass.week then
-        add("week " .. Pass.week)
-        for _, c in ipairs(Pass.weeklies) do
-            add("weekly " .. c.id .. " " .. c.progress .. " " .. (c.done and 1 or 0))
-        end
+    for _, c in ipairs(Pass.big) do
+        add("big " .. c.id .. " " .. c.progress .. " " .. (c.done and 1 or 0))
     end
+    add("swaps " .. Pass.swaps)
+    add("drawn " .. Pass.drawn)
     local owned = sortedKeys(Pass.owned)
     if #owned > 0 then add("own " .. table.concat(owned, " ")) end
     for _, name in ipairs(sortedKeys(Pass.skins)) do add("skin " .. name .. " " .. Pass.skins[name]) end
@@ -256,8 +249,8 @@ end
 
 ---------------------------------------------------------------------------- challenges
 
--- Small deterministic random generator (Park-Miller), seeded from a text: the same
--- date gives the same challenges on every start
+-- Small deterministic random generator (Park-Miller), seeded from a text (here: the
+-- number of challenges drawn so far, so the choice is the same on every start)
 local function generator(text)
     local x = 5381
     for i = 1, #text do x = (x * 33 + text:byte(i)) % 2147483647 end
@@ -275,72 +268,75 @@ local function available(c)
     return def and Profile.owns(def)
 end
 
--- Add `count` challenges from `pool` to `list`, not ones already in it
-local function fill(list, pool, count, seed)
-    local rand = generator(seed)
+-- A new challenge from `pool`, not one of those in `exclude` (lists), or nil
+local function draw(pool, exclude)
     local taken = {}
-    for _, c in ipairs(list) do taken[c.id] = true end
+    for _, list in ipairs(exclude) do
+        for _, c in ipairs(list) do taken[c.id] = true end
+    end
     local candidates = {}
     for _, c in ipairs(pool) do
         if not taken[c.id] and available(c) then candidates[#candidates + 1] = c end
     end
-    for _ = 1, count do
-        if #candidates == 0 then break end
-        local c = table.remove(candidates, rand(#candidates))
-        list[#list + 1] = { id = c.id, progress = 0, done = false }
-    end
+    if #candidates == 0 then return nil end
+    Pass.drawn = Pass.drawn + 1
+    local c = candidates[generator("challenge " .. Pass.drawn)(#candidates)]
+    return { id = c.id, progress = 0, done = false }
 end
 
--- New day / new week: new challenges (call often; cheap when nothing changed)
-function Pass.refresh()
-    local day, week, changed = Pass.today(), Pass.weekStart(), false
-    if Pass.day ~= day then
-        Pass.day, Pass.rerolls, Pass.dailies = day, 0, {}
+-- Fill the empty challenge places. replaceDone: done challenges make room for new
+-- ones first (at the start of a round and when the pass screen opens - during a round
+-- a done one stays, so the result screen can show it). Nothing here depends on time.
+function Pass.refresh(replaceDone)
+    local changed = false
+    for _, slot in ipairs({ { Pass.open, Seasons.challenges }, { Pass.big, Seasons.big } }) do
+        local list, pool = slot[1], slot[2]
+        for i = 1, #list do -- a new challenge takes the done one's place
+            if replaceDone and list[i].done then
+                local c = draw(pool, { list })
+                if c then list[i] = c; changed = true end
+            end
+        end
+    end
+    while #Pass.open < Seasons.OPEN do
+        local c = draw(Seasons.challenges, { Pass.open })
+        if not c then break end
+        Pass.open[#Pass.open + 1] = c
         changed = true
     end
-    if #Pass.dailies < Seasons.DAILY_COUNT then -- new day, or a challenge left the pool
-        fill(Pass.dailies, Seasons.daily, Seasons.DAILY_COUNT - #Pass.dailies, "daily " .. day)
-        changed = true
-    end
-    if Pass.week ~= week then
-        Pass.week, Pass.weeklies = week, {}
-        changed = true
-    end
-    if #Pass.weeklies < 1 then
-        fill(Pass.weeklies, Seasons.weekly, 1, "weekly " .. week)
-        changed = true
+    if #Pass.big < 1 then
+        local c = draw(Seasons.big, { Pass.big })
+        if c then Pass.big[1] = c; changed = true end
     end
     if changed then Pass.save() end
 end
 
--- Today's challenges and this week's: { def, progress, done, weekly, index }
+-- The open challenges, then the big one: { def, progress, done, big, index }
 function Pass.challenges()
-    Pass.refresh()
+    Pass.refresh(false)
     local list = {}
-    for i, c in ipairs(Pass.dailies) do
+    for i, c in ipairs(Pass.open) do
         list[#list + 1] = { def = Seasons.challenge(c.id), progress = c.progress, done = c.done, index = i }
     end
-    for _, c in ipairs(Pass.weeklies) do
-        list[#list + 1] = { def = Seasons.challenge(c.id), progress = c.progress, done = c.done, weekly = true }
+    for _, c in ipairs(Pass.big) do
+        list[#list + 1] = { def = Seasons.challenge(c.id), progress = c.progress, done = c.done, big = true }
     end
     return list
 end
 
-function Pass.canReroll(i)
-    local c = Pass.dailies[i]
-    return c ~= nil and not c.done and Pass.rerolls < Seasons.REROLLS
+function Pass.canSwap(i)
+    local c = Pass.open[i]
+    return c ~= nil and not c.done and Pass.swaps > 0
 end
 
--- Swap daily challenge i for another one (Seasons.REROLLS per day)
-function Pass.reroll(i)
-    if not Pass.canReroll(i) then return false end
-    -- the current ones (this one too) are excluded from the choice
-    local list = {}
-    for _, c in ipairs(Pass.dailies) do list[#list + 1] = c end
-    fill(list, Seasons.daily, 1, "reroll " .. Pass.day .. " " .. i)
-    if #list == #Pass.dailies then return false end -- nothing left to pick
-    Pass.dailies[i] = list[#list]
-    Pass.rerolls = Pass.rerolls + 1
+-- Swap open challenge i for another one (uses a swap; finishing a challenge gives one
+-- back, up to Seasons.SWAPS)
+function Pass.swap(i)
+    if not Pass.canSwap(i) then return false end
+    local c = draw(Seasons.challenges, { Pass.open }) -- (not this one again either)
+    if not c then return false end
+    Pass.open[i] = c
+    Pass.swaps = Pass.swaps - 1
     Pass.save()
     return true
 end
@@ -368,16 +364,17 @@ end
 -- Count towards the challenges. ctx = { rowdy = name, mode = "duel"|"team"|"waves" }
 local function progress(kind, amount, ctx)
     if amount <= 0 then return end
-    Pass.refresh()
-    for _, weekly in ipairs({ false, true }) do
-        for _, c in ipairs(weekly and Pass.weeklies or Pass.dailies) do
+    Pass.refresh(false)
+    for _, big in ipairs({ false, true }) do
+        for _, c in ipairs(big and Pass.big or Pass.open) do
             local def = Seasons.challenge(c.id)
             if not c.done and def.kind == kind and (not def.rowdy or def.rowdy == ctx.rowdy)
                 and (not def.mode or def.mode == ctx.mode) then
                 c.progress = math.min(def.n, c.progress + amount)
                 if c.progress >= def.n then
                     c.done = true
-                    local xp = weekly and XP.weekly or XP.daily
+                    Pass.swaps = math.min(Seasons.SWAPS, Pass.swaps + 1)
+                    local xp = big and XP.big or XP.challenge
                     addXp(xp, "challenge " .. c.id, "Challenge: " .. Seasons.describe(def))
                     if round then round.completed[#round.completed + 1] = { text = Seasons.describe(def), xp = xp } end
                 end
@@ -397,6 +394,7 @@ end
 
 -- A new round starts (or a game was joined): the result screen shows what comes from now
 function Pass.roundStart()
+    Pass.refresh(true) -- challenges done last round make room for new ones
     local season = Pass.season()
     round = season and { season = season, before = Pass.xpOf(season), parts = {}, completed = {} }
 end
@@ -407,7 +405,7 @@ function Pass.onEvent(ev, localId, world)
     local kind = ev.kind
     if kind == "death" then
         if ev.killer ~= localId or ev.id == localId then return end
-        addXp(XP.kill, "kills", "Kills")
+        addXp(XP.kill, "kills", "Knockouts")
         progress("kills", 1, context(localId, world))
     elseif kind == "boxBreak" then
         if ev.by ~= localId then return end
@@ -444,10 +442,6 @@ function Pass.onRoundOver(outcome, wave, localId, world)
     else
         local names = { win = "Victory", draw = "Draw", loss = "Round played" }
         addXp(XP[outcome] or 0, "round", names[outcome] or "Round")
-        if outcome == "win" and Pass.firstWin ~= Pass.today() then
-            Pass.firstWin = Pass.today()
-            addXp(XP.firstWin, "firstWin", "First win of the day")
-        end
     end
     progress("rounds", 1, ctx)
     if outcome == "win" then progress("wins", 1, ctx) end

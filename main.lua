@@ -48,9 +48,9 @@ local MODES = {
 -- Modes on the start screen (src/menu.lua): solo first, then the LAN ones.
 -- id: saved with the last choice; icon: picture on the mode card.
 Menu.entries = {
-    { id = "duel", name = "Duel", description = "1 vs 1 against a bot - first to 10 kills",
+    { id = "duel", name = "Duel", description = "1 vs 1 against a bot - first to 10 knockouts",
       icon = "duel", mode = MODES.duel },
-    { id = "team", name = "Team fight", description = "You + 2 bots vs 3 bots - first team to 15 kills",
+    { id = "team", name = "Team fight", description = "You + 2 bots vs 3 bots - first team to 15 knockouts",
       icon = "team", mode = MODES.team },
     { id = "waves", name = "Waves", description = "3 lives - every wave brings one more bot",
       icon = "waves", mode = MODES.waves },
@@ -269,9 +269,9 @@ local function passAction(what, i)
         state = "menu"
     elseif what == "prev" or what == "next" then
         if PassView.switchSeason(what == "next" and 1 or -1) then Sound.play("click") end
-    elseif what == "reroll" then
+    elseif what == "swap" then
         Sound.play("click")
-        if Pass.reroll(i) then PassView.say("New challenge!") end
+        if Pass.swap(i) then PassView.say("New challenge!") end
     elseif what == "tier" or what == "bonus" then
         local msg
         if what == "tier" then msg = Pass.claim(season, i) else msg = Pass.claimBonus(season) end
@@ -360,7 +360,7 @@ function love.load(args)
     Sound.load()
     Profile.load()
     Pass.load()
-    Pass.refresh()
+    Pass.refresh(true)
     Menu.load()
     love.resize()
     openMenu()
@@ -420,10 +420,10 @@ local function playEvents(events)
         if ev.kind == "spawn" then
             Effects.ring(ev.x, ev.y, 45, { 1, 1, 1 })
             Sound.play("spawn", ev.x, ev.y, 0.7)
-        elseif ev.kind == "death" then
-            Effects.burst(ev.x, ev.y, ev.color, 16)
-            Effects.ring(ev.x, ev.y, 55, ev.color)
-            Sound.play("death", ev.x, ev.y)
+        elseif ev.kind == "death" then -- knocked out: a cartoon poof (CHARTER.md)
+            Effects.poof(ev.x, ev.y)
+            Effects.ring(ev.x, ev.y, 55, { 1, 1, 1 })
+            Sound.play("poof", ev.x, ev.y)
         elseif ev.kind == "step" then
             Effects.puff(ev.x, ev.y)
         elseif ev.kind == "shot" then
@@ -444,7 +444,7 @@ local function playEvents(events)
             Effects.ring(ev.x, ev.y, 40, { 0.4, 1, 0.4 })
             Sound.play("heal", ev.x, ev.y)
         elseif ev.kind == "hit" then
-            Effects.sparks(ev.x, ev.y, 7, { 1, 0.45, 0.3 }, 200)
+            Effects.sparks(ev.x, ev.y, 7, { 1, 0.92, 0.55 }, 200)
             if ev.victim == localId then
                 Camera.shake(5)
                 Sound.play("hurt")
@@ -674,6 +674,12 @@ local function nameOf(e)
     return "Player " .. e.id
 end
 
+-- "1 knockout", "3 knockouts"
+local function count(n, word) return n .. " " .. word .. (n == 1 and "" or "s") end
+
+-- A scoreboard line's numbers: "3 knockouts   out 1 time"
+local function score(e) return count(e.kills, "knockout") .. "   out " .. count(e.deaths, "time") end
+
 -- Name with the Yard Pass title, for the result scoreboard ('You "Yard Veteran"')
 local function fullName(e)
     local title = Cosmetics.get(e.title, "title")
@@ -693,8 +699,8 @@ local function resultInfo()
     end)
     local lines = {}
     for _, e in ipairs(list) do
-        lines[#lines + 1] = { string.format("%s (%s)   %d kills   %d deaths", fullName(e),
-            e.def and e.def.name or "?", e.kills, e.deaths), e.id == localId,
+        lines[#lines + 1] = { string.format("%s (%s)   %s", fullName(e),
+            e.def and e.def.name or "?", score(e)), e.id == localId,
             Cosmetics.get(e.badge, "badge") and e.badge }
     end
 
@@ -709,9 +715,9 @@ local function resultInfo()
         end)
         lines = {}
         for _, e in ipairs(list) do
-            lines[#lines + 1] = { string.format("%s  %s (%s)   %d kills   %d deaths",
+            lines[#lines + 1] = { string.format("%s  %s (%s)   %s",
                 e.team == player.team and "[Your team]" or "[Enemies]", fullName(e),
-                e.def and e.def.name or "?", e.kills, e.deaths), e.id == localId,
+                e.def and e.def.name or "?", score(e)), e.id == localId,
                 Cosmetics.get(e.badge, "badge") and e.badge }
         end
         info.lines = lines
@@ -725,7 +731,7 @@ local function resultInfo()
         local s = world:teamScores()
         local own, other = s[player.team] or 0, 0
         for team, k in pairs(s) do if team ~= player.team then other = other + k end end
-        info.subtitle = ((m.timeLeft and m.timeLeft <= 0) and "Time is up" or "Kill target reached")
+        info.subtitle = ((m.timeLeft and m.timeLeft <= 0) and "Time is up" or "Knockout target reached")
             .. "   -   Your team " .. own .. " : " .. other .. " Enemies"
     elseif world.mode.waves then
         info.title, info.color = "Game over", { 1, 0.55, 0.3 }
@@ -742,7 +748,7 @@ local function resultInfo()
         if m.timeLeft and m.timeLeft <= 0 then
             info.subtitle = "Time is up"
         elseif winner then
-            info.subtitle = nameOf(winner) .. " reached " .. World.KILL_TARGET .. " kills"
+            info.subtitle = nameOf(winner) .. " reached " .. World.KILL_TARGET .. " knockouts"
         end
     end
     if roundReward then
@@ -836,10 +842,10 @@ function watchMatch()
         end
         local need = info.target - 1
         if watch.left and watch.left < need and now.left >= need then
-            Scoreboard.flash("1 kill to win!", { 0.5, 1, 0.5 })
+            Scoreboard.flash("1 knockout to win!", { 0.5, 1, 0.5 })
         elseif watch.right and watch.right < need and now.right >= need then
-            Scoreboard.flash(world.mode.teams and "Enemies need 1 more kill!"
-                or (info.right.who .. " needs 1 more kill!"), { 1, 0.45, 0.45 })
+            Scoreboard.flash(world.mode.teams and "Enemies need 1 more knockout!"
+                or (info.right.who .. " needs 1 more knockout!"), { 1, 0.45, 0.45 })
         end
     end
     watch = now
@@ -894,7 +900,7 @@ local function drawHud()
     elseif player.out then
         love.graphics.printf("Out of lives - watching your team", 0, y, sw, "center")
     elseif player.dead then
-        love.graphics.printf(string.format("You were defeated - respawn in %.1f",
+        love.graphics.printf(string.format("You're out - back in %.1f",
             math.max(0, player.respawnTimer)), 0, y, sw, "center")
     elseif world.mode.waves and world:countBots() == 0 then
         love.graphics.printf(string.format("Wave cleared! %d bots incoming in %.1f",

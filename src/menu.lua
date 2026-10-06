@@ -4,7 +4,7 @@
 -- Works with mouse, touch and keyboard (left/right rowdy, up/down mode, Enter play).
 -- A rowdy that isn't bought yet (src/profile.lua) is shown dark with its price, and
 -- PLAY turns into an UNLOCK button; the coins are shown next to the logo.
--- YARD PASS (season, tier, XP bar, a red dot while a reward waits) opens the pass
+-- YARD PASS (season, tier, XP bar, a still red dot while a reward waits) opens the pass
 -- screen (src/passview.lua), STYLE the cosmetics (src/wardrobe.lua); the rowdy is shown
 -- with its skin, the pedestal, badge and title that are put on.
 -- Laid out in HUD units (720 along the short screen side), like the in-game HUD;
@@ -433,12 +433,11 @@ function Menu.draw(fonts, touchMode)
         outlined(season.name, fonts.text, r.x + 14, r.y + 40, r.w - 28, "left", { 1, 0.85, 0.5 }, 1)
         outlined("Tier " .. tier, fonts.text, r.x + 14, r.y + 40, r.w - 28, "right", { 1, 1, 1 }, 1)
         PassView.drawBar(r.x + 14, r.y + 72, r.w - 28, 12, into / need)
-        if Pass.claimable() > 0 then
-            local k = 1 + 0.12 * math.sin(t * 6)
+        if Pass.claimable() > 0 then -- a calm dot, no pulsing (CHARTER.md: no nagging)
             love.graphics.setColor(0.05, 0.05, 0.1)
-            love.graphics.circle("fill", r.x + r.w - 4, r.y + 4, 15 * k)
+            love.graphics.circle("fill", r.x + r.w - 4, r.y + 4, 15)
             love.graphics.setColor(1, 0.25, 0.2)
-            love.graphics.circle("fill", r.x + r.w - 4, r.y + 4, 12 * k)
+            love.graphics.circle("fill", r.x + r.w - 4, r.y + 4, 12)
             love.graphics.setColor(1, 1, 1)
             love.graphics.setFont(fonts.text)
             love.graphics.printf("!", r.x + r.w - 24, r.y + 4 - fonts.text:getHeight() / 2, 40, "center")

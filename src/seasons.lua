@@ -16,24 +16,25 @@
 --                                             (src/cosmetics.lua)
 -- After the last tier every BONUS_XP more gives a bonus reward of BONUS_COINS.
 --
--- Challenges: 3 daily ones + 1 weekly, picked from the pools below with the date as
--- seed (same day = same challenges). Entry: { id (unique, kept in pass.txt), kind, n,
+-- Challenges (CHARTER.md: they motivate, but never expire or punish a break): OPEN
+-- open ones from `challenges` + one big one from `big`. Each stays until it is done; a
+-- done one is replaced by a new one when the next round starts. Entry: { id (unique,
+-- kept in pass.txt - never change it once published), kind, n,
 -- rowdy = name (only counts with that rowdy; only offered once it is unlocked),
 -- mode = "duel" | "team" | "waves" (only counts there; LAN games count too) }.
--- Kinds: kills (bots count), wins, rounds, coins (picked up), chests (broken),
--- supers (fired), medpacks (picked up), waves (cleared).
+-- Kinds: kills (= knockouts, bots count), wins, rounds, coins (picked up), chests
+-- (broken), supers (fired), medpacks (picked up), waves (cleared).
 local Seasons = {}
 
 -- XP per thing that happened to the own rowdy (main.lua -> src/pass.lua)
 Seasons.XP = {
     win = 100, draw = 60, loss = 40, -- round finished (duel, team fight)
     wavesBase = 40, wave = 20,       -- waves: 40 + 20 per cleared wave
-    kill = 10, chest = 5,
-    firstWin = 100,                  -- first win of the day (device date)
-    daily = 150, weekly = 600,       -- a challenge completed
+    kill = 10, chest = 5,            -- a knockout, a broken chest
+    challenge = 150, big = 600,      -- a challenge / the big challenge completed
 }
-Seasons.DAILY_COUNT = 3
-Seasons.REROLLS = 1         -- daily challenges that may be swapped per day
+Seasons.OPEN = 3            -- open challenges at a time (plus the big one)
+Seasons.SWAPS = 1           -- swaps in stock; finishing a challenge gives one back
 Seasons.BONUS_XP = 1500     -- after the last tier: a bonus reward every this much XP
 Seasons.BONUS_COINS = 25
 Seasons.DUPLICATE_COINS = 100 -- a rowdy reward for a rowdy that was already bought
@@ -56,7 +57,7 @@ Seasons.list = {
     },
 }
 
-Seasons.daily = {
+Seasons.challenges = {
     { id = "d.kills20", kind = "kills", n = 20 },
     { id = "d.kills.gunner", kind = "kills", n = 10, rowdy = "Gunner" },
     { id = "d.kills.shotgunner", kind = "kills", n = 10, rowdy = "Shotgunner" },
@@ -75,7 +76,7 @@ Seasons.daily = {
     { id = "d.waves8", kind = "waves", n = 8 },
 }
 
-Seasons.weekly = {
+Seasons.big = {
     { id = "w.kills150", kind = "kills", n = 150 },
     { id = "w.wins15", kind = "wins", n = 15 },
     { id = "w.chests20", kind = "chests", n = 20 },
@@ -86,11 +87,11 @@ Seasons.weekly = {
 
 local MODE_NAMES = { duel = "Duel", team = "Team fight", waves = "Waves" }
 
--- "Defeat 10 opponents as the Sniper" etc.
+-- "Knock out 10 opponents as the Sniper" etc.
 function Seasons.describe(c)
     local n = c.n
     local text
-    if c.kind == "kills" then text = "Defeat " .. n .. " opponents"
+    if c.kind == "kills" then text = "Knock out " .. n .. " opponents"
     elseif c.kind == "wins" then text = "Win " .. n .. " rounds"
     elseif c.kind == "rounds" then text = "Play " .. n .. " rounds"
     elseif c.kind == "coins" then text = "Collect " .. n .. " coins"
@@ -151,7 +152,7 @@ do
     local KINDS = { kills = true, wins = true, rounds = true, coins = true, chests = true,
                     supers = true, medpacks = true, waves = true }
     local MODES = { duel = true, team = true, waves = true }
-    for _, pool in ipairs({ "daily", "weekly" }) do
+    for _, pool in ipairs({ "challenges", "big" }) do
         for i, c in ipairs(Seasons[pool]) do
             local where = pool .. " challenge " .. i .. " (" .. tostring(c.id) .. ")"
             for k in pairs(c) do
@@ -169,7 +170,8 @@ do
             challengeById[c.id] = c
         end
     end
-    if #Seasons.daily <= Seasons.DAILY_COUNT then fail("daily", "the pool needs more entries than DAILY_COUNT") end
+    if #Seasons.challenges <= Seasons.OPEN then fail("challenges", "the pool needs more entries than OPEN") end
+    if #Seasons.big < 2 then fail("big", "the pool needs at least 2 entries") end
 end
 
 function Seasons.get(id) return id and byId[id] end

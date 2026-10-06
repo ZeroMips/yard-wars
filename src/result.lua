@@ -133,7 +133,7 @@ function Result.draw(info, fonts)
     love.graphics.setColor(1, 1, 1, 1)
 end
 
--- The Yard Pass part: "+215 XP  (Victory 100, Kills x3 30)", a filling bar, new tiers
+-- The Yard Pass part: "+215 XP  (Victory 100, Knockouts x3 30)", a filling bar, new tiers
 -- and completed challenges; top at y
 function Result.drawXp(xp, fonts, sw, y)
     local parts = {}
