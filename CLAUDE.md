@@ -183,7 +183,7 @@ existing things that break it.
   screen opens - `Pass.refresh(true)` - then a new one takes its place; picked with a
   Park-Miller generator seeded by the number drawn so far, rowdy challenges only for
   really owned rowdies), swaps (1 in stock, finishing a challenge gives it back), owned +
-  equipped cosmetics. Reads the old daily/weekly lines (before build 66) as open/big ones.
+  equipped cosmetics. Reads the old daily/weekly lines (before build 68) as open/big ones.
   `onEvent`, `roundStart`, `onRoundOver` (returns the breakdown for the result screen),
   `claim`, `claimBonus`, `claimable`, `swap`, `level`, `style`, `skinFor`, `equip`.
   `Pass.clock` (only for season start dates) can be replaced in tests. All XP goes into
@@ -377,7 +377,9 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   had a build from 2026-10-01 with the old identity, so its progress started fresh.
 - Published to the real server: builds 47, 51 (replaced), 53 (2026-10-04: rowdy entry
   check + LAN version check), 57 (2026-10-05: Yard Pass, protocol 3), 59 (2026-10-05: Gardener), 62 (2026-10-06: Pirate +
-  bombs, protocol 4), build 64 (2026-10-06, current: hidden test mode;
+  bombs, protocol 4), 64 (2026-10-06: hidden
+  test mode), build 68 (2026-10-06, current: charter fixes - challenges never expire, no
+  first-win bonus, knockouts, poof; website "Our promise";
   latest.txt + .love answer 200 over plain http). Website with the Yard Pass section
   uploaded the same day.
 - Open: `love.event.quit("restart")` on Android (if it fails, the

@@ -17,7 +17,7 @@
 --   big <id> <progress> <0|1>        the big challenge
 --   swaps <n>                        swaps left
 --   drawn <n>                        challenges drawn so far (seed of the next choice)
--- Before build 66 the challenges were daily/weekly ("day", "daily", "week", "weekly",
+-- Before build 68 the challenges were daily/weekly ("day", "daily", "week", "weekly",
 -- "firstwin" lines): daily/weekly ones are taken over as open/big ones, the rest is
 -- dropped (CHARTER.md: nothing expires).
 --   own <id> <id> ...                cosmetics (src/cosmetics.lua)
