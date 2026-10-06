@@ -8,6 +8,13 @@ Developed on Linux, tested on a Pixel 6a, a moto g67 (second
 phone for LAN tests) and a Lenovo tablet (TB330FU, MTP name `LENOVO_TB330FU_...`), all with
 the official LÖVE for Android 11.5 (same MTP path).
 
+## Charter (read first)
+`CHARTER.md` ("don't be evil"): fun and motivating but never addictive - no addiction
+mechanisms, no graphical violence (target audience 6+), not the least interest in making
+money. EVERY design decision is checked
+against its five questions before it goes in; when in doubt, leave it out. Point out
+existing things that break it.
+
 ## Running
 - Desktop: `love .` in the project folder.
 - Quick smoke test (no errors on load/first frames): `timeout 6 love .` — LÖVE prints
