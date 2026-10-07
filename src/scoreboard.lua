@@ -6,6 +6,7 @@
 --   versus: { kind = "versus", left = side, right = side, target, timeLeft }
 --           side = { name, score, color }  (left = you / your team)
 --   waves : { kind = "waves", wave, bots, lives, maxLives }
+--   boss  : { kind = "boss", name, hp, maxHp }  (one wide health bar)
 local Scoreboard = {}
 
 Scoreboard.WIDTH  = 300 -- panel size (HUD units), for the caller's layout
@@ -71,7 +72,20 @@ end
 function Scoreboard.draw(info, fonts, cx, y, time)
     local W = Scoreboard.WIDTH
     local x = cx - W / 2
-    if info.kind == "versus" then
+    if info.kind == "boss" then
+        box(x, y, W, BOX_H, { 0.15, 0.15, 0.2 })
+        label("BOSS: " .. info.name, fonts.small, x, y + 2, W)
+        local bx, by, bw, bh = x + 10, y + 19, W - 20, 18
+        local k = math.max(0, math.min(1, info.hp / info.maxHp))
+        love.graphics.setColor(0, 0, 0, 0.6)
+        love.graphics.rectangle("fill", bx, by, bw, bh, 6, 6)
+        love.graphics.setColor(0.85, 0.25, 0.25, 1)
+        if k > 0 then love.graphics.rectangle("fill", bx, by, bw * k, bh, 6, 6) end
+        love.graphics.setColor(1, 1, 1, 0.25)
+        if k > 0 then love.graphics.rectangle("fill", bx, by, bw * k, bh * 0.4, 6, 6) end
+        label(math.ceil(info.hp) .. " / " .. math.ceil(info.maxHp), fonts.small, bx, by + 2, bw)
+        label("no time limit - you pop back in", fonts.small, x - 20, y + BOX_H + 3, W + 40)
+    elseif info.kind == "versus" then
         local sideW, midW = 100, W - 2 * 100 - 16
         scoreBox(info.left, x, y, sideW, info.target, fonts)
         scoreBox(info.right, x + W - sideW, y, sideW, info.target, fonts)

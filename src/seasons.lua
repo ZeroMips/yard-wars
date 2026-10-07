@@ -10,8 +10,9 @@
 --   tierXp   XP per tier
 --   tiers    one reward per tier (the list length is the number of tiers):
 --              { coins = 30 }                 coins (src/profile.lua)
---              { rowdy = "Gardener" }         unlocks a rowdy (src/rowdies.lua) for free;
---                                             already owned: DUPLICATE_COINS instead. A
+--              { rowdy = "Gardener" }         unlocks the boss fight for a rowdy
+--                                             (src/unlock.lua; beaten before: the rowdy
+--                                             itself); already owned: DUPLICATE_COINS. A
 --                                             rowdy with `pass = true` has no price: this
 --                                             is the only way to get it
 --              { cosmetic = "skin.gunner.rose" } skin, trail, pedestal, badge or title

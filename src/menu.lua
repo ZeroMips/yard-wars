@@ -2,8 +2,10 @@
 -- middle (arrows to switch, ROWDIES opens the card overview), the chosen mode on a
 -- card at the bottom right (tap: list of all modes) and a big PLAY button.
 -- Works with mouse, touch and keyboard (left/right rowdy, up/down mode, Enter play).
--- A rowdy that isn't bought yet (src/profile.lua) is shown dark with its price, and
--- PLAY turns into an UNLOCK button (a pass rowdy: YARD PASS + its tier, opens the pass); the coins are shown next to the logo.
+-- A rowdy that isn't unlocked yet (src/unlock.lua) is shown dark, and PLAY turns into
+-- CHALLENGE + price (opens the boss fight panel: rules, the rowdy to fight with, alone
+-- or with friends), UNLOCK + price (boss beaten, not paid yet) or YARD PASS + tier (a
+-- pass rowdy whose tier isn't claimed yet). The coins are shown next to the logo.
 -- YARD PASS (season, tier, XP bar, a still red dot while a reward waits) opens the pass
 -- screen (src/passview.lua), STYLE the cosmetics (src/wardrobe.lua); the rowdy is shown
 -- with its skin, the pedestal, badge and title that are put on.
@@ -17,6 +19,7 @@ local Pass     = require("src.pass")
 local Decor    = require("src.decor")
 local Seasons  = require("src.seasons")
 local PassView = require("src.passview")
+local Unlock   = require("src.unlock")
 
 local Menu = {}
 
@@ -25,6 +28,8 @@ Menu.entries = {}       -- modes to choose from (set by main.lua): { id, name, d
 Menu.mode = 1           -- index into Menu.entries
 Menu.rowdy = 1        -- index into Rowdies
 Menu.modesOpen = false  -- the mode list is shown over the lobby
+Menu.bossOpen = false   -- the boss fight panel is shown over the lobby
+Menu.fighter = 1        -- index into Rowdies: the (unlocked) rowdy to fight a boss with
 Menu.hover = nil        -- what the mouse is over (highlighted)
 Menu.message = nil      -- shown under the title (e.g. "Connection lost")
 Menu.notice = nil       -- shown under the rowdy's stats (e.g. "Gunner unlocked!")
@@ -39,7 +44,7 @@ Menu.version = (readTrimmed("build.txt") and "build " .. readTrimmed("build.txt"
     .. (readTrimmed("version.txt") or "dev")
 Menu.status = nil -- update check ("up to date", ...), shown after the version
 
-local SAVE_FILE = "lobby.txt" -- last rowdy + mode: "<rowdy index> <mode id>"
+local SAVE_FILE = "lobby.txt" -- "<rowdy index> <mode id> <fighter index>"
 
 local MODE_COLORS = {
     duel  = { 0.95, 0.5, 0.15 },
@@ -52,6 +57,7 @@ local ROWDIES_COLOR = { 0.2, 0.5, 0.9 }
 local UNLOCK_COLOR   = { 0.3, 0.75, 0.3 }
 local LOCKED_COLOR   = { 0.42, 0.44, 0.5 }
 local LOCKED_TINT    = { 0.12, 0.12, 0.18 }
+local BOSS_COLOR     = { 0.85, 0.25, 0.2 }
 local PASS_COLOR     = { 0.55, 0.3, 0.75 }
 local STYLE_COLOR    = { 0.85, 0.4, 0.55 }
 
@@ -67,25 +73,42 @@ local tint = love.graphics.newMesh({
 -- Call after Profile.load(): a saved rowdy that isn't unlocked gives way to the starter
 function Menu.load()
     local s = love.filesystem.getInfo(SAVE_FILE) and love.filesystem.read(SAVE_FILE) or ""
-    local b, id = s:match("^(%d+)%s+(%S+)")
+    local b, id, f = s:match("^(%d+)%s+(%S+)%s*(%d*)")
     if Rowdies[tonumber(b)] then Menu.rowdy = tonumber(b) end
     if not Profile.isUnlocked(Rowdies[Menu.rowdy]) then
         for i, def in ipairs(Rowdies) do
             if def.name == Profile.STARTER then Menu.rowdy = i end
         end
     end
+    Menu.fighter = tonumber(f) or Menu.rowdy
+    Menu.checkFighter()
     for i, e in ipairs(Menu.entries) do
         if e.id == id then Menu.mode = i end
     end
 end
 
--- The rowdy shown in the lobby isn't bought yet (PLAY becomes UNLOCK)
-function Menu.locked()
-    return not Profile.isUnlocked(Rowdies[Menu.rowdy])
+function Menu.save()
+    love.filesystem.write(SAVE_FILE, Menu.rowdy .. " " .. Menu.entries[Menu.mode].id .. " "
+        .. Menu.fighter)
 end
 
-function Menu.save()
-    love.filesystem.write(SAVE_FILE, Menu.rowdy .. " " .. Menu.entries[Menu.mode].id)
+-- The fighter must be a usable rowdy: otherwise the shown one, or the starter
+function Menu.checkFighter()
+    if Rowdies[Menu.fighter] and Profile.isUnlocked(Rowdies[Menu.fighter]) then return end
+    for i, def in ipairs(Rowdies) do
+        if Profile.isUnlocked(def) and (i == Menu.rowdy or def.name == Profile.STARTER) then
+            Menu.fighter = i
+            if i == Menu.rowdy then return end
+        end
+    end
+end
+
+-- Next usable rowdy to fight with (dir = 1 / -1)
+function Menu.switchFighter(dir)
+    for _ = 1, #Rowdies do
+        Menu.fighter = (Menu.fighter - 1 + dir) % #Rowdies + 1
+        if Profile.isUnlocked(Rowdies[Menu.fighter]) then return end
+    end
 end
 
 function Menu.entry() return Menu.entries[Menu.mode] end
@@ -153,12 +176,38 @@ end
 
 local function inside(r, x, y) return x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h end
 
+-- Boss fight panel: rules, the rowdy to fight with (arrows), Fight / With friends / Back
+local function bossLayout()
+    local ui = uiScale()
+    local sw, sh = love.graphics.getWidth() / ui, love.graphics.getHeight() / ui
+    local W = math.min(640, sw - 32)
+    local H = 520
+    local P = { x = (sw - W) / 2, y = math.max(12, (sh - H) / 2), w = W, h = H, sw = sw, sh = sh }
+    local fy = P.y + 300
+    P.fighterPrev = { x = P.x + W / 2 - 150, y = fy, w = 56, h = 56 }
+    P.fighterNext = { x = P.x + W / 2 + 94, y = fy, w = 56, h = 56 }
+    local bw = math.min(190, (W - 48 - 24) / 3)
+    local by = P.y + H - 24 - 76
+    local x0 = P.x + (W - 3 * bw - 24) / 2
+    P.bossSolo = { x = x0, y = by, w = bw, h = 76 }
+    P.bossHost = { x = x0 + bw + 12, y = by, w = bw, h = 76 }
+    P.bossBack = { x = x0 + 2 * (bw + 12), y = by, w = bw, h = 76 }
+    return P
+end
+
 -- Screen position -> "play", "prev", "next", "rowdies", "pass", "style", "mode", "version"
 -- (the build line, see Profile.testMode), "pick" + index (mode
 -- list), "close" (mode list: the OK button), "outside" (mode list: elsewhere) or nil
 function Menu.hit(x, y)
     local ui = uiScale()
     x, y = x / ui, y / ui
+    if Menu.bossOpen then -- "bossSolo", "bossHost", "bossBack", "fighterPrev"/"fighterNext"
+        local P = bossLayout()
+        for _, name in ipairs({ "bossSolo", "bossHost", "bossBack", "fighterPrev", "fighterNext" }) do
+            if inside(P[name], x, y) then return name end
+        end
+        return inside(P, x, y) and "panel" or "bossBack"
+    end
     if Menu.modesOpen then
         local L = modesLayout()
         for i, r in pairs(L.cards) do
@@ -176,6 +225,14 @@ end
 -- is done here)
 function Menu.keypressed(key)
     local n = #Menu.entries
+    if Menu.bossOpen then -- Enter: fight alone, H: host for friends, arrows: fighter
+        if key == "left" or key == "a" then return "fighterPrev"
+        elseif key == "right" or key == "d" then return "fighterNext"
+        elseif key == "return" or key == "kpenter" or key == "space" then return "bossSolo"
+        elseif key == "h" then return "bossHost"
+        elseif key == "escape" or key == "backspace" then return "bossBack" end
+        return nil
+    end
     if Menu.modesOpen then
         if key == "up" or key == "w" then Menu.mode = (Menu.mode - 2) % n + 1
         elseif key == "down" or key == "s" then Menu.mode = Menu.mode % n + 1
@@ -392,6 +449,45 @@ local function drawModes(fonts)
     outlined("OK", fonts.button, L.close.x, L.close.y + 14, L.close.w, "center", { 1, 1, 1 })
 end
 
+-- The boss fight panel over the lobby (Menu.bossOpen)
+local function drawBoss(fonts)
+    local P = bossLayout()
+    local def, fighter = Rowdies[Menu.rowdy], Rowdies[Menu.fighter]
+    love.graphics.setColor(0, 0, 0, 0.75)
+    love.graphics.rectangle("fill", 0, 0, P.sw, P.sh)
+    love.graphics.setColor(0.08, 0.1, 0.16, 0.97)
+    love.graphics.rectangle("fill", P.x, P.y, P.w, P.h, 16, 16)
+    love.graphics.setColor(BOSS_COLOR)
+    love.graphics.setLineWidth(4)
+    love.graphics.rectangle("line", P.x, P.y, P.w, P.h, 16, 16)
+    love.graphics.setLineWidth(1)
+    outlined("BOSS FIGHT: " .. def.name:upper(), fonts.button, P.x, P.y + 18, P.w, "center", { 1, 0.82, 0.2 })
+
+    local how = def.pass and "It's your Yard Pass reward - free."
+        or ("The " .. def.price .. " coins are only paid when you win.")
+    local text = "Knock out the big " .. def.name .. " to win it. " .. how .. "\n\n"
+        .. "You can't lose: you pop back in as often as you need, and the " .. def.name
+        .. " never heals. Leave any time.\n\n"
+        .. "With friends: they tap Join on their device (same Wi-Fi) and fight with you."
+    love.graphics.setFont(fonts.text)
+    love.graphics.setColor(1, 1, 1, 0.92)
+    love.graphics.printf(text, P.x + 28, P.y + 70, P.w - 56, "center")
+
+    outlined("You fight as", fonts.text, P.x, P.fighterPrev.y - 30, P.w, "center", { 1, 1, 1, 0.75 }, 1)
+    drawArrow(P.fighterPrev, -1, Menu.hover == "fighterPrev")
+    drawArrow(P.fighterNext, 1, Menu.hover == "fighterNext")
+    Assets.drawPortrait(fighter, P.x + P.w / 2, P.fighterPrev.y + 24, 64, 0, nil, Pass.skinFor(fighter))
+    outlined(fighter.name, fonts.text, P.x, P.fighterPrev.y + 60, P.w, "center", { 1, 1, 1 }, 1)
+
+    block(P.bossSolo, BOSS_COLOR, Menu.hover == "bossSolo")
+    outlined("FIGHT", fonts.button, P.bossSolo.x, P.bossSolo.y + 20, P.bossSolo.w, "center", { 1, 1, 1 })
+    block(P.bossHost, MODE_COLORS.join, Menu.hover == "bossHost")
+    outlined("WITH FRIENDS", fonts.text, P.bossHost.x, P.bossHost.y + 16, P.bossHost.w, "center", { 1, 1, 1 }, 1)
+    outlined("LAN host", fonts.text, P.bossHost.x, P.bossHost.y + 40, P.bossHost.w, "center", { 1, 1, 1, 0.8 }, 1)
+    block(P.bossBack, { 0.35, 0.37, 0.42 }, Menu.hover == "bossBack")
+    outlined("BACK", fonts.button, P.bossBack.x, P.bossBack.y + 20, P.bossBack.w, "center", { 1, 1, 1 })
+end
+
 -- fonts = { title, button, text }
 function Menu.draw(fonts, touchMode)
     local L = lobbyLayout()
@@ -465,16 +561,23 @@ function Menu.draw(fonts, touchMode)
     love.graphics.translate(p.x + p.w / 2, p.y + p.h / 2)
     love.graphics.scale(s)
     love.graphics.translate(-(p.x + p.w / 2), -(p.y + p.h / 2))
-    if Menu.locked() and Rowdies[Menu.rowdy].pass then -- YARD PASS + tier (opens the pass)
-        local _, tier = Seasons.rowdyTier(Rowdies[Menu.rowdy].name)
+    local def = Rowdies[Menu.rowdy]
+    local lock = Unlock.state(def)
+    if lock == "pass" then -- YARD PASS + tier (opens the pass)
+        local _, tier = Seasons.rowdyTier(def.name)
         block(p, PASS_COLOR, Menu.hover == "play")
         outlined("YARD PASS", fonts.button, p.x, p.y + 14, p.w, "center", { 1, 1, 1 })
         outlined("Tier " .. tier, fonts.button, p.x, p.y + 54, p.w, "center", { 1, 0.88, 0.35 })
-    elseif Menu.locked() then -- UNLOCK + price instead (grey while there are too few coins)
-        local def = Rowdies[Menu.rowdy]
+    elseif lock == "challenge" and def.pass then -- the pass tier is claimed: a free fight
+        block(p, BOSS_COLOR, Menu.hover == "play")
+        outlined("CHALLENGE", fonts.button, p.x, p.y + 14, p.w, "center", { 1, 1, 1 })
+        outlined("Boss fight", fonts.button, p.x, p.y + 54, p.w, "center", { 1, 0.88, 0.35 })
+    elseif lock then -- CHALLENGE / UNLOCK + price (grey while there are too few coins)
         local afford = Profile.canAfford(def)
-        block(p, afford and UNLOCK_COLOR or LOCKED_COLOR, Menu.hover == "play")
-        outlined("UNLOCK", fonts.button, p.x, p.y + 14, p.w, "center", { 1, 1, 1 })
+        block(p, afford and (lock == "buy" and UNLOCK_COLOR or BOSS_COLOR) or LOCKED_COLOR,
+            Menu.hover == "play")
+        outlined(lock == "buy" and "UNLOCK" or "CHALLENGE", fonts.button, p.x, p.y + 14, p.w,
+            "center", { 1, 1, 1 })
         local price = tostring(def.price)
         local w = 34 + fonts.button:getWidth(price)
         local x = p.x + (p.w - w) / 2
@@ -506,6 +609,7 @@ function Menu.draw(fonts, touchMode)
     end
 
     if Menu.modesOpen then drawModes(fonts) end
+    if Menu.bossOpen then drawBoss(fonts) end
 
     love.graphics.pop()
     love.graphics.setColor(1, 1, 1, 1)

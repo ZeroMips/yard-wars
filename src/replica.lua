@@ -152,6 +152,11 @@ local function proxyFor(self, s)
         p = setmetatable({}, Rowdy)
         p:init(s.x, s.y, Assets.look(def, s.skin), def.stats)
         p.def = def
+        if s.boss == true then -- as big and strong as on the host (addBoss in src/world.lua)
+            p.look = World.bossLook(def)
+            p.maxHp = p.maxHp * World.BOSS_HP
+            p.radius = p.radius * World.BOSS_SIZE
+        end
         self.proxies[s.id] = p
     elseif p.def ~= def or p.skin ~= s.skin then
         p.def = def
@@ -161,6 +166,7 @@ local function proxyFor(self, s)
     p.dead = s.dead == true
     p.isBot = s.isBot == true
     p.out = s.out == true
+    p.boss = s.boss == true
     p.skin, p.trail, p.title, p.badge = s.skin, s.trail, s.title, s.badge -- nil = none
     return p
 end

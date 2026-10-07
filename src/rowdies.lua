@@ -11,8 +11,9 @@
 --
 --   name       shown in menus; also the key profile.txt stores bought rowdies by
 --   role       short description for the rowdy choice screen
---   price      coins to unlock it (src/profile.lua); none = free from the start
---   pass       true = only from the Yard Pass (a tier reward in src/seasons.lua),
+--   price      coins to unlock it, paid when its boss fight is won (src/unlock.lua);
+--              none = free from the start
+--   pass       true = its boss fight is a Yard Pass reward (a tier in src/seasons.lua),
 --              never for coins; needs no price. Players who bought it before keep
 --              it (profile.txt lists owned rowdies by name)
 --   shot       shot sound (a name from src/sound.lua's DEFS, default "shot_gunner")

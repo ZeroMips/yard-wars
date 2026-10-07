@@ -4,8 +4,10 @@
 -- Coins come from rounds (Profile.roundReward) and from loot boxes in the arena (a
 -- "coin" event of the world for the own rowdy). In a LAN game every device keeps its
 -- own profile; the host only reports what happened.
--- Saved in profile.txt: "coins <n>" and "unlocked <name> <name> ..." (names, not
--- indexes, so the rowdy list can be reordered).
+-- A rowdy is unlocked by beating it in a boss fight (src/unlock.lua); `beaten` keeps
+-- the ones beaten but not unlocked yet (too few coins, or the Yard Pass tier missing).
+-- Saved in profile.txt: "coins <n>", "unlocked <name> <name> ..." and "beaten <name>
+-- ..." (names, not indexes, so the rowdy list can be reordered).
 local Profile = {}
 
 Profile.STARTER = "Shotgunner" -- the free one (no price), chosen on a first start
@@ -14,6 +16,7 @@ Profile.REWARD = { win = 30, draw = 10, loss = 5, wave = 5 }
 
 Profile.coins = 0
 Profile.unlocked = {} -- name -> true (bought ones)
+Profile.beaten = {}   -- name -> true (boss fight won)
 
 -- Test mode (hidden: tap the version line in the lobby 7 times): every rowdy and every
 -- Yard Pass cosmetic counts as owned (src/pass.lua), without writing that into
@@ -38,6 +41,8 @@ function Profile.load()
             Profile.coins = math.max(0, math.floor(tonumber(rest) or 0))
         elseif key == "unlocked" then
             for name in rest:gmatch("%S+") do Profile.unlocked[name] = true end
+        elseif key == "beaten" then
+            for name in rest:gmatch("%S+") do Profile.beaten[name] = true end
         end
     end
 end
@@ -46,8 +51,11 @@ function Profile.save()
     local names = {}
     for name in pairs(Profile.unlocked) do names[#names + 1] = name end
     table.sort(names)
+    local beaten = {}
+    for name in pairs(Profile.beaten) do beaten[#beaten + 1] = name end
+    table.sort(beaten)
     love.filesystem.write(FILE, "coins " .. Profile.coins .. "\nunlocked " ..
-        table.concat(names, " ") .. "\n")
+        table.concat(names, " ") .. "\nbeaten " .. table.concat(beaten, " ") .. "\n")
 end
 
 -- Usable (bought, free, or test mode)
@@ -73,6 +81,12 @@ function Profile.unlock(def)
     Profile.unlocked[def.name] = true
     Profile.save()
     return true
+end
+
+-- A boss fight against this rowdy was won
+function Profile.beat(name)
+    Profile.beaten[name] = true
+    Profile.save()
 end
 
 -- A rowdy for free (a Yard Pass reward, src/pass.lua)

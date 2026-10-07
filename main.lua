@@ -31,6 +31,7 @@ local Cosmetics = require("src.cosmetics")
 local Pass     = require("src.pass")
 local PassView = require("src.passview")
 local Seasons  = require("src.seasons")
+local Unlock   = require("src.unlock")
 local Wardrobe = require("src.wardrobe")
 
 -- Game modes (round rules: see World.KILL_TARGET / TIME_LIMIT / LIVES).
@@ -40,6 +41,8 @@ local Wardrobe = require("src.wardrobe")
 --                  per player (LAN: co-op)
 --   teams = true : team fight - 3 vs 3, the players together, bots fill the empty places;
 --                  first team to 15 kills
+--   boss = index : boss fight against that rowdy (src/unlock.lua; built in startBoss,
+--                  not on the mode list) - no time limit, won when the boss is out
 local MODES = {
     duel  = { name = "Duel",  waves = false },
     team  = { name = "Team fight", waves = false, teams = true },
@@ -99,6 +102,7 @@ local betweenRounds -- (defined with playing() below)
 local roundCoins = 0 -- coins the own rowdy picked up this round
 local roundReward    -- coins for the finished round: { outcome, coins } (result screen)
 local roundXp        -- Yard Pass XP of the finished round (Pass.onRoundOver + shownAt)
+local roundUnlock    -- boss fight won: what it unlocked (Unlock.won's message)
 local tierUpSoundAt  -- love.timer time to play "tierUp" (when the result's XP bar is full)
 
 -- HUD is laid out for a 720px screen (short side) and scaled on bigger/denser screens
@@ -111,7 +115,7 @@ local function resetGame()
     Controls.reset()
     Scoreboard.clear()
     watch = {}
-    roundCoins, roundReward, roundXp, tierUpSoundAt = 0, nil, nil, nil
+    roundCoins, roundReward, roundXp, tierUpSoundAt, roundUnlock = 0, nil, nil, nil, nil
     Pass.roundStart()
 end
 
@@ -132,8 +136,9 @@ local function openMenu(message)
     Controls.reset()
 end
 
--- Single player or LAN host: this device runs the world
-local function newGame(mode, host)
+-- Single player or LAN host: this device runs the world. def: the own rowdy
+-- (default: the one chosen in the lobby)
+local function newGame(mode, host, def)
     resetGame()
     world = World.new(mode)
     if host then
@@ -144,7 +149,7 @@ local function newGame(mode, host)
     end
     state, role = "game", host and "host" or "local"
     Menu.message = nil
-    local def = Rowdies[Menu.rowdy]
+    def = def or Rowdies[Menu.rowdy]
     if mode.teams then
         player = world:addTeamPlayer(def, Pass.style(def))
     else
@@ -182,13 +187,8 @@ local function joinGame(address)
     Menu.message = nil
 end
 
--- Buy a rowdy with coins (src/profile.lua). Returns the message to show.
+-- Buy a beaten rowdy with coins (src/profile.lua). Returns the message to show.
 local function buy(def)
-    if def.pass then -- never for coins (src/rowdies.lua)
-        Sound.play("click")
-        local season, tier = Seasons.rowdyTier(def.name)
-        return "The " .. def.name .. " is a Yard Pass reward: " .. season.name .. ", tier " .. tier
-    end
     if Profile.unlock(def) then
         Sound.play("unlock")
         return def.name .. " unlocked!"
@@ -211,15 +211,38 @@ local function openPicker(forWhat)
     end
 end
 
+-- The boss fight panel in the lobby, for the rowdy shown there (src/unlock.lua)
+local function openBoss()
+    Sound.play("click")
+    local def = Rowdies[Menu.rowdy]
+    if not Unlock.canChallenge(def) then
+        Menu.notice = Unlock.why(def)
+        return
+    end
+    Menu.checkFighter()
+    Menu.bossOpen = true
+end
+
 local function confirmPick()
     if Picker.locked() then
-        if Rowdies[Picker.selected].pass and pickFor == "lobby" then -- the button says "Yard Pass"
+        local def = Rowdies[Picker.selected]
+        local lock = Unlock.state(def)
+        if lock == "buy" then
+            Picker.message = buy(def)
+        elseif pickFor ~= "lobby" then -- between rounds: only from the lobby
+            Sound.play("click")
+            Picker.message = lock == "pass" and Unlock.why(def)
+                or ("Challenge the " .. def.name .. " from the lobby")
+        elseif lock == "pass" then -- the button says "Yard Pass"
             Sound.play("click")
             state = "pass"
             PassView.open()
-            return
+        else -- "Challenge": the boss fight panel in the lobby
+            Menu.rowdy = Picker.selected
+            Menu.save()
+            state = "menu"
+            openBoss()
         end
-        Picker.message = buy(Rowdies[Picker.selected])
         return
     end
     Sound.play("click")
@@ -310,17 +333,26 @@ local function passAction(what, i)
     end
 end
 
--- PLAY on the start screen: the chosen mode with the chosen rowdy
+-- Boss fight against the rowdy shown in the lobby, with Menu.fighter
+local function startBoss(host)
+    local def = Rowdies[Menu.rowdy]
+    Menu.bossOpen = false
+    Menu.save()
+    newGame({ name = "Boss fight: " .. def.name, boss = Menu.rowdy }, host, Rowdies[Menu.fighter])
+end
+
+-- PLAY on the start screen: the chosen mode with the chosen rowdy (a locked one:
+-- CHALLENGE / UNLOCK / YARD PASS, see src/unlock.lua)
 local function play()
-    if Menu.locked() and Rowdies[Menu.rowdy].pass then -- the button says YARD PASS
-        openPass()
-        return
-    end
-    if Menu.locked() then
+    local lock = Unlock.state(Rowdies[Menu.rowdy])
+    if lock == "pass" then openPass() return end
+    if lock == "challenge" then openBoss() return end
+    if lock == "buy" then
         Menu.notice = buy(Rowdies[Menu.rowdy])
         return
     end
     Sound.play("click")
+    Menu.fighter = Menu.rowdy
     Menu.save()
     local entry = Menu.entry()
     if entry.join then openJoin() else newGame(entry.mode, entry.host) end
@@ -343,6 +375,12 @@ end
 -- Start screen actions (from Menu.hit / Menu.keypressed)
 local function menuAction(what, i)
     if what == "play" then play()
+    elseif what == "bossSolo" or what == "bossHost" then startBoss(what == "bossHost")
+    elseif what == "bossBack" then Sound.play("click"); Menu.bossOpen = false
+    elseif what == "fighterPrev" or what == "fighterNext" then
+        Sound.play("click")
+        Menu.switchFighter(what == "fighterNext" and 1 or -1)
+        Menu.save()
     elseif what == "version" then tapVersion()
     elseif what == "rowdies" then openPicker("lobby")
     elseif what == "pass" then openPass()
@@ -381,11 +419,17 @@ function love.load(args)
     love.resize()
     openMenu()
     -- Testing shortcuts: love . [--rowdy N] [--coins N] --host [team|waves] |
+    -- --boss N [host] (boss fight against rowdy N, fighting with the last used one) |
     -- --join <address> | --find   (--coins adds to the saved coins)
     for i, a in ipairs(args or {}) do
         if a == "--coins" then Profile.addCoins(tonumber(args[i + 1]) or 0) end
         if a == "--rowdy" then Menu.rowdy = Rowdies[tonumber(args[i + 1])] and tonumber(args[i + 1]) or 1 end
         if a == "--find" then openJoin() end
+        if a == "--boss" and Rowdies[tonumber(args[i + 1])] then -- boss fight (any rowdy)
+            Menu.rowdy = tonumber(args[i + 1])
+            Menu.checkFighter()
+            startBoss(args[i + 2] == "host")
+        end
         if a == "--host" then
             newGame(MODES[args[i + 1]] or MODES.duel, true) -- duel / team / waves
         elseif a == "--join" and args[i + 1] then
@@ -418,7 +462,7 @@ local function hidden(e) return world:isHiddenFrom(e, player) end
 -- "waves" (no winner in co-op)
 local function outcomeOf(ev)
     if world.mode.waves then return "waves" end
-    if world.mode.teams then
+    if world.mode.teams or world.mode.boss then -- (boss fight: the players' team wins)
         if not ev.winnerTeam then return "draw" end
         return (player and ev.winnerTeam == player.team) and "win" or "loss"
     end
@@ -505,7 +549,7 @@ local function playEvents(events)
                 Sound.play("coin", ev.x, ev.y, 0.5)
             end
         elseif ev.kind == "matchStart" then
-            roundCoins, roundReward, roundXp, tierUpSoundAt = 0, nil, nil, nil
+            roundCoins, roundReward, roundXp, tierUpSoundAt, roundUnlock = 0, nil, nil, nil, nil
             Pass.roundStart()
             Sound.play("roundStart")
         elseif ev.kind == "matchOver" then
@@ -516,6 +560,17 @@ local function playEvents(events)
                 roundReward = { outcome = outcome, coins = Profile.roundReward(outcome, ev.wave) }
                 Profile.addCoins(roundReward.coins)
                 roundXp = Pass.onRoundOver(outcome, ev.wave, localId, world)
+                -- boss fight won: every device that took part unlocks on its own (the
+                -- one that started it pays; a LAN helper may unlock it later)
+                local boss = world.mode.boss and Rowdies[tonumber(world.mode.boss)]
+                if boss and outcome == "win" then
+                    roundUnlock = Unlock.won(boss, role ~= "client")
+                    if roundUnlock and Profile.owns(boss) then
+                        Sound.play("unlock")
+                        Menu.rowdy, Menu.fighter = tonumber(world.mode.boss), tonumber(world.mode.boss)
+                        Menu.save()
+                    end
+                end
                 if roundXp then
                     roundXp.shownAt = love.timer.getTime() + 0.4
                     if roundXp.tiersUp > 0 then tierUpSoundAt = roundXp.shownAt + 1.5 end
@@ -686,6 +741,7 @@ end
 
 local function nameOf(e)
     if e.id == localId then return "You" end
+    if e.boss then return "Boss" end
     if e.isBot then return "Bot" end
     return "Player " .. e.id
 end
@@ -749,6 +805,10 @@ local function resultInfo()
         for team, k in pairs(s) do if team ~= player.team then other = other + k end end
         info.subtitle = ((m.timeLeft and m.timeLeft <= 0) and "Time is up" or "Knockout target reached")
             .. "   -   Your team " .. own .. " : " .. other .. " Enemies"
+    elseif world.mode.boss then -- always won: you can't lose a boss fight
+        local boss = world:boss()
+        info.title, info.color = "Boss beaten!", { 1, 0.82, 0.1 }
+        info.subtitle = roundUnlock or ("The " .. (boss and boss.def.name or "boss") .. " is out!")
     elseif world.mode.waves then
         info.title, info.color = "Game over", { 1, 0.55, 0.3 }
         info.subtitle = "You reached wave " .. (m.wave or world.wave)
@@ -782,6 +842,12 @@ local function resultInfo()
     if role == "client" then
         info.buttons = { { "rowdy", "Rowdy" }, { "menu", "Leave" } }
         info.note = "Waiting for the host to start the next round"
+    elseif world.mode.boss then -- won: nothing to play again alone (friends may want theirs)
+        info.buttons = role == "host" and { { "again", "Fight again" }, { "menu", "Menu" } }
+            or { { "menu", "Back to the lobby" } }
+        if role == "host" then
+            info.note = "Players who joined stay for the next fight (" .. server:playerCount() .. ")"
+        end
     else
         info.buttons = { { "again", "Play again" }, { "rowdy", "Rowdy" }, { "menu", "Menu" } }
         if role == "host" then
@@ -810,6 +876,11 @@ local OWN_COLOR, BOT_COLOR = { 0.25, 0.7, 0.35 }, { 0.85, 0.25, 0.25 }
 -- others has the most kills (the bot, or the leading player in a LAN game).
 local function scoreboardInfo()
     local m = world.match
+    if world.mode.boss then
+        local boss = world:boss()
+        return { kind = "boss", name = boss and boss.def.name:upper() or "BOSS",
+                 hp = boss and boss.hp or 0, maxHp = boss and boss.maxHp or 1 }
+    end
     if world.mode.waves then
         return { kind = "waves", wave = world.wave, bots = world:countBots(),
                  lives = world:livesLeft(player), maxLives = World.LIVES }
@@ -841,7 +912,15 @@ end
 function watchMatch()
     if world.match.over then watch = {} return end
     local now = {}
-    if world.mode.waves then
+    if world.mode.boss then -- cheer the players on halfway and near the end
+        local info = scoreboardInfo()
+        now.share = info.hp / info.maxHp
+        for _, mark in ipairs({ { 0.5, "Halfway there!" }, { 0.2, "Almost done - keep going!" } }) do
+            if watch.share and watch.share > mark[1] and now.share <= mark[1] then
+                Scoreboard.flash(mark[2], { 0.5, 1, 0.5 })
+            end
+        end
+    elseif world.mode.waves then
         now.wave, now.lives = world.wave, world:livesLeft(player)
         if now.wave > (watch.wave or 0) then Scoreboard.flash("Wave " .. now.wave) end
         if watch.lives and now.lives < watch.lives and now.lives > 0 then
@@ -937,6 +1016,7 @@ local function drawGame()
         if e == player then e.hudColor = nil
         elseif ally then e.hudColor = TEAMMATE_COLOR
         elseif world.mode.teams then e.hudColor = ENEMY_TEAM_COLOR
+        elseif e.boss then e.hudColor = BOT_COLOR -- its own bar colour may be green
         elseif e.isBot then e.hudColor = nil
         else e.hudColor = OPPONENT_COLOR end
         e.teamColor = world.mode.teams and (ally and TEAMMATE_COLOR or ENEMY_TEAM_COLOR) or nil

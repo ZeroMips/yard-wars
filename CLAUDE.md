@@ -21,6 +21,8 @@ existing things that break it.
   error tracebacks to stdout; exit code 124 means it ran until the timeout.
 - Packed build: `zip -9 -r ../yard-wars.love . -x '.git/*'`
 - Test coins: `love . --coins 300` (adds to the saved coins in `profile.txt`).
+- Boss fight: `love . --boss 4` (against rowdy 4, any rowdy, also owned ones; `--boss 4 host`
+  hosts it for LAN helpers).
 - LAN test on one machine: `love . --host` (or `--host waves`) and `love . --join 127.0.0.1`
   (or `love . --find` for the join screen with discovery) in a second terminal.
   UDP ports 27015 (game) + 27016 (discovery); if a phone can't connect/find the desktop:
@@ -93,7 +95,9 @@ existing things that break it.
 - `main.lua` — client: state (menu/pick/join/game/pass/style), roles local/host/client, the modes of
   the start screen (`Menu.entries`: Duel, Team fight, Waves, Host duel = free-for-all, Host
   team fight, Host waves = co-op, Join); PLAY starts the chosen mode with the chosen
-  rowdy (`Menu.rowdy`); result screen (Play again / Rowdy / Menu; LAN clients:
+  rowdy (`Menu.rowdy`); a locked rowdy: `openBoss` (panel) → `startBoss(host)` = newGame with
+  mode `{ boss = index }` and `Menu.fighter`; matchOver of a won boss fight →
+  `Unlock.won` (message = result subtitle); result screen (Play again / Rowdy / Menu; LAN clients:
   Rowdy / Leave, the host starts the next round), fixed-step loop (`World.TICK` = 1/60, a shot from the
   controls is kept until a step uses it), local player by id (`localId`), world events →
   particles/shake, camera, HUD, minimap, rowdy switching.
@@ -115,7 +119,11 @@ existing things that break it.
   red only when blue is full; replaces a bot), `removePlayer` (bot refills), `teamScores`, first team to
   `TEAM_KILL_TARGET` 15; rounds (`world.match`): duel = first to `KILL_TARGET` 10 or most kills after
   `TIME_LIMIT` 180 s (tie = draw), waves = `LIVES` 3 per player (`out` = no respawn), over
-  when all players are out; `restartMatch()`; the world stands still while over; things
+  when all players are out; boss fight (`mode.boss` = rowdy index): the players (team
+  `TEAM_PLAYERS`) vs one big bot with that rowdy's def (`boss` flag, `BOSS_HP` 3x HP,
+  `BOSS_SIZE` 1.4: `World.bossLook`, radius), no time limit, players respawn forever, the
+  boss never respawns (`out`) - won (`winnerTeam` = players) when it is out (charter: you
+  can't lose); `world:boss()`; `restartMatch()`; the world stands still while over; things
   that happened go to `world.events` (also shot/superReady/matchStart/matchOver for sounds) (spawn/death/step/impact/hit/heal)
   via `emit`, read with `takeEvents()`; also box/boxHit/boxBreak/coin. `death` carries
   `killer` (shooter id), `boxBreak` carries `by` (for the pass XP). Snapshots carry medpacks
@@ -130,8 +138,9 @@ existing things that break it.
   input per step, events reliable + 30 Hz snapshots unreliable, 6 s timeout) and client
   (hello/input/rowdy; input `fire` is a counter so lost packets lose no shot; hello and
   rowdy carry `style` = cosmetic ids, cleaned by `cleanStyle`; `Net.FIELDS` ends with
-  skin/trail/title/badge; `Net.PROTOCOL` 3 since the Yard Pass, 4 since bombs: input
-  `dist`/`shotDist`, bullet `lob`, `blast` event). Version
+  skin/trail/title/badge/boss; `Net.PROTOCOL` 3 since the Yard Pass, 4 since bombs: input
+  `dist`/`shotDist`, bullet `lob`, `blast` event; 5 since boss fights: welcome `mode.boss`,
+  FIELDS `boss` - the replica makes the boss proxy big with `World.bossLook`). Version
   check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
   `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
   refused with a reason ("The host has a newer build (52): restart to update"), different
@@ -154,10 +163,10 @@ existing things that break it.
 - `src/join.lua` — join screen: address field in the upper half (last address saved; phone
   keyboard opens only when the field is tapped), found games below as tap-to-join buttons
 - `src/profile.lua` — progress on this device (`profile.txt`): coins + bought rowdies (by
-  name). Start: only the Shotgunner (`STARTER`, no `price`); Gunner 150, Sniper 300, Robot 500,
-  Pirate 450 (`price` in `src/rowdies.lua`); pass rowdies (`pass = true`, the Gardener) never
-  for coins (`canAfford` false): lobby button YARD PASS + tier and the picker's "Yard Pass"
-  button open the pass screen (between rounds only a message). Coins: own `coin` events (boxes) + round reward on
+  name) + `beaten` (boss fights won, line "beaten ..."; old builds ignore it). Start: only
+  the Shotgunner (`STARTER`, no `price`); Gunner 150, Sniper 300, Robot 500, Pirate 450
+  (`price` in `src/rowdies.lua`); pass rowdies (`pass = true`, the Gardener) never for
+  coins (`canAfford` false). Coins: own `coin` events (boxes) + round reward on
   `matchOver` (`REWARD`: win 30, draw 10, loss 5, waves 5 per cleared wave), added in
   main.lua's `playEvents` — so LAN clients earn on their own device too. `Profile.grant(name)`:
   a rowdy for free (pass reward).
@@ -168,8 +177,10 @@ existing things that break it.
   ownership (`Profile.owns`).
 - `src/seasons.lua` — Yard Pass data, checked on load like rowdies.lua: `Seasons.list`
   (id, name, `starts` date - shown from then on, so a season can ship early - `tierXp`,
-  `tiers` = one reward each: `{coins}`, `{rowdy}` (already owned: `DUPLICATE_COINS`; every `pass` rowdy must be a tier reward -
-  checked on load; `Seasons.rowdyTier(name)` → season, tier),
+  `tiers` = one reward each: `{coins}`, `{rowdy}` (= that rowdy's boss fight: the claimed
+  tier is the ticket, src/unlock.lua; beaten before: the rowdy itself; already owned:
+  `DUPLICATE_COINS`; every `pass` rowdy must be a tier reward - checked on load;
+  `Seasons.rowdyTier(name)` → season, tier),
   `{cosmetic}`), `XP` table (win 100 / draw 60 / loss 40, waves 40 + 20 per cleared wave,
   knockout (`kill`) 10, chest 5, challenge 150, big challenge 600; no first-win-of-the-day
   bonus - removed for the charter), `BONUS_XP`/`BONUS_COINS` after the last tier,
@@ -208,9 +219,17 @@ existing things that break it.
   (fly out, spin, blink), coin icon/counter and padlock for the menus
 - `src/medpack.lua` — medpack drawing (comic box + red cross, bob, pop-in, blinks last 3 s);
   confirmed on the Pixel 2026-10-01
+- `src/unlock.lua` — how a locked rowdy is won: `Unlock.state(def)` → nil / "challenge"
+  (boss fight; coin rowdy: needs the coins, `canChallenge`; pass rowdy: its tier claimed,
+  `hasTicket`) / "buy" (beaten, not paid: a LAN helper or too few coins then) / "pass"
+  (tier not claimed); `Unlock.won(def, challenger)` after a won fight: marks it beaten,
+  pays + unlocks on the device that started it (pass rowdy: granted with the ticket);
+  `Unlock.why` (notice when it can't start). Rowdies owned before stay owned.
 - `src/picker.lua` — rowdy choice screen (cards: picture, role, HP, attack, super), from the
-  lobby (ROWDIES) or between rounds; locked cards dark with padlock + price, confirm button
-  becomes "Unlock" (a second tap on a locked card doesn't buy). Fixed-size cards (210x310 HUD
+  lobby (ROWDIES) or between rounds; locked cards dark with padlock + price (pass rowdy:
+  "Yard Pass tier 10" / "Boss fight - free"), confirm button becomes "Challenge" (lobby:
+  the boss panel; between rounds only a message), "Unlock" or "Yard Pass" (a second tap on
+  a locked card doesn't buy). Fixed-size cards (210x310 HUD
   units) in a grid (landscape 5 columns, portrait 3) that scrolls between title and buttons:
   mouse wheel (`love.wheelmoved` → `Picker.wheel`), touch drag (`Picker.drag`; a touch that
   scrolled more than 12 units sets `Picker.dragged` and its release taps nothing), arrows
@@ -219,11 +238,16 @@ existing things that break it.
   Pass XP: parts, a bar filling over 1.5 s, "TIER 8!", completed challenges, buttons)
 - `src/menu.lua` — start screen in mobile-game lobby style: chosen rowdy big on a pedestal
   (arrows switch, ROWDIES opens the card picker), mode card bottom right (tap: list of all
-  modes, solo + LAN), PLAY button (UNLOCK + price for a locked rowdy, grey if too few coins),
+  modes, solo + LAN), PLAY button (locked rowdy, by `Unlock.state`: CHALLENGE + price (grey
+  if too few coins) / CHALLENGE "Boss fight" (pass rowdy) / UNLOCK + price / YARD PASS +
+  tier), boss fight panel (`Menu.bossOpen`: rules - you can't lose -, "You fight as" with
+  arrows = `Menu.fighter` (usable rowdies only), FIGHT / WITH FRIENDS (LAN host) / BACK;
+  keys left/right, Enter, H, Esc),
   coin counter next to the logo; YARD PASS button (season, tier, XP bar, red dot while
   something is claimable) and STYLE button; the rowdy with its skin, the equipped
   pedestal, badge (next to the name) and title (under the stats); landscape + portrait
-  layouts; last rowdy + mode saved in `lobby.txt`. Keys: left/right rowdy, up/down mode,
+  layouts; last rowdy + mode + fighter saved in `lobby.txt` ("4 duel 2"; old builds read
+  the first two). Keys: left/right rowdy, up/down mode,
   Enter play, B cards, P pass, Y style
 - `conf.lua` — title "Yard Wars", identity "yard-wars" (save folder), 1280x720 resizable window.
   Until build 46 the identity had another name; conf.lua is never replaced by an update, so
@@ -259,7 +283,7 @@ existing things that break it.
   sway/bob, breathing, recoil, muzzle flash, spawn pop-in); logic reports via `self:emit`
 - `src/rowdies.lua` — data: Gunner (pistol), Shotgunner (5 pellets, 0.6 rad cone),
   Sniper (range 720), Robot (tank: 160 HP, slow, heavy single bolts), Gardener (season 1
-  rowdy, only from the pass at tier 10 (`pass = true`, no price; 400 coins up to build 68): spray of 4 water drops, narrow cone; origin set
+  rowdy, boss fight from the pass at tier 10 (`pass = true`, no price; 400 coins up to build 68): spray of 4 water drops, narrow cone; origin set
   by hand - the water tank made the tool's guess too low), Pirate (bomb thrower, 450 coins,
   bought only; origin/muzzle by hand: the tool took the fuse spark as the muzzle),
   plus `Rowdies.bot` (enemy look + stats).
@@ -282,7 +306,9 @@ existing things that break it.
 - `src/player.lua` — Player subclass, `update(dt, input, bullets)`, 0.25s fire buffer
 - `src/enemy.lua` — Bot subclass (`isBot`), `update(dt, world)` targets the nearest opponent;
   states patrol/chase/strafe/retreat/flee/search, LOS +
-  bush-reveal rules, aim spread, stuck detection (slides sideways)
+  bush-reveal rules, aim spread, stuck detection (slides sideways); shoots within 0.88 of
+  its range (and keeps a distance scaled to it), fires its super when ready and in range,
+  bombs aimed at the target's distance (`aimDist`); a `boss` never flees
 - `src/bullet.lua` — owner/team/damage/color; speed+range read from owner (default range 480)
 - `src/sound.lua` — sound effects synthesized at startup (sfxr-style layers: square/saw/
   sine/triangle/noise with pitch slides + envelopes; no files): per-rowdy shots, hit/hurt,
@@ -292,8 +318,9 @@ existing things that break it.
   not faster than 35 ms; M mutes (touch: speaker button top right on every screen, the
   minimap moves left for it); the setting is saved in `sound.txt`. ~70 ms to build on desktop (~220 ms without JIT).
 - `src/scoreboard.lua` — in-game scoreboard top centre (duel/team: scores with bars to the kill
-  target + timer, red in the last 30 s; waves: wave, lives as hearts, bots left; below the
-  minimap on narrow screens) and banners (time marks, new wave, lost life, 1 kill to win)
+  target + timer, red in the last 30 s; waves: wave, lives as hearts, bots left; boss: one
+  wide health bar; below the minimap on narrow screens) and banners (time marks, new wave,
+  lost life, 1 kill to win, boss at half / 20%)
 - `src/effects.lua` — particles: puff, sparks, burst, ring, heal ("+" signs), poof (a
   knocked-out rowdy: white clouds + yellow stars, no coloured blobs - charter)
   (`drawBelow`/`drawAbove` layers). On screen it's "knockouts" / "out", never kills/deaths

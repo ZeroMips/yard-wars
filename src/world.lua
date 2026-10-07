@@ -1,5 +1,5 @@
 -- The simulation: all rowdies (players + bots) with ids and teams, bullets, hits,
--- scores and the game mode (duel / waves). It runs in fixed steps of World.TICK.
+-- scores and the game mode (duel / team fight / waves / boss fight). It runs in fixed steps of World.TICK.
 --
 -- No input devices, rendering, camera or particles in here: players are driven by
 -- input tables (src/controls.lua format), and everything worth showing is pushed as
@@ -54,6 +54,13 @@ World.TEAM_KILL_TARGET = 15
 World.TIME_LIMIT  = 180 -- seconds
 World.LIVES       = 3
 
+-- Boss fight (mode.boss = index of a rowdy in src/rowdies.lua): the players (together)
+-- against one big bot with that rowdy's look, attacks and super and BOSS_HP times its
+-- HP. Nobody can lose (CHARTER.md): players pop back in as often as they need, the
+-- boss never heals or respawns, there is no time limit; the round ends when it is out.
+World.BOSS_HP   = 3
+World.BOSS_SIZE = 1.4 -- drawn and hit this much bigger
+
 local WAVE_DELAY     = 2   -- seconds between clearing a wave and the next one
 local SPAWN_MIN_DIST = 600 -- bots never spawn closer than this to a player
 local IDLE = { dx = 0, dy = 0 } -- input of a player that sent nothing
@@ -85,7 +92,22 @@ end
 -- Round state: { over = bool, timeLeft (duel), winner = entity id or nil (draw),
 -- wave = wave reached (waves) }
 function World.newMatch(mode)
-    return { over = false, timeLeft = (not mode.waves) and World.TIME_LIMIT or nil }
+    return { over = false, timeLeft = not (mode.waves or mode.boss) and World.TIME_LIMIT or nil }
+end
+
+-- The boss's look: the rowdy's own, BOSS_SIZE bigger (also used by src/replica.lua)
+function World.bossLook(def)
+    local look = Assets.look(def)
+    look.scale = look.scale * World.BOSS_SIZE
+    look.muzzle = { look.muzzle[1] * World.BOSS_SIZE, look.muzzle[2] * World.BOSS_SIZE }
+    return look
+end
+
+-- The boss of a boss fight (entity), or nil
+function World:boss()
+    for _, e in ipairs(self.entities) do
+        if e.boss then return e end
+    end
 end
 
 -- Events: { kind, t = world time, x, y, ... }
@@ -300,6 +322,16 @@ function World:teamScores()
     return s
 end
 
+local function addBoss(self)
+    local def = Rowdies[self.mode.boss]
+    local x, y = Arena.enemySpawn.x, Arena.enemySpawn.y
+    local e = self:add(Enemy.new(x, y, World.bossLook(def), def.stats), World.TEAM_BOTS, def)
+    e.boss = true
+    e.maxHp = e.maxHp * World.BOSS_HP
+    e.radius = e.radius * World.BOSS_SIZE
+    e:respawn() -- full (big) HP, pop-in animation + spawn event
+end
+
 function World:spawnBots(count)
     local def = Rowdies.bot
     for i = 1, count do
@@ -328,6 +360,8 @@ function World:start()
         end
     elseif self.mode.waves then
         self:startWave()
+    elseif self.mode.boss then
+        addBoss(self)
     else
         self:spawnBots(1)
     end
@@ -354,6 +388,7 @@ local function damage(self, b, victim, x, y)
         if self.mode.waves and not victim.isBot and victim.deaths >= World.LIVES then
             victim.out = true
         end
+        if victim.boss then victim.out = true end -- the boss fight is won
     end
 end
 
@@ -632,6 +667,11 @@ local function checkMatch(self, dt)
             end
         end
         if players > 0 and out == players then endMatch(self, nil) end
+        return
+    end
+    if self.mode.boss then -- won once the boss is out (there is no losing)
+        local boss = self:boss()
+        if boss and boss.out then endMatch(self, nil, World.TEAM_PLAYERS) end
         return
     end
     if self.mode.teams then -- a team reached the target, or the time is up

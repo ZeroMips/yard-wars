@@ -17,7 +17,8 @@ unlock new rowdies.
 - Play together in the same Wi-Fi: free-for-all, team fight and co-op waves, the host is
   found automatically
 - Touch controls (move stick, aim and release to fire) and keyboard + mouse
-- Coins from treasure chests and round rewards unlock new rowdies
+- New rowdies: save up coins (treasure chests, round rewards) and beat the rowdy in a
+  boss fight - you can't lose, you pop back in until it's out (alone or with friends)
 - Signed automatic updates
 
 ## Running from source
@@ -31,6 +32,7 @@ love .
 A checkout like this never updates itself; only packaged builds do.
 
 Useful options for testing: `--rowdy N` (start with rowdy N), `--coins N` (add coins),
+`--boss N [host]` (boss fight against rowdy N),
 `--host [team|waves]` and `--join <address>` / `--find` (LAN game on one machine: run
 two instances). Playing over the network uses UDP ports 27015 and 27016.
 

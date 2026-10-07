@@ -194,7 +194,7 @@ end
 -- Text for a reward ("30 coins", "Robot", "Rose skin (Gunner)", ...)
 function Pass.rewardText(r)
     if r.coins then return r.coins .. " coins" end
-    if r.rowdy then return r.rowdy end
+    if r.rowdy then return r.rowdy .. " boss fight" end
     local c = Cosmetics.get(r.cosmetic)
     if c.kind == "skin" then return c.name .. " skin (" .. c.rowdy .. ")" end
     if c.kind == "title" then return "Title \"" .. c.name .. "\"" end
@@ -219,8 +219,12 @@ local function give(r)
             Profile.addCoins(Seasons.DUPLICATE_COINS)
             return "+" .. Seasons.DUPLICATE_COINS .. " coins (you already have the " .. r.rowdy .. ")"
         end
-        Profile.grant(r.rowdy)
-        return r.rowdy .. " unlocked!"
+        if Profile.beaten[r.rowdy] then -- already beaten (e.g. helping a friend)
+            Profile.grant(r.rowdy)
+            return r.rowdy .. " unlocked!"
+        end
+        -- the boss fight is open now (src/unlock.lua: the claimed tier is the ticket)
+        return r.rowdy .. " boss fight unlocked! Challenge it in the lobby"
     end
     local c = Cosmetics.get(r.cosmetic)
     Pass.owned[c.id] = true
@@ -384,7 +388,7 @@ local function progress(kind, amount, ctx)
 end
 
 function Pass.modeId(mode)
-    return (mode.waves and "waves") or (mode.teams and "team") or "duel"
+    return (mode.boss and "boss") or (mode.waves and "waves") or (mode.teams and "team") or "duel"
 end
 
 local function context(localId, world)

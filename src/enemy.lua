@@ -8,9 +8,9 @@ Enemy.isBot = true
 
 local SIGHT_RANGE   = 700  -- how far the bot can see
 local BUSH_REVEAL   = 130  -- bot only spots a player in a bush this close
-local SHOOT_RANGE   = 420  -- bullets fly 480px, so shoot a bit earlier
+local SHOOT_RANGE   = 0.88 -- shoots within this share of its range (bot: 480 -> 422)
 local PREFERRED_MIN = 220  -- closer than this: back off
-local PREFERRED_MAX = 340  -- farther than this: approach
+local PREFERRED_MAX = 340  -- farther than this: approach (both nearer for short ranges)
 local AIM_SPREAD    = 0.25 -- radians of random inaccuracy
 
 -- stats: see src/rowdies.lua (Rowdies.bot)
@@ -55,13 +55,13 @@ function Enemy:update(dt, world)
         self.aim = math.atan2(dy, dx)
         local ux, uy = dx / dist, dy / dist
 
-        if self.hp < self.maxHp * 0.3 then
+        if self.hp < self.maxHp * 0.3 and not self.boss then -- a boss stands its ground
             self.state = "flee"
             mx, my = -ux, -uy
-        elseif dist > PREFERRED_MAX then
+        elseif dist > math.min(PREFERRED_MAX, self.range * 0.75) then
             self.state = "chase"
             mx, my = ux, uy
-        elseif dist < PREFERRED_MIN then
+        elseif dist < math.min(PREFERRED_MIN, self.range * 0.45) then
             self.state = "retreat"
             mx, my = -ux, -uy
         else
@@ -74,7 +74,16 @@ function Enemy:update(dt, world)
             mx, my = -uy * self.strafeDir, ux * self.strafeDir
         end
 
-        if dist <= SHOOT_RANGE and self.cooldown <= 0 and self.ammo >= 1 then
+        -- bombs land where the target stands (aimDist is measured from the body centre)
+        self.aimDist = dist
+        local super = self.super
+        if super and self:superReady() and self.cooldown <= 0
+            and dist <= (super.range or self.range) * SHOOT_RANGE then
+            local exact = self.aim
+            self.aim = exact + (math.random() - 0.5) * AIM_SPREAD * 0.5
+            self:shootSuper(world.bullets)
+            self.aim = exact
+        elseif dist <= self.range * SHOOT_RANGE and self.cooldown <= 0 and self.ammo >= 1 then
             local exact = self.aim
             self.aim = exact + (math.random() - 0.5) * AIM_SPREAD
             self:shoot(world.bullets)

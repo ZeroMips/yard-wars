@@ -42,8 +42,9 @@ local CH_RELIABLE, CH_FAST = 0, 1
 -- list indexes, the client draws with its own stats). Bump PROTOCOL when messages or
 -- Net.FIELDS change; the content id is a hash of src/rowdies.lua's data, so a new or
 -- changed rowdy needs no manual bump. Builds may differ otherwise (git checkout <-> phone).
-Net.PROTOCOL = 4 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
+Net.PROTOCOL = 5 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
                  -- 4: bombs (input dist, bullet lob, blast event)
+                 -- 5: boss fight (welcome mode.boss, FIELDS boss)
 
 local function serialize(v, out)
     if type(v) == "table" then
@@ -90,7 +91,7 @@ end
 Net.FIELDS = { "id", "team", "key", "x", "y", "aim", "hp", "ammo", "ammoTimer", "dead",
     "respawnTimer", "walkPhase", "walkBlend", "recoil", "flashTimer", "flashSize",
     "hitFlash", "spawnAnim", "kills", "deaths", "isBot", "charge", "out",
-    "skin", "trail", "title", "badge" }
+    "skin", "trail", "title", "badge", "boss" }
 
 local function send(peer, msg, reliable)
     peer:send(Codec.encode(msg), reliable and CH_RELIABLE or CH_FAST,
@@ -189,8 +190,8 @@ local function receive(self, peer, msg)
         local p
         if world.mode.teams then -- with the other players, in place of a bot
             p = world:addTeamPlayer(def, cleanStyle(msg.style))
-        else -- waves: everybody against the bots; duel: free-for-all
-            local team = (not world.mode.waves) and world:newTeam() or nil
+        else -- waves, boss fight: everybody against the bots; duel: free-for-all
+            local team = not (world.mode.waves or world.mode.boss) and world:newTeam() or nil
             local x, y = world:playerSpawn()
             p = world:addPlayer(def, x, y, team, cleanStyle(msg.style))
         end
@@ -198,7 +199,7 @@ local function receive(self, peer, msg)
         c.id, c.fireSeen = p.id, 0
         local v = Net.version()
         send(peer, { type = "welcome", id = p.id, mode = { name = world.mode.name,
-            waves = world.mode.waves, teams = world.mode.teams },
+            waves = world.mode.waves, teams = world.mode.teams, boss = world.mode.boss },
             protocol = v.protocol, content = v.content, build = v.build }, true)
     elseif msg.type == "input" and c.id then
         c.input = msg
