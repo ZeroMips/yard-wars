@@ -408,10 +408,12 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 - Published to the real server: builds 47, 51 (replaced), 53 (2026-10-04: rowdy entry
   check + LAN version check), 57 (2026-10-05: Yard Pass, protocol 3), 59 (2026-10-05: Gardener), 62 (2026-10-06: Pirate +
   bombs, protocol 4), 64 (2026-10-06: hidden
-  test mode), build 68 (2026-10-06, current: charter fixes - challenges never expire, no
-  first-win bonus, knockouts, poof; website "Our promise";
-  latest.txt + .love answer 200 over plain http). Website with the Yard Pass section
+  test mode), build 68 (2026-10-06: charter fixes - challenges never expire, no
+  first-win bonus, knockouts, poof; website "Our promise"), build 71 (2026-10-07,
+  current: boss fights to unlock rowdies, Gardener only via the pass, protocol 5;
+  latest.txt + .love answer 200 over plain http). Website ("coins + boss fight")
   uploaded the same day.
+- Boss fights NOT yet tried on a device (touch on the panel, fight feel on a phone).
 - Tablet (TB330FU): build 68 (the published .love, unzipped) installed by hand 2026-10-07;
   before it had a build from 2026-10-03 without build.txt (never updated itself).
 - Open: `love.event.quit("restart")` on Android (if it fails, the
