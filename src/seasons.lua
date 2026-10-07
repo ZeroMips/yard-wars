@@ -11,7 +11,9 @@
 --   tiers    one reward per tier (the list length is the number of tiers):
 --              { coins = 30 }                 coins (src/profile.lua)
 --              { rowdy = "Gardener" }         unlocks a rowdy (src/rowdies.lua) for free;
---                                             already bought: DUPLICATE_COINS instead
+--                                             already owned: DUPLICATE_COINS instead. A
+--                                             rowdy with `pass = true` has no price: this
+--                                             is the only way to get it
 --              { cosmetic = "skin.gunner.rose" } skin, trail, pedestal, badge or title
 --                                             (src/cosmetics.lua)
 -- After the last tier every BONUS_XP more gives a bonus reward of BONUS_COINS.
@@ -106,6 +108,15 @@ end
 
 -- ---- Checks when the file loads (a typo would otherwise show up as a broken pass)
 
+-- The season and tier that give a rowdy (by name), or nil
+function Seasons.rowdyTier(name)
+    for _, s in ipairs(Seasons.list) do
+        for t, r in ipairs(s.tiers) do
+            if r.rowdy == name then return s, t end
+        end
+    end
+end
+
 local byId, challengeById = {}, {}
 
 do
@@ -168,6 +179,11 @@ do
             if c.mode and not MODES[c.mode] then fail(where, "unknown mode '" .. tostring(c.mode) .. "'") end
             c.pool = pool
             challengeById[c.id] = c
+        end
+    end
+    for _, def in ipairs(Rowdies) do
+        if def.pass and not Seasons.rowdyTier(def.name) then
+            fail("rowdy " .. def.name, "has pass = true but no season gives it as a tier reward")
         end
     end
     if #Seasons.challenges <= Seasons.OPEN then fail("challenges", "the pool needs more entries than OPEN") end

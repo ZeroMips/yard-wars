@@ -7,11 +7,14 @@
 --        python3 tools/make_comic_sprites.py --scale 0.27 ~/Downloads/yard-wars-art-new/top <image>
 --        python3 tools/make_comic_sprites.py --side ~/Downloads/yard-wars-art-new/side <image>
 --   3. Paste the printed `comic = { ... }` line into the entry.
---   4. Fill in name, role, stats, price and optionally shot.
+--   4. Fill in name, role, stats, price (or pass) and optionally shot.
 --
 --   name       shown in menus; also the key profile.txt stores bought rowdies by
 --   role       short description for the rowdy choice screen
 --   price      coins to unlock it (src/profile.lua); none = free from the start
+--   pass       true = only from the Yard Pass (a tier reward in src/seasons.lua),
+--              never for coins; needs no price. Players who bought it before keep
+--              it (profile.txt lists owned rowdies by name)
 --   shot       shot sound (a name from src/sound.lua's DEFS, default "shot_gunner")
 --   comic      look:
 --                image   assets/images/comic/<image>.png (art faces UP, required)
@@ -89,9 +92,9 @@ local Rowdies = {
                             damage = 30, range = 360, bulletSpeed = 700, radius = 9 } },
     },
     {
-        -- Season 1 "Garden Party" (src/seasons.lua: free at tier 10). Origin by hand:
+        -- Season 1 "Garden Party" (src/seasons.lua: tier 10, only there). Origin by hand:
         -- the water tank on the back made the tool's guess sit below the hat's centre.
-        name = "Gardener", role = "Water spray, mid range", price = 400, shot = "shot_water",
+        name = "Gardener", role = "Water spray, mid range", pass = true, shot = "shot_water",
         comic = { image = "gardener", origin = { 51.5, 108 }, muzzle = { 105, -0.5 } },
         stats = { speed = 240, hp = 110, damage = 7, pellets = 4, spread = 0.22,
                   range = 380, bulletSpeed = 750, reload = 0.25, maxAmmo = 3, ammoRefill = 1.3,
@@ -126,7 +129,7 @@ Rowdies.bot = {
 -- Check the entries when this file loads: a typo ("bulletspeed") would otherwise
 -- silently fall back to a default. Allowed fields and their types:
 local NUMBER, STRING, BOOL, TABLE = "number", "string", "boolean", "table"
-local ENTRY = { name = STRING, role = STRING, price = NUMBER, shot = STRING,
+local ENTRY = { name = STRING, role = STRING, price = NUMBER, pass = BOOL, shot = STRING,
                 comic = TABLE, stats = TABLE }
 local COMIC = { image = STRING, origin = TABLE, muzzle = TABLE }
 local STATS = { speed = NUMBER, hp = NUMBER, damage = NUMBER, pellets = NUMBER,
@@ -176,6 +179,7 @@ local function validate(def, label)
     if def.price and (def.price <= 0 or def.price % 1 ~= 0) then
         fail("price must be a whole number > 0 (none = free)")
     end
+    if def.pass and def.price then fail("a pass rowdy has no price (only the Yard Pass gives it)") end
 end
 
 do

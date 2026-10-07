@@ -3,7 +3,7 @@
 -- card at the bottom right (tap: list of all modes) and a big PLAY button.
 -- Works with mouse, touch and keyboard (left/right rowdy, up/down mode, Enter play).
 -- A rowdy that isn't bought yet (src/profile.lua) is shown dark with its price, and
--- PLAY turns into an UNLOCK button; the coins are shown next to the logo.
+-- PLAY turns into an UNLOCK button (a pass rowdy: YARD PASS + its tier, opens the pass); the coins are shown next to the logo.
 -- YARD PASS (season, tier, XP bar, a still red dot while a reward waits) opens the pass
 -- screen (src/passview.lua), STYLE the cosmetics (src/wardrobe.lua); the rowdy is shown
 -- with its skin, the pedestal, badge and title that are put on.
@@ -15,6 +15,7 @@ local Loot     = require("src.loot")
 local Profile  = require("src.profile")
 local Pass     = require("src.pass")
 local Decor    = require("src.decor")
+local Seasons  = require("src.seasons")
 local PassView = require("src.passview")
 
 local Menu = {}
@@ -464,7 +465,12 @@ function Menu.draw(fonts, touchMode)
     love.graphics.translate(p.x + p.w / 2, p.y + p.h / 2)
     love.graphics.scale(s)
     love.graphics.translate(-(p.x + p.w / 2), -(p.y + p.h / 2))
-    if Menu.locked() then -- UNLOCK + price instead (grey while there are too few coins)
+    if Menu.locked() and Rowdies[Menu.rowdy].pass then -- YARD PASS + tier (opens the pass)
+        local _, tier = Seasons.rowdyTier(Rowdies[Menu.rowdy].name)
+        block(p, PASS_COLOR, Menu.hover == "play")
+        outlined("YARD PASS", fonts.button, p.x, p.y + 14, p.w, "center", { 1, 1, 1 })
+        outlined("Tier " .. tier, fonts.button, p.x, p.y + 54, p.w, "center", { 1, 0.88, 0.35 })
+    elseif Menu.locked() then -- UNLOCK + price instead (grey while there are too few coins)
         local def = Rowdies[Menu.rowdy]
         local afford = Profile.canAfford(def)
         block(p, afford and UNLOCK_COLOR or LOCKED_COLOR, Menu.hover == "play")

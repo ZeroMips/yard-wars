@@ -30,6 +30,7 @@ local Updater  = require("src.updater")
 local Cosmetics = require("src.cosmetics")
 local Pass     = require("src.pass")
 local PassView = require("src.passview")
+local Seasons  = require("src.seasons")
 local Wardrobe = require("src.wardrobe")
 
 -- Game modes (round rules: see World.KILL_TARGET / TIME_LIMIT / LIVES).
@@ -183,6 +184,11 @@ end
 
 -- Buy a rowdy with coins (src/profile.lua). Returns the message to show.
 local function buy(def)
+    if def.pass then -- never for coins (src/rowdies.lua)
+        Sound.play("click")
+        local season, tier = Seasons.rowdyTier(def.name)
+        return "The " .. def.name .. " is a Yard Pass reward: " .. season.name .. ", tier " .. tier
+    end
     if Profile.unlock(def) then
         Sound.play("unlock")
         return def.name .. " unlocked!"
@@ -207,6 +213,12 @@ end
 
 local function confirmPick()
     if Picker.locked() then
+        if Rowdies[Picker.selected].pass and pickFor == "lobby" then -- the button says "Yard Pass"
+            Sound.play("click")
+            state = "pass"
+            PassView.open()
+            return
+        end
         Picker.message = buy(Rowdies[Picker.selected])
         return
     end
@@ -300,6 +312,10 @@ end
 
 -- PLAY on the start screen: the chosen mode with the chosen rowdy
 local function play()
+    if Menu.locked() and Rowdies[Menu.rowdy].pass then -- the button says YARD PASS
+        openPass()
+        return
+    end
     if Menu.locked() then
         Menu.notice = buy(Rowdies[Menu.rowdy])
         return

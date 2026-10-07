@@ -154,8 +154,10 @@ existing things that break it.
 - `src/join.lua` — join screen: address field in the upper half (last address saved; phone
   keyboard opens only when the field is tapped), found games below as tap-to-join buttons
 - `src/profile.lua` — progress on this device (`profile.txt`): coins + bought rowdies (by
-  name). Start: only the Shotgunner (`STARTER`, no `price`); Gunner 150, Sniper 300, Robot 500
-  (`price` in `src/rowdies.lua`). Coins: own `coin` events (boxes) + round reward on
+  name). Start: only the Shotgunner (`STARTER`, no `price`); Gunner 150, Sniper 300, Robot 500,
+  Pirate 450 (`price` in `src/rowdies.lua`); pass rowdies (`pass = true`, the Gardener) never
+  for coins (`canAfford` false): lobby button YARD PASS + tier and the picker's "Yard Pass"
+  button open the pass screen (between rounds only a message). Coins: own `coin` events (boxes) + round reward on
   `matchOver` (`REWARD`: win 30, draw 10, loss 5, waves 5 per cleared wave), added in
   main.lua's `playEvents` — so LAN clients earn on their own device too. `Profile.grant(name)`:
   a rowdy for free (pass reward).
@@ -166,7 +168,8 @@ existing things that break it.
   ownership (`Profile.owns`).
 - `src/seasons.lua` — Yard Pass data, checked on load like rowdies.lua: `Seasons.list`
   (id, name, `starts` date - shown from then on, so a season can ship early - `tierXp`,
-  `tiers` = one reward each: `{coins}`, `{rowdy}` (already owned: `DUPLICATE_COINS`),
+  `tiers` = one reward each: `{coins}`, `{rowdy}` (already owned: `DUPLICATE_COINS`; every `pass` rowdy must be a tier reward -
+  checked on load; `Seasons.rowdyTier(name)` → season, tier),
   `{cosmetic}`), `XP` table (win 100 / draw 60 / loss 40, waves 40 + 20 per cleared wave,
   knockout (`kill`) 10, chest 5, challenge 150, big challenge 600; no first-win-of-the-day
   bonus - removed for the charter), `BONUS_XP`/`BONUS_COINS` after the last tier,
@@ -256,7 +259,7 @@ existing things that break it.
   sway/bob, breathing, recoil, muzzle flash, spawn pop-in); logic reports via `self:emit`
 - `src/rowdies.lua` — data: Gunner (pistol), Shotgunner (5 pellets, 0.6 rad cone),
   Sniper (range 720), Robot (tank: 160 HP, slow, heavy single bolts), Gardener (season 1
-  rowdy, 400 coins or free at pass tier 10: spray of 4 water drops, narrow cone; origin set
+  rowdy, only from the pass at tier 10 (`pass = true`, no price; 400 coins up to build 68): spray of 4 water drops, narrow cone; origin set
   by hand - the water tank made the tool's guess too low), Pirate (bomb thrower, 450 coins,
   bought only; origin/muzzle by hand: the tool took the fuse spark as the muzzle),
   plus `Rowdies.bot` (enemy look + stats).
@@ -382,9 +385,10 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   first-win bonus, knockouts, poof; website "Our promise";
   latest.txt + .love answer 200 over plain http). Website with the Yard Pass section
   uploaded the same day.
+- Tablet (TB330FU): build 68 (the published .love, unzipped) installed by hand 2026-10-07;
+  before it had a build from 2026-10-03 without build.txt (never updated itself).
 - Open: `love.event.quit("restart")` on Android (if it fails, the
-  update is still used at the next start), manual install of an updater build on the
-  tablet.
+  update is still used at the next start).
 
 ## Yard Pass status (2026-10-05, published as build 57)
 - Free season pass, phases 1-3 of the plan: XP/tiers/challenges/pass screen, cosmetics

@@ -1,5 +1,6 @@
 -- The player's progress on this device: coins and the rowdies bought with them.
--- Everybody starts with the Shotgunner only; the others have a `price` (src/rowdies.lua).
+-- Everybody starts with the Shotgunner only; the others have a `price` (src/rowdies.lua)
+-- or come from the Yard Pass (`pass`, given by Profile.grant).
 -- Coins come from rounds (Profile.roundReward) and from loot boxes in the arena (a
 -- "coin" event of the world for the own rowdy). In a LAN game every device keeps its
 -- own profile; the host only reports what happened.
@@ -54,13 +55,14 @@ function Profile.isUnlocked(def)
     return Profile.testMode or Profile.owns(def)
 end
 
--- Really bought or free (ignores the test mode)
+-- Really bought, won or free (ignores the test mode)
 function Profile.owns(def)
-    return Profile.unlocked[def.name] == true or not def.price
+    return Profile.unlocked[def.name] == true or not (def.price or def.pass)
 end
 
+-- A pass rowdy (src/rowdies.lua `pass`) is never for sale
 function Profile.canAfford(def)
-    return Profile.coins >= (def.price or 0)
+    return not def.pass and Profile.coins >= (def.price or 0)
 end
 
 -- Buy a rowdy. Returns true if it is unlocked now.

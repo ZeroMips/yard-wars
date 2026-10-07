@@ -2,7 +2,8 @@
 -- plus a confirm and a Back button. Mouse (wheel scrolls), touch (tap a card, then the
 -- button; drag scrolls) and keyboard (arrows, Enter, Esc).
 -- Rowdies not bought yet (src/profile.lua) are dark with a lock and their price; the
--- confirm button then says "Unlock" (main.lua buys it). A rowdy with Yard Pass skins
+-- confirm button then says "Unlock" (main.lua buys it). A pass rowdy (src/rowdies.lua
+-- `pass`) shows its Yard Pass tier instead, and the button says "Yard Pass". A rowdy with Yard Pass skins
 -- (src/cosmetics.lua) has a "Skins" button on its card (opens src/wardrobe.lua).
 -- Laid out in HUD units (720 along the short screen side), like the menu.
 local Assets   = require("src.assets")
@@ -11,6 +12,7 @@ local Loot     = require("src.loot")
 local Profile  = require("src.profile")
 local Pass     = require("src.pass")
 local Cosmetics = require("src.cosmetics")
+local Seasons  = require("src.seasons")
 
 local Picker = {}
 
@@ -189,6 +191,14 @@ function Picker.draw(fonts, title)
             end
             if locked then
                 Loot.drawLock(r.x + r.w / 2, r.y + 62, 0.7)
+            end
+            if locked and def.pass then
+                local _, tier = Seasons.rowdyTier(def.name)
+                love.graphics.setFont(fonts.text)
+                love.graphics.setColor(0.8, 0.6, 1)
+                love.graphics.printf("Yard Pass tier " .. tier, r.x, r.y + 110 - fonts.text:getHeight() / 2,
+                    r.w, "center")
+            elseif locked then
                 local price = tostring(def.price)
                 love.graphics.setFont(fonts.button)
                 local w = 28 + fonts.button:getWidth(price)
@@ -230,7 +240,9 @@ function Picker.draw(fonts, title)
         love.graphics.setFont(fonts.button)
         love.graphics.setColor(1, 1, 1)
         local label = (name == "confirm") and Picker.confirmLabel or "Back"
-        if name == "confirm" and Picker.locked() then label = "Unlock" end
+        if name == "confirm" and Picker.locked() then
+            label = Rowdies[Picker.selected].pass and "Yard Pass" or "Unlock"
+        end
         love.graphics.printf(label, r.x, r.y + 16, r.w, "center")
     end
 
