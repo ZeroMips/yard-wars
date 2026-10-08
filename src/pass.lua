@@ -21,7 +21,7 @@
 -- "firstwin" lines): daily/weekly ones are taken over as open/big ones, the rest is
 -- dropped (CHARTER.md: nothing expires).
 --   own <id> <id> ...                cosmetics (src/cosmetics.lua)
---   skin <rowdy name> <id>           equipped skin per rowdy
+--   skin <rowdy name> <id>           equipped skin per rowdy (spaces in the name as "_")
 --   equip <kind> <id>                equipped trail / pedestal / badge / title
 local Seasons   = require("src.seasons")
 local Cosmetics = require("src.cosmetics")
@@ -88,7 +88,7 @@ function Pass.load()
             for i = 2, #w do
                 if Cosmetics.get(w[i]) then Pass.owned[w[i]] = true end
             end
-        elseif key == "skin" and w[2] and w[3] then Pass.skins[w[2]] = w[3]
+        elseif key == "skin" and w[2] and w[3] then Pass.skins[Profile.decodeName(w[2])] = w[3]
         elseif key == "equip" and w[2] and w[3] then Pass.equipped[w[2]] = w[3]
         end
     end
@@ -123,7 +123,7 @@ function Pass.save()
     add("drawn " .. Pass.drawn)
     local owned = sortedKeys(Pass.owned)
     if #owned > 0 then add("own " .. table.concat(owned, " ")) end
-    for _, name in ipairs(sortedKeys(Pass.skins)) do add("skin " .. name .. " " .. Pass.skins[name]) end
+    for _, name in ipairs(sortedKeys(Pass.skins)) do add("skin " .. Profile.encodeName(name) .. " " .. Pass.skins[name]) end
     for _, kind in ipairs(sortedKeys(Pass.equipped)) do add("equip " .. kind .. " " .. Pass.equipped[kind]) end
     love.filesystem.write(FILE, table.concat(out, "\n") .. "\n")
 end

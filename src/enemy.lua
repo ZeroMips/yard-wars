@@ -36,6 +36,10 @@ end
 function Enemy:update(dt, world)
     self:tick(dt)
     if self.dead then return end
+    if self.frozen > 0 then -- frozen: stands still (src/rowdies.lua: freeze)
+        self:move(0, 0, dt)
+        return
+    end
 
     local target = world:nearestOpponent(self)
     local dx, dy, dist = 0, 0, math.huge

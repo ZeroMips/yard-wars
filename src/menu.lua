@@ -330,7 +330,7 @@ local function drawArrow(r, dir, hover)
 end
 
 local function attackText(st)
-    local n = st.pellets or 1
+    local n = (st.pellets or 1) * (st.burst or 1)
     return (n > 1) and (n .. " x " .. st.damage) or tostring(st.damage)
 end
 

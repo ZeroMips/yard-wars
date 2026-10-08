@@ -70,6 +70,36 @@ function Effects.poof(x, y)
     end
 end
 
+-- Ice: white-blue sparkles and shards (a rowdy is frozen, a freeze ball bursts)
+function Effects.ice(x, y, n, spread)
+    spread = spread or 20
+    for _ = 1, n do
+        local a, v = math.random() * math.pi * 2, 40 + math.random() * 90
+        local l = 0.5 + math.random() * 0.4
+        add { kind = "sparkle", layer = "above",
+              x = x + math.cos(a) * spread * math.random(), y = y + math.sin(a) * spread * math.random(),
+              vx = math.cos(a) * v, vy = math.sin(a) * v - 20,
+              life = l, max = l, size = 3 + math.random() * 3 }
+    end
+end
+
+-- Dirt / dust clods flying up (a heavy thing lands)
+function Effects.clods(x, y, n, radius, color)
+    color = color or { 0.55, 0.42, 0.28 }
+    for _ = 1, n do
+        local a = math.random() * math.pi * 2
+        local d = radius * (0.3 + 0.7 * math.random())
+        local l = 0.45 + math.random() * 0.3
+        add { kind = "blob", layer = "above", x = x + math.cos(a) * d * 0.4,
+              y = y + math.sin(a) * d * 0.4, vx = math.cos(a) * d * 2, vy = math.sin(a) * d * 2 - 30,
+              life = l, max = l, size = 3 + math.random() * 4, color = color }
+    end
+    for i = 1, 8 do
+        local a = i / 8 * math.pi * 2
+        Effects.puff(x + math.cos(a) * radius * 0.5, y + math.sin(a) * radius * 0.5)
+    end
+end
+
 -- Expanding ring (knockout, respawn)
 function Effects.ring(x, y, radius, color)
     add { kind = "ring", layer = "below", x = x, y = y, radius = radius,
@@ -141,6 +171,17 @@ local function draw(layer)
                 end
                 love.graphics.setColor(0.45, 0.3, 0.05, k)
                 love.graphics.polygon("line", pts)
+            elseif p.kind == "sparkle" then -- a little four-pointed ice star
+                local sz = p.size * (0.5 + 0.5 * k)
+                love.graphics.setColor(0.6, 0.85, 1, k)
+                love.graphics.setLineWidth(3)
+                love.graphics.line(p.x - sz, p.y, p.x + sz, p.y)
+                love.graphics.line(p.x, p.y - sz, p.x, p.y + sz)
+                love.graphics.setColor(1, 1, 1, k)
+                love.graphics.setLineWidth(1.5)
+                love.graphics.line(p.x - sz, p.y, p.x + sz, p.y)
+                love.graphics.line(p.x, p.y - sz, p.x, p.y + sz)
+                love.graphics.setLineWidth(1)
             elseif p.kind == "blob" then
                 local c = p.color
                 love.graphics.setColor(c[1], c[2], c[3], k)

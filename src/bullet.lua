@@ -12,12 +12,11 @@ Bullet.range = Bullet.speed * Bullet.life -- 480px
 Bullet.MIN_THROW = 60 -- px: the shortest throw of a bomb
 Bullet.BOMB_RADIUS = 9 -- drawn size of a bomb without its own radius
 
--- attack: the parameters of this shot (rowdy stats or its super, see
--- src/rowdies.lua); defaults to the owner's normal attack.
+-- attack: the parameters of this shot (owner.attack or owner.super, see
+-- src/rowdies.lua).
 -- dist: how far a bomb (attack.lob) flies, clamped to MIN_THROW..range (nil = range)
 function Bullet.new(x, y, angle, owner, attack, dist)
-    local super = attack ~= nil
-    attack = attack or owner
+    local super = attack == owner.super
     local speed = attack.bulletSpeed or Bullet.speed
     local range = attack.range or Bullet.range
     if attack.lob then -- flies `dist`, then explodes (src/world.lua)
@@ -25,19 +24,23 @@ function Bullet.new(x, y, angle, owner, attack, dist)
     end
     return setmetatable({
         x = x, y = y,
+        homeX = x, homeY = y, -- a boomerang flies back here
         vx = math.cos(angle) * speed,
         vy = math.sin(angle) * speed,
         life = range / speed,
         owner = owner,
         team = owner.team, -- only hits rowdies of other teams
         damage = attack.damage,
-        -- (owner.radius is the rowdy's body, so only a super sets the bullet size)
-        radius = super and attack.radius or Bullet.radius,
+        radius = attack.radius or Bullet.radius,
         -- size against walls/crates (default: radius); smaller lets a big ball graze them
-        wallRadius = super and attack.wallRadius or nil,
-        pierce = super and attack.pierce, -- flies through rowdies (hits each one once)
+        wallRadius = attack.wallRadius,
+        -- flies through rowdies (hits each one once; a boomerang once per leg)
+        pierce = attack.pierce or attack.boomerang,
+        boomerang = attack.boomerang, -- turns after `range` (src/world.lua)
         lob = attack.lob,       -- a bomb: over everything, explodes when life runs out
         blast = attack.lob and attack.blast or nil,
+        freeze = attack.freeze, -- seconds a rowdy it hits can't move or attack
+        projectile = attack.projectile, -- how it is drawn (see Bullet:draw)
         flight = range / speed, -- whole flight time (a bomb's arc is drawn from it)
         super = super,
         color = owner.bulletColor,
@@ -51,8 +54,97 @@ function Bullet:update(dt)
     self.life = self.life - dt
 end
 
+-- Projectiles with their own look (src/rowdies.lua: projectile), drawn centred on
+-- x, y; r = the bullet radius; spin = turning angle; dir = flight direction
+local ITEMS = {}
+
+function ITEMS.pen(b, x, y, r, spin, dir) -- a ballpoint pen, tip first
+    local c = b.color or { 0.25, 0.45, 1 }
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(dir)
+    love.graphics.setColor(0.1, 0.1, 0.15)
+    love.graphics.rectangle("fill", -15, -4.5, 26, 9, 3, 3)
+    love.graphics.polygon("fill", 10, -4.5, 19, 0, 10, 4.5)
+    love.graphics.setColor(c[1], c[2], c[3])
+    love.graphics.rectangle("fill", -13, -2.5, 23, 5, 2, 2)
+    love.graphics.setColor(0.95, 0.95, 0.9)
+    love.graphics.polygon("fill", 11, -2.5, 16, 0, 11, 2.5)
+    love.graphics.setColor(0.85, 0.85, 0.9) -- the clip
+    love.graphics.rectangle("fill", -12, -3.5, 8, 2)
+    love.graphics.pop()
+end
+
+function ITEMS.pan(b, x, y, r, spin) -- a frying pan, spinning
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(spin)
+    love.graphics.setColor(0.08, 0.08, 0.1)
+    love.graphics.rectangle("fill", r - 2, -4, r + 6, 8, 3, 3)
+    love.graphics.circle("fill", 0, 0, r + 2)
+    love.graphics.setColor(0.55, 0.32, 0.15) -- wooden handle
+    love.graphics.rectangle("fill", r + 1, -2.5, r + 2, 5, 2, 2)
+    love.graphics.setColor(0.35, 0.36, 0.4)
+    love.graphics.circle("fill", 0, 0, r)
+    love.graphics.setColor(0.2, 0.2, 0.24)
+    love.graphics.circle("fill", 0, 0, r * 0.72)
+    love.graphics.setColor(1, 1, 1, 0.35)
+    love.graphics.circle("fill", -r * 0.3, -r * 0.3, r * 0.22)
+    love.graphics.pop()
+end
+
+function ITEMS.waffle(b, x, y, r, spin) -- a golden waffle iron, spinning
+    local h = r * 0.95
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(spin * 0.5)
+    love.graphics.setColor(0.25, 0.14, 0.05)
+    love.graphics.rectangle("fill", -h - 2, -h - 2, 2 * h + 4, 2 * h + 4, 6, 6)
+    love.graphics.setColor(0.95, 0.72, 0.3)
+    love.graphics.rectangle("fill", -h, -h, 2 * h, 2 * h, 5, 5)
+    love.graphics.setColor(0.7, 0.45, 0.15)
+    love.graphics.setLineWidth(2)
+    for i = -1, 1 do -- the grid
+        love.graphics.line(i * h * 0.5, -h + 3, i * h * 0.5, h - 3)
+        love.graphics.line(-h + 3, i * h * 0.5, h - 3, i * h * 0.5)
+    end
+    love.graphics.setLineWidth(1)
+    love.graphics.pop()
+end
+
+function ITEMS.book(b, x, y, r, spin) -- a thick red book, tumbling
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(spin * 0.6)
+    local w, h = r * 1.3, r
+    love.graphics.setColor(0.15, 0.05, 0.05)
+    love.graphics.rectangle("fill", -w - 2, -h - 2, 2 * w + 4, 2 * h + 4, 3, 3)
+    love.graphics.setColor(0.8, 0.2, 0.2)
+    love.graphics.rectangle("fill", -w, -h, 2 * w, 2 * h, 2, 2)
+    love.graphics.setColor(0.97, 0.95, 0.85) -- the pages
+    love.graphics.rectangle("fill", -w + 3, h - 5, 2 * w - 6, 4)
+    love.graphics.setColor(1, 0.85, 0.3) -- a gold title
+    love.graphics.rectangle("fill", -w * 0.5, -h * 0.4, w, 3)
+    love.graphics.pop()
+end
+
+function ITEMS.snowball(b, x, y, r) -- an icy ball with a sparkle
+    love.graphics.setColor(0.25, 0.45, 0.6)
+    love.graphics.circle("fill", x, y, r + 2)
+    love.graphics.setColor(0.85, 0.95, 1)
+    love.graphics.circle("fill", x, y, r)
+    love.graphics.setColor(0.6, 0.85, 1)
+    love.graphics.circle("fill", x + r * 0.25, y + r * 0.25, r * 0.55)
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.circle("fill", x - r * 0.35, y - r * 0.35, r * 0.25)
+    local s = 3 + 2 * math.sin(love.timer.getTime() * 12)
+    love.graphics.line(x + r - s, y - r, x + r + s, y - r)
+    love.graphics.line(x + r, y - r - s, x + r, y - r + s)
+end
+
 -- A bomb in flight: a shadow on the ground where it is, the bomb above it on an arc
--- (highest in the middle of the flight), with a sparking fuse
+-- (highest in the middle of the flight), with a sparking fuse (other thrown things:
+-- their ITEMS look instead of the bomb)
 function Bullet:drawBomb()
     local r = math.max(self.radius or 0, Bullet.BOMB_RADIUS)
     local p = math.max(0, math.min(1, 1 - self.life / self.flight))
@@ -63,6 +155,11 @@ function Bullet:drawBomb()
     love.graphics.ellipse("fill", self.x, self.y, r * k, r * 0.55 * k)
     local x, y = self.x, self.y - h
     local spin = p * 9
+    local item = ITEMS[self.projectile]
+    if item then
+        item(self, x, y, r, spin, math.atan2(self.vy, self.vx))
+        return
+    end
     love.graphics.setColor(0.08, 0.08, 0.1)
     love.graphics.circle("fill", x, y, r + 2)
     love.graphics.setColor(0.22, 0.22, 0.28)
@@ -107,6 +204,11 @@ function Bullet:draw()
     if trail then
         c = trail.color
         Bullet.drawTrail(self, trail, r)
+    end
+    local item = ITEMS[self.projectile]
+    if item then
+        item(self, self.x, self.y, r, love.timer.getTime() * 14, math.atan2(self.vy, self.vx))
+        return
     end
     love.graphics.setColor(0.1, 0.1, 0.1, 1)
     love.graphics.circle("fill", self.x, self.y, r + 2)

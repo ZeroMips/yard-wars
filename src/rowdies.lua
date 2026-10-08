@@ -9,7 +9,8 @@
 --   3. Paste the printed `comic = { ... }` line into the entry.
 --   4. Fill in name, role, stats, price (or pass) and optionally shot.
 --
---   name       shown in menus; also the key profile.txt stores bought rowdies by
+--   name       shown in menus; also the key profile.txt stores bought rowdies by (may
+--              contain single spaces, saved as "_"; so no "_" in names)
 --   role       short description for the rowdy choice screen
 --   price      coins to unlock it, paid when its boss fight is won (src/unlock.lua);
 --              none = free from the start
@@ -40,13 +41,21 @@
 --                the mouse distance, at most `range`) and explode there
 --   blast        radius of the explosion (px) of a lob attack: every opponent and chest
 --                in it takes `damage` once
+--   radius       projectile size (default 6); wallRadius: its size against walls and
+--                crates (default radius); pierce: flies through rowdies (hits each once)
+--   boomerang    true: flies `range`, turns and flies back to where it was thrown;
+--                hits each rowdy once per leg (a wall or chest turns it early)
+--   burst        shots per attack (default 1), burstDelay seconds apart (default 0.08);
+--                one ammo bar for all; twin = true: the shots come alternately from the
+--                muzzle and its mirror image (two blasters)
+--   freeze       seconds an opponent hit (or in the blast) can't move or attack
+--   projectile   how it is drawn (src/bullet.lua): "pen", "book", "pan", "waffle",
+--                "snowball"; default a ball in bulletColor (a bomb for lob)
 --   super        special attack, charged by dealing damage (optional):
 --                  name, description, charge (damage needed to fill the meter), and
---                  like above pellets, spread, damage, range, bulletSpeed, plus
---                  radius (bullet size, default 6), wallRadius (size against walls and
---                  crates, default radius) and pierce (flies through rowdies);
---                  spread >= pi: a ring around the rowdy instead of a cone; lob +
---                  blast as above
+--                  and every attack field above (pellets, spread, damage, range,
+--                  bulletSpeed, radius, pierce, lob, blast, boomerang, burst, ...);
+--                  spread >= pi: a ring around the rowdy instead of a cone
 local Rowdies = {
     {
         name = "Gunner", role = "All-rounder", price = 150, shot = "shot_gunner",
@@ -117,6 +126,44 @@ local Rowdies = {
                             charge = 160, damage = 90, range = 400, bulletSpeed = 450,
                             radius = 16, lob = true, blast = 170 } },
     },
+    {
+        -- Gideon's design sheets (2026-10-08): pen + book. Placeholder art (a recoloured
+        -- Gunner) until the Gemini images exist.
+        name = "Student", role = "Long shots, falls easily", price = 300, shot = "shot_pen",
+        comic = { image = "student", origin = { 46, 80 }, muzzle = { 77, 0 } },
+        stats = { speed = 245, hp = 90, damage = 24, range = 560, bulletSpeed = 900,
+                  reload = 0.35, maxAmmo = 3, ammoRefill = 1.5, projectile = "pen",
+                  bulletColor = { 0.25, 0.45, 1 },
+                  super = { name = "Book Drop", description = "A heavy book, thrown over walls",
+                            charge = 160, damage = 70, range = 420, bulletSpeed = 500,
+                            radius = 14, lob = true, blast = 80, projectile = "book" } },
+    },
+    {
+        -- A frying pan like a boomerang, waffle irons as the super
+        name = "Chef", role = "Pan that comes back", price = 400, shot = "shot_pan",
+        comic = { image = "chef", origin = { 48, 91 }, muzzle = { 70, 0.5 } },
+        stats = { speed = 235, hp = 120, damage = 26, range = 380, bulletSpeed = 650,
+                  reload = 0.5, maxAmmo = 3, ammoRefill = 1.6, boomerang = true,
+                  radius = 12, wallRadius = 8, projectile = "pan",
+                  bulletColor = { 1, 0.7, 0.35 }, -- (the pan has its own colours: aim beam)
+                  super = { name = "Waffle Toss", description = "Two waffle irons, through everyone",
+                            -- 2 x 60, in a V: point blank both can hit one rowdy
+                            charge = 180, pellets = 2, spread = 0.9, damage = 60, range = 460,
+                            bulletSpeed = 750, radius = 20, wallRadius = 10, pierce = true,
+                            projectile = "waffle" } },
+    },
+    {
+        -- Two toy blasters (bursts) and freeze balls (CHARTER.md: toys, a short freeze)
+        name = "Agent Angel", role = "Blaster bursts, freezes", price = 450, shot = "shot_blaster",
+        comic = { image = "agent", origin = { 46, 80 }, muzzle = { 77, 12 } },
+        stats = { speed = 250, hp = 100, damage = 9, burst = 4, burstDelay = 0.07, twin = true,
+                  range = 450, bulletSpeed = 800, reload = 0.45, maxAmmo = 3, ammoRefill = 1.5,
+                  bulletColor = { 1, 0.4, 0.75 },
+                  super = { name = "Freeze Balls", description = "Three balls that freeze everyone they splash",
+                            charge = 170, pellets = 3, spread = 0.7, damage = 20, range = 420,
+                            bulletSpeed = 500, radius = 11, lob = true, blast = 70, freeze = 1.5,
+                            projectile = "snowball" } },
+    },
 }
 
 -- The enemy bots (not playable, so not part of the list above)
@@ -133,13 +180,16 @@ local NUMBER, STRING, BOOL, TABLE = "number", "string", "boolean", "table"
 local ENTRY = { name = STRING, role = STRING, price = NUMBER, pass = BOOL, shot = STRING,
                 comic = TABLE, stats = TABLE }
 local COMIC = { image = STRING, origin = TABLE, muzzle = TABLE }
-local STATS = { speed = NUMBER, hp = NUMBER, damage = NUMBER, pellets = NUMBER,
-                spread = NUMBER, range = NUMBER, bulletSpeed = NUMBER, reload = NUMBER,
-                maxAmmo = NUMBER, ammoRefill = NUMBER, super = TABLE,
-                barColor = TABLE, bulletColor = TABLE, lob = BOOL, blast = NUMBER }
-local SUPER = { name = STRING, description = STRING, charge = NUMBER, pellets = NUMBER,
-                spread = NUMBER, damage = NUMBER, range = NUMBER, bulletSpeed = NUMBER,
-                radius = NUMBER, wallRadius = NUMBER, pierce = BOOL, lob = BOOL, blast = NUMBER }
+-- fields of an attack (the normal one in stats, the super in stats.super)
+local ATTACK = { damage = NUMBER, pellets = NUMBER, spread = NUMBER, range = NUMBER,
+                 bulletSpeed = NUMBER, radius = NUMBER, wallRadius = NUMBER, pierce = BOOL,
+                 lob = BOOL, blast = NUMBER, boomerang = BOOL, burst = NUMBER,
+                 burstDelay = NUMBER, twin = BOOL, freeze = NUMBER, projectile = STRING }
+local STATS = { speed = NUMBER, hp = NUMBER, reload = NUMBER, maxAmmo = NUMBER,
+                ammoRefill = NUMBER, super = TABLE, barColor = TABLE, bulletColor = TABLE }
+local SUPER = { name = STRING, description = STRING, charge = NUMBER }
+for k, v in pairs(ATTACK) do STATS[k], SUPER[k] = v, v end
+local PROJECTILES = { pen = true, book = true, pan = true, waffle = true, snowball = true }
 
 local function validate(def, label)
     local function fail(msg) error("src/rowdies.lua: " .. label .. ": " .. msg, 0) end
@@ -153,8 +203,12 @@ local function validate(def, label)
         end
     end
     check(def, ENTRY, "")
-    -- names are stored space-separated in profile.txt
-    if not def.name or not def.name:match("^%S+$") then fail("needs a name without spaces") end
+    -- names are stored space-separated in profile.txt (a space in a name as "_")
+    local name = def.name
+    if not name or not name:match("^%S") or not name:match("%S$") or name:find("%s%s")
+        or name:find("[_\t\n]") then
+        fail("needs a name (single spaces between words, no \"_\")")
+    end
     if not def.comic or not def.comic.image then fail("needs comic = { image, origin, muzzle }") end
     check(def.comic, COMIC, "comic.")
     for _, k in ipairs({ "origin", "muzzle" }) do
@@ -175,6 +229,15 @@ local function validate(def, label)
         local t = a[1]
         if t and (t.lob or t.blast) and not (t.lob and t.blast and t.blast > 0) then
             fail(a[2] .. "lob and " .. a[2] .. "blast belong together (blast = radius > 0)")
+        end
+        if t and t.projectile and not PROJECTILES[t.projectile] then
+            fail("unknown " .. a[2] .. "projectile '" .. t.projectile .. "' (see src/bullet.lua)")
+        end
+        if t and t.burst and (t.burst < 1 or t.burst % 1 ~= 0) then
+            fail(a[2] .. "burst must be a whole number >= 1")
+        end
+        if t and t.boomerang and (t.lob or t.pierce) then
+            fail(a[2] .. "boomerang can't be lob (it flies low) and pierces anyway")
         end
     end
     if def.price and (def.price <= 0 or def.price % 1 ~= 0) then

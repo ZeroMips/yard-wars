@@ -143,9 +143,10 @@ function Picker.keypressed(key)
 end
 
 local function attackText(stats)
-    local n = stats.pellets or 1
+    local n = (stats.pellets or 1) * (stats.burst or 1)
     local dmg = (n > 1) and (n .. " x " .. stats.damage) or tostring(stats.damage)
     if stats.lob then return dmg .. " dmg bomb, range " .. stats.range end
+    if stats.boomerang then return dmg .. " dmg, out + back " .. stats.range end
     return dmg .. " dmg, range " .. stats.range
 end
 

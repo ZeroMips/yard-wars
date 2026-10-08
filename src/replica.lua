@@ -18,7 +18,7 @@ Replica.__index = Replica
 local REMOTE_DELAY = 0.1
 local OWN_DELAY    = 0.05
 local LERPED = { "x", "y", "ammoTimer", "respawnTimer", "walkPhase", "walkBlend", "recoil",
-    "flashTimer", "hitFlash", "spawnAnim" }
+    "flashTimer", "hitFlash", "spawnAnim", "frozen" }
 
 function Replica.new()
     return setmetatable({
@@ -98,10 +98,19 @@ end
 
 function Replica:addEvent(ev)
     if ev.kind == "bullet" then
-        self.bullets[ev.id] = { owner = ev.owner, x0 = ev.x, y0 = ev.y, vx = ev.vx, vy = ev.vy,
-            t0 = ev.t, tEnd = ev.t + (ev.life or 1), radius = ev.radius, super = ev.super,
-            lob = ev.lob == true, flight = tonumber(ev.life) or 1 }
+        -- legs: straight pieces of the flight (a boomerang gets a second one at its turn)
+        self.bullets[ev.id] = { owner = ev.owner, t0 = ev.t,
+            legs = { { t0 = ev.t, x0 = ev.x, y0 = ev.y, vx = ev.vx, vy = ev.vy } },
+            tEnd = ev.t + (ev.life or 1), radius = ev.radius, super = ev.super,
+            lob = ev.lob == true, flight = tonumber(ev.life) or 1,
+            projectile = type(ev.projectile) == "string" and ev.projectile or nil }
         return
+    end
+    local turned = ev.kind == "turn" and self.bullets[ev.bullet]
+    if turned and tonumber(ev.x) and tonumber(ev.vx) and tonumber(ev.vy) then
+        local legs = turned.legs
+        legs[#legs + 1] = { t0 = ev.t, x0 = ev.x, y0 = ev.y, vx = ev.vx, vy = ev.vy }
+        turned.tEnd = ev.t + (tonumber(ev.life) or 0)
     end
     -- A hit ends the bullet, unless it pierces (flies on through rowdies and boxes);
     -- a bomb ends with its blast
@@ -167,6 +176,7 @@ local function proxyFor(self, s)
     p.isBot = s.isBot == true
     p.out = s.out == true
     p.boss = s.boss == true
+    p.frozen = tonumber(s.frozen) or 0
     p.skin, p.trail, p.title, p.badge = s.skin, s.trail, s.title, s.badge -- nil = none
     return p
 end
@@ -212,11 +222,15 @@ function Replica:update()
         local t = (b.owner == self.localId) and ownT or remoteT
         if t >= b.t0 and t < b.tEnd then
             local owner = world.byId[b.owner]
+            local leg = b.legs[1]
+            for _, l in ipairs(b.legs) do
+                if l.t0 <= t then leg = l end
+            end
             world.bullets[#world.bullets + 1] = setmetatable({
-                x = b.x0 + b.vx * (t - b.t0), y = b.y0 + b.vy * (t - b.t0),
-                vx = b.vx, vy = b.vy, radius = b.radius, super = b.super,
+                x = leg.x0 + leg.vx * (t - leg.t0), y = leg.y0 + leg.vy * (t - leg.t0),
+                vx = leg.vx, vy = leg.vy, radius = b.radius, super = b.super,
                 color = owner and owner.bulletColor or { 1, 0.85, 0.2 },
-                trail = owner and owner.trail,
+                trail = owner and owner.trail, projectile = b.projectile,
                 lob = b.lob, flight = b.flight, life = b.t0 + b.flight - t,
             }, Bullet)
         elseif remoteT > b.tEnd and ownT > b.tEnd then

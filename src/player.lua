@@ -15,10 +15,15 @@ end
 function Player:update(dt, input, bullets)
     self:tick(dt)
     if self.dead then return end
-
-    self:move(input.dx, input.dy, dt)
     if input.aim then self.aim = input.aim end
     self.aimDist = tonumber(input.aimDist)
+    if self.frozen > 0 then -- frozen: no moving, and shots asked for now are lost
+        self.fireBuffer, self.superBuffer = nil, nil
+        self:move(0, 0, dt)
+        return
+    end
+
+    self:move(input.dx, input.dy, dt)
 
     -- A requested shot is remembered for a moment (with its direction), so it
     -- still fires if it arrives while reloading. Same for a super (it needs no ammo,

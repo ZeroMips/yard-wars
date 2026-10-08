@@ -94,6 +94,23 @@ local DEFS = {
                      { wave = "noise", f1 = 1, f2 = 1, dur = 0.1, vol = 0.15, lowpass = 0.15, delay = 0.04 } },
     shot_throw   = { { wave = "noise", f1 = 1, f2 = 1, dur = 0.18, vol = 0.25, lowpass = 0.35, attack = 0.04 },
                      { wave = "sine", f1 = 300, f2 = 700, dur = 0.14, vol = 0.18, attack = 0.03 } },
+    shot_pen     = { { wave = "square", f1 = 1800, f2 = 900, dur = 0.05, vol = 0.14, duty = 0.2 },
+                     { wave = "noise", f1 = 1, f2 = 1, dur = 0.07, vol = 0.18, lowpass = 0.7, attack = 0.01 } },
+    shot_pan     = { { wave = "noise", f1 = 1, f2 = 1, dur = 0.22, vol = 0.3, lowpass = 0.25, attack = 0.05 },
+                     { wave = "sine", f1 = 180, f2 = 420, dur = 0.2, vol = 0.15, attack = 0.04, vibrato = { 0.2, 18 } } },
+    shot_blaster = { { wave = "square", f1 = 1500, f2 = 480, dur = 0.07, vol = 0.14, duty = 0.25 },
+                     { wave = "sine", f1 = 2200, f2 = 900, dur = 0.05, vol = 0.1 } },
+    -- a pan bounces off a wall: a cartoon "clang"
+    clang        = { { wave = "square", f1 = 1250, f2 = 1180, dur = 0.3, vol = 0.12, duty = 0.15,
+                       vibrato = { 0.02, 30 } },
+                     { wave = "triangle", f1 = 1870, f2 = 1800, dur = 0.25, vol = 0.12 },
+                     { wave = "noise", f1 = 1, f2 = 1, dur = 0.03, vol = 0.3, lowpass = 0.9 } },
+    -- frozen / a freeze ball bursts: icy tinkling
+    freeze       = notes({ { 1760, 0.04 }, { 2349, 0.04 }, { 2637, 0.04 }, { 3136, 0.12 } }, "triangle", 0.2,
+                         { { wave = "noise", f1 = 1, f2 = 1, dur = 0.3, vol = 0.18, lowpass = 0.95, attack = 0.02 } }),
+    -- something heavy lands (a book): a dull thud
+    thud         = { { wave = "sine", f1 = 160, f2 = 50, dur = 0.25, vol = 0.8 },
+                     { wave = "noise", f1 = 1, f2 = 1, dur = 0.18, vol = 0.4, lowpass = 0.12 } },
     blast        = { { wave = "noise", f1 = 1, f2 = 1, dur = 0.5, vol = 0.7, lowpass = 0.18, curve = 2 },
                      { wave = "sine", f1 = 120, f2 = 35, dur = 0.45, vol = 0.8 },
                      { wave = "noise", f1 = 1, f2 = 1, dur = 0.08, vol = 0.4, lowpass = 0.8 } },

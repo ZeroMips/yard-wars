@@ -11,8 +11,9 @@ unlock new rowdies.
 
 ## Features
 
-- Four rowdies, each with its own attack and a super attack: Shotgunner, Gunner, Sniper
-  and Robot
+- Nine rowdies, each with its own attack and a super attack: Shotgunner, Gunner, Sniper,
+  Robot, Gardener, Pirate, Student, Chef and Agent Angel (the last three designed by
+  Gideon)
 - Modes: Duel, Team fight (3 vs 3) and Waves, against bots
 - Play together in the same Wi-Fi: free-for-all, team fight and co-op waves, the host is
   found automatically

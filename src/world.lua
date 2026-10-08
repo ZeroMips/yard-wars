@@ -119,6 +119,10 @@ end
 --   box {box} (a loot box appeared)  boxHit {box, bullet, owner, pierce}
 --   blast {radius, bullet, owner, super} (a bomb exploded)
 --   boxBreak {box, by (who broke it)}  coin {id, value} (player `id` picked up a coin)
+--   blast also carries the bomb's projectile (how it looks: "book", "snowball", ...)
+--   turn {bullet, owner, x, y, vx, vy, life, wall} (a boomerang flies back from x, y;
+--         wall = it bounced off a wall or chest)
+--   freeze {id, time} (a rowdy was frozen for `time` seconds)
 function World:emit(kind, data)
     data.kind = kind
     data.t = self.time
@@ -380,7 +384,13 @@ local function damage(self, b, victim, x, y)
         bullet = b.id, owner = b.owner.id, pierce = b.pierce or b.lob })
     local shooter = self.byId[b.owner.id]
     if shooter and not b.super then shooter:addCharge(b.damage) end
-    if victim:takeDamage(b.damage, b.owner.id) then
+    local knockedOut = victim:takeDamage(b.damage, b.owner.id)
+    if b.freeze and not victim.dead then
+        victim.frozen = math.max(victim.frozen, b.freeze)
+        victim.bursting = nil
+        self:emit("freeze", { id = victim.id, x = victim.x, y = victim.y, time = b.freeze })
+    end
+    if knockedOut then
         victim.deaths = victim.deaths + 1
         if shooter then shooter.kills = shooter.kills + 1 end
         if shooter and not shooter.isBot then self:dropMedpack(victim.x, victim.y) end
@@ -397,7 +407,7 @@ end
 local function explode(self, b)
     local x, y, r = b.x, b.y, b.blast
     self:emit("blast", { x = x, y = y, radius = r, bullet = b.id, owner = b.owner.id,
-        super = b.super })
+        super = b.super, projectile = b.projectile })
     for _, e in ipairs(self.entities) do
         local reach = r + e.radius
         if e.team ~= b.team and not e.dead and (e.x - x) ^ 2 + (e.y - y) ^ 2 < reach * reach then
@@ -409,6 +419,23 @@ local function explode(self, b)
     local reach = r + World.BOX_HALF
     for _, box in ipairs(boxes) do
         if (box.x - x) ^ 2 + (box.y - y) ^ 2 < reach * reach then self:hitBox(box, b) end
+    end
+end
+
+-- A boomerang turns (its range flown, or it bounced off a wall or chest; then it is
+-- already back where it was before touching it) and flies back to where it was thrown;
+-- on the way back it can hit everybody once more
+local function turnBack(self, b, wall)
+    local dx, dy = b.homeX - b.x, b.homeY - b.y
+    local d = math.sqrt(dx * dx + dy * dy)
+    local speed = math.sqrt(b.vx * b.vx + b.vy * b.vy)
+    if d < 1 then dx, dy, d = -b.vx, -b.vy, speed end
+    b.vx, b.vy = dx / d * speed, dy / d * speed
+    b.life = math.max(d, 1) / speed
+    b.returning, b.hitIds, b.hitBoxes = true, nil, nil
+    if b.id then
+        self:emit("turn", { x = b.x, y = b.y, vx = b.vx, vy = b.vy, life = b.life,
+            bullet = b.id, owner = b.owner.id, wall = wall })
     end
 end
 
@@ -431,11 +458,16 @@ local function updateBullets(self, dt)
         end
 
         for _ = 1, steps do
+            local px, py = b.x, b.y
             b:update(dt / steps)
+            local outbound = b.boomerang and not b.returning
             local box = self:boxAt(b.x, b.y, b.wallRadius or b.radius)
             if box and not (b.hitBoxes and b.hitBoxes[box.id]) then
                 self:hitBox(box, b)
-                if b.pierce then
+                if outbound then -- a boomerang bounces back off a chest
+                    b.x, b.y = px, py
+                    turnBack(self, b, true)
+                elseif b.pierce and not b.boomerang then
                     b.hitBoxes = b.hitBoxes or {}
                     b.hitBoxes[box.id] = true
                 else
@@ -444,13 +476,21 @@ local function updateBullets(self, dt)
                 end
             end
             if Arena.hitsSolid(b.x, b.y, b.wallRadius or b.radius) then
-                self:emit("impact", { x = b.x, y = b.y, color = b.color, -- wall / crate
-                    bullet = b.id, owner = b.owner.id })
-                remove = true
-                break
+                if outbound then -- ... and off a wall
+                    b.x, b.y = px, py
+                    turnBack(self, b, true)
+                else
+                    self:emit("impact", { x = b.x, y = b.y, color = b.color, -- wall / crate
+                        bullet = b.id, owner = b.owner.id })
+                    remove = true
+                    break
+                end
             elseif b.life <= 0 then
-                remove = true
-                break
+                if not outbound then
+                    remove = true
+                    break
+                end
+                turnBack(self, b, false)
             end
             -- Bullets hit any rowdy of another team; piercing ones each rowdy once
             local victim
@@ -635,7 +675,7 @@ local function newBullets(self)
             self.nextBulletId = self.nextBulletId + 1
             self:emit("bullet", { id = b.id, owner = b.owner.id, x = b.x, y = b.y,
                 vx = b.vx, vy = b.vy, life = b.life, radius = b.radius, super = b.super,
-                lob = b.lob })
+                lob = b.lob, projectile = b.projectile })
         end
     end
 end

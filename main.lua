@@ -511,6 +511,24 @@ local function playEvents(events)
             else
                 Sound.play("hit", ev.x, ev.y)
             end
+        elseif ev.kind == "blast" and ev.projectile == "book" then -- a book lands: dust
+            local r = tonumber(ev.radius) or 80
+            Effects.ring(ev.x, ev.y, r, { 1, 1, 1 })
+            Effects.clods(ev.x, ev.y, 12, r, { 0.75, 0.68, 0.55 })
+            if ev.owner ~= localId and player then Camera.shake(2) end
+            Sound.play("thud", ev.x, ev.y)
+        elseif ev.kind == "blast" and ev.projectile == "snowball" then -- an icy splash
+            local r = tonumber(ev.radius) or 70
+            Effects.ring(ev.x, ev.y, r, { 0.6, 0.85, 1 })
+            Effects.ice(ev.x, ev.y, 16, r * 0.6)
+            Sound.play("freeze", ev.x, ev.y)
+        elseif ev.kind == "freeze" then -- the ice block is drawn by Rowdy:drawIce
+            Effects.ice(ev.x, ev.y, 10, 18)
+        elseif ev.kind == "turn" then -- a boomerang flies back
+            if ev.wall then
+                Effects.sparks(ev.x, ev.y, 6, { 1, 1, 0.8 }, 180)
+                Sound.play("clang", ev.x, ev.y)
+            end
         elseif ev.kind == "blast" then -- a bomb exploded: fire ring, smoke, sparks
             local r = tonumber(ev.radius) or 90
             Effects.ring(ev.x, ev.y, r, { 1, 0.55, 0.15 })

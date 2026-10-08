@@ -42,9 +42,11 @@ local CH_RELIABLE, CH_FAST = 0, 1
 -- list indexes, the client draws with its own stats). Bump PROTOCOL when messages or
 -- Net.FIELDS change; the content id is a hash of src/rowdies.lua's data, so a new or
 -- changed rowdy needs no manual bump. Builds may differ otherwise (git checkout <-> phone).
-Net.PROTOCOL = 5 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
+Net.PROTOCOL = 6 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
                  -- 4: bombs (input dist, bullet lob, blast event)
                  -- 5: boss fight (welcome mode.boss, FIELDS boss)
+                 -- 6: Student/Chef/Agent Angel (bullet + blast projectile, turn and
+                 --    freeze events, FIELDS frozen)
 
 local function serialize(v, out)
     if type(v) == "table" then
@@ -91,7 +93,7 @@ end
 Net.FIELDS = { "id", "team", "key", "x", "y", "aim", "hp", "ammo", "ammoTimer", "dead",
     "respawnTimer", "walkPhase", "walkBlend", "recoil", "flashTimer", "flashSize",
     "hitFlash", "spawnAnim", "kills", "deaths", "isBot", "charge", "out",
-    "skin", "trail", "title", "badge", "boss" }
+    "skin", "trail", "title", "badge", "boss", "frozen" }
 
 local function send(peer, msg, reliable)
     peer:send(Codec.encode(msg), reliable and CH_RELIABLE or CH_FAST,
@@ -259,6 +261,7 @@ local function snapshot(world)
         s[21] = e.isBot or false
         s[22] = round(e.charge or 0, 100)
         s[23] = e.out or false
+        s[29] = round(e.frozen or 0, 100)
         ents[#ents + 1] = s
     end
     local packs = {}

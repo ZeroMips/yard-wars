@@ -13,6 +13,10 @@ local RESPAWN_TIME = 2.5
 local SPAWN_TIME   = 0.35 -- pop-in animation after respawn
 local FLASH_TIME   = 0.07 -- muzzle flash
 local SUPER_COLOR  = { 1, 0.82, 0.1 } -- super meter, aim and "ready" glow
+local BURST_DELAY  = 0.08 -- default seconds between the shots of a burst
+local ICE_COLOR    = { 0.55, 0.85, 1 }
+
+local fire -- (defined below, used by tick for the shots of a burst)
 
 -- Apply a stats table (see src/rowdies.lua). Used by init() and setRowdy().
 function Rowdy:applyStats(stats)
@@ -31,6 +35,11 @@ function Rowdy:applyStats(stats)
     self.lob         = stats.lob               -- throws bombs (see src/rowdies.lua)
     self.blast       = stats.blast             -- their explosion radius
     self.super       = stats.super             -- nil: no super attack
+    -- The normal attack as a table like the super (the attack fields of the stats,
+    -- with the defaults above): what fire() and the aim preview read
+    self.attack = setmetatable({ damage = self.damage, pellets = self.pellets,
+        spread = self.spread, range = self.range, bulletSpeed = self.bulletSpeed },
+        { __index = stats })
 end
 
 -- look: see Assets.look
@@ -50,6 +59,8 @@ function Rowdy:init(x, y, look, stats)
     self.dead = false
     self.respawnTimer = 0
     self.charge = 0 -- super meter 0..1 (kept when defeated, reset when switching)
+    self.frozen = 0 -- seconds left frozen (src/rowdies.lua: freeze): no moving, no attacks
+    self.muzzleSide = 1 -- twin attacks: which of the two muzzles fires next (1 / -1)
     -- animation state
     self.walkPhase, self.walkBlend, self.stepTimer = 0, 0, 0
     self.dirX, self.dirY = 1, 0
@@ -65,6 +76,7 @@ function Rowdy:setRowdy(look, stats)
     self.ammoTimer = 0
     self.cooldown = 0
     self.charge = 0
+    self.bursting = nil
 end
 
 -- Report something that happened (spawn, death, step, ...) to the world, if any.
@@ -79,6 +91,21 @@ function Rowdy:tick(dt)
     self.recoil = math.max(0, self.recoil - dt * 8)
     self.flashTimer = math.max(0, self.flashTimer - dt)
     self.spawnAnim = math.max(0, self.spawnAnim - dt)
+    self.frozen = math.max(0, self.frozen - dt)
+    local burst = self.bursting -- the rest of a burst (src/rowdies.lua: burst)
+    if burst then
+        if not self:canAct() or not self.world then
+            self.bursting = nil
+        else
+            burst.timer = burst.timer - dt
+            while burst.timer <= 0 and burst.left > 0 do
+                fire(self, self.world.bullets, burst.attack, true)
+                burst.left = burst.left - 1
+                burst.timer = burst.timer + burst.delay
+            end
+            if burst.left <= 0 then self.bursting = nil end
+        end
+    end
     if self.dead then
         self.respawnTimer = self.respawnTimer - dt
         -- out = no lives left (Waves): stays down
@@ -98,6 +125,7 @@ function Rowdy:respawn()
     self.ammo = self.maxAmmo
     self.ammoTimer = 0
     self.dead = false
+    self.frozen, self.bursting = 0, nil
     self.cooldown = 0.5
     self.spawnAnim = SPAWN_TIME
     self:emit("spawn", { x = self.x, y = self.y, id = self.id })
@@ -151,18 +179,28 @@ function Rowdy:move(dx, dy, dt)
     self:animateWalk(math.sqrt((self.x - ox) ^ 2 + (self.y - oy) ^ 2), dt)
 end
 
--- World position of the gun barrel (bullets spawn here)
+-- World position of the gun barrel (bullets spawn here); twin attacks alternate
+-- between it and its mirror image (muzzleSide)
 function Rowdy:muzzle()
     local m = self.look.muzzle
     local c, s = math.cos(self.aim), math.sin(self.aim)
-    return self.x + c * m[1] - s * m[2],
-           self.y + s * m[1] + c * m[2]
+    local side = m[2] * (self.muzzleSide or 1)
+    return self.x + c * m[1] - s * side,
+           self.y + s * m[1] + c * side
 end
 
--- Fire `attack.pellets` projectiles in a cone of `attack.spread` (attack: self for the
--- normal attack, or self.super); spread >= pi: an even ring from the body centre.
+-- Not knocked out and not frozen: may move and attack
+function Rowdy:canAct()
+    return not self.dead and self.frozen <= 0
+end
+
+-- Fire `attack.pellets` projectiles in a cone of `attack.spread` (attack: self.attack
+-- or self.super); spread >= pi: an even ring from the body centre.
 -- Bombs (attack.lob) fly self.aimDist far (where the player aimed).
-local function fire(self, bullets, attack)
+-- A burst attack fires its first shot here and the others from tick(); follow = one
+-- of those.
+function fire(self, bullets, attack, follow)
+    if attack.twin then self.muzzleSide = -(self.muzzleSide or 1) else self.muzzleSide = 1 end
     local bx, by = self:muzzle()
     local n, spread = attack.pellets or 1, attack.spread or 0
     local ring = spread >= math.pi
@@ -174,14 +212,20 @@ local function fire(self, bullets, attack)
             a = a + t * spread
             if not ring then a = a + (math.random() - 0.5) * spread * 0.15 end
         end
-        bullets[#bullets + 1] = Bullet.new(bx, by, a, self, attack ~= self and attack or nil,
-            self:throwDist())
+        bullets[#bullets + 1] = Bullet.new(bx, by, a, self, attack, self:throwDist())
     end
-    self.cooldown = self.reload
+    if not follow then
+        self.cooldown = self.reload
+        local shots = attack.burst or 1
+        if shots > 1 then
+            local delay = attack.burstDelay or BURST_DELAY
+            self.bursting = { attack = attack, left = shots - 1, timer = delay, delay = delay }
+        end
+    end
     self.recoil = 1
     self.flashTimer = FLASH_TIME
     self.flashSize = (n > 1) and 1.5 or 1
-    if attack == self then self:emit("shot", { id = self.id, x = bx, y = by }) end
+    if attack == self.attack then self:emit("shot", { id = self.id, x = bx, y = by }) end
 end
 
 -- How far a bomb flies from the muzzle: aimDist is measured from the body centre, so
@@ -190,19 +234,23 @@ function Rowdy:throwDist()
     return self.aimDist and (self.aimDist - self.look.muzzle[1])
 end
 
--- Where a bomb of `attack` (self or self.super) would land now
-function Rowdy:landing(attack)
+-- Where a bomb of `attack` (self.attack or self.super) would land now; angle: the
+-- direction of one of its pellets (default: the aim)
+function Rowdy:landing(attack, angle)
     local mx, my = self:muzzle()
     local range = attack.range or Bullet.range
     local d = math.max(Bullet.MIN_THROW, math.min(range, self:throwDist() or range))
-    return mx + math.cos(self.aim) * d, my + math.sin(self.aim) * d
+    angle = angle or self.aim
+    return mx + math.cos(angle) * d, my + math.sin(angle) * d
 end
 
 -- One attack: uses one ammo bar and fires `pellets` projectiles in a cone.
 -- Returns true if the attack happened.
 function Rowdy:shoot(bullets)
-    if self.dead or self.cooldown > 0 or self.ammo < 1 then return false end
-    fire(self, bullets, self)
+    if not self:canAct() or self.cooldown > 0 or self.ammo < 1 or self.bursting then
+        return false
+    end
+    fire(self, bullets, self.attack)
     self.ammo = self.ammo - 1
     return true
 end
@@ -223,7 +271,8 @@ end
 
 -- The super attack: needs a full meter, no ammo. Returns true if it happened.
 function Rowdy:shootSuper(bullets)
-    if not self:superReady() or self.cooldown > 0 then return false end
+    if not self:superReady() or not self:canAct() or self.cooldown > 0 then return false end
+    self.bursting = nil
     fire(self, bullets, self.super)
     self.charge = 0
     self.flashSize = 2.2
@@ -237,25 +286,32 @@ end
 -- (gold, its own range/spread/bullet size).
 function Rowdy:drawAim(useSuper)
     if self.dead then return end
-    local a = (useSuper and self.super) or self
-    local spread, radius = a.spread or 0, a.radius or Bullet.radius
-    local c = (a == self) and self.bulletColor or SUPER_COLOR
+    local a = (useSuper and self.super) or self.attack
+    local spread = a.spread or 0
+    -- (the normal attack's beam has always been as wide as the body)
+    local radius = a.radius or (a == self.attack and self.radius) or Bullet.radius
+    local c = (a == self.attack) and self.bulletColor or SUPER_COLOR
     if a.lob then -- bomb: a dotted arc to where it lands and the blast circle there
+        local n = a.pellets or 1
         local mx, my = self:muzzle()
-        local lx, ly = self:landing(a)
-        local d = math.sqrt((lx - mx) ^ 2 + (ly - my) ^ 2)
-        local h = math.min(140, d * 0.35)
-        love.graphics.setColor(c[1], c[2], c[3], 0.75)
-        for i = 1, 11 do
-            local t = i / 12
-            love.graphics.circle("fill", mx + (lx - mx) * t, my + (ly - my) * t - math.sin(t * math.pi) * h, 2.5)
+        for i = 1, n do -- several bombs: one landing spot each
+            local angle = self.aim
+            if n > 1 then angle = angle + ((i - 1) / (n - 1) - 0.5) * spread end
+            local lx, ly = self:landing(a, angle)
+            local d = math.sqrt((lx - mx) ^ 2 + (ly - my) ^ 2)
+            local h = math.min(140, d * 0.35)
+            love.graphics.setColor(c[1], c[2], c[3], 0.75)
+            for j = 1, 11 do
+                local t = j / 12
+                love.graphics.circle("fill", mx + (lx - mx) * t, my + (ly - my) * t - math.sin(t * math.pi) * h, 2.5)
+            end
+            love.graphics.setColor(c[1], c[2], c[3], 0.18)
+            love.graphics.circle("fill", lx, ly, a.blast)
+            love.graphics.setColor(c[1], c[2], c[3], 0.7)
+            love.graphics.setLineWidth(2)
+            love.graphics.circle("line", lx, ly, a.blast)
+            love.graphics.setLineWidth(1)
         end
-        love.graphics.setColor(c[1], c[2], c[3], 0.18)
-        love.graphics.circle("fill", lx, ly, a.blast)
-        love.graphics.setColor(c[1], c[2], c[3], 0.7)
-        love.graphics.setLineWidth(2)
-        love.graphics.circle("line", lx, ly, a.blast)
-        love.graphics.setLineWidth(1)
         love.graphics.setColor(1, 1, 1, 1)
         return
     end
@@ -271,7 +327,8 @@ function Rowdy:drawAim(useSuper)
         return
     end
     local mx, my = self:muzzle()
-    local len = Arena.raycast(mx, my, self.aim, a.range or Bullet.range, a.wallRadius or radius)
+    local len = Arena.raycast(mx, my, self.aim, a.range or Bullet.range,
+        a.wallRadius or a.radius or Bullet.radius)
     local hw = math.max(9, radius + 3)
     local hwEnd = hw + math.tan(spread / 2) * len
 
@@ -292,6 +349,12 @@ function Rowdy:drawAim(useSuper)
     love.graphics.setLineWidth(2)
     if spread > 0 then
         love.graphics.line(0, -hw, len, -hwEnd, len, hwEnd, 0, hw)
+    elseif a.boomerang then -- a U-turn arrow at the end: it comes back
+        local r = hw * 0.8
+        love.graphics.arc("line", "open", len - r, 0, r, -math.pi / 2, math.pi / 2, 12)
+        love.graphics.line(len - r, r, len - r - 9, r - 6)
+        love.graphics.line(len - r, r, len - r - 9, r + 6)
+        love.graphics.line(len - r, -r, 0, -r)
     else
         love.graphics.setColor(c[1], c[2], c[3], 0.12)
         love.graphics.circle("fill", len, 0, hw)
@@ -366,6 +429,30 @@ function Rowdy:drawMuzzleFlash()
     love.graphics.setBlendMode("alpha")
 end
 
+-- Frozen (src/rowdies.lua: freeze): a light-blue ice block with sparkles; it melts
+-- (fades) in the last half second
+function Rowdy:drawIce(alpha)
+    local k = math.min(1, self.frozen / 0.5) * alpha
+    local r = self.radius + 10
+    local c = ICE_COLOR
+    love.graphics.setColor(c[1], c[2], c[3], 0.4 * k)
+    love.graphics.rectangle("fill", self.x - r, self.y - r, 2 * r, 2 * r, 8, 8)
+    love.graphics.setColor(1, 1, 1, 0.85 * k)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", self.x - r, self.y - r, 2 * r, 2 * r, 8, 8)
+    love.graphics.line(self.x - r + 6, self.y - r + 14, self.x - r + 14, self.y - r + 6)
+    love.graphics.line(self.x - r + 6, self.y - r + 24, self.x - r + 24, self.y - r + 6)
+    love.graphics.setLineWidth(1)
+    local t = love.timer.getTime()
+    for i = 1, 3 do -- twinkling stars
+        local a = t * 1.5 + i * 2.1
+        local x, y = self.x + math.cos(a) * r * 0.8, self.y + math.sin(a * 1.3) * r * 0.8
+        local s = 3 + 2 * math.sin(t * 6 + i)
+        love.graphics.line(x - s, y, x + s, y)
+        love.graphics.line(x, y - s, x, y + s)
+    end
+end
+
 function Rowdy:draw()
     if self.dead then return end
 
@@ -425,6 +512,7 @@ function Rowdy:draw()
     love.graphics.draw(Assets.comic[look.image], px, py, self.aim + sway + math.pi / 2,
         k * sy, k * sx, look.origin[1], look.origin[2])
     if shaded then love.graphics.setShader() end
+    if self.frozen > 0 then self:drawIce(alpha) end
 
     self:drawMuzzleFlash()
     self:drawHealthBar()

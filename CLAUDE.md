@@ -124,7 +124,8 @@ existing things that break it.
   `BOSS_SIZE` 1.4: `World.bossLook`, radius), no time limit, players respawn forever, the
   boss never respawns (`out`) - won (`winnerTeam` = players) when it is out (charter: you
   can't lose); `world:boss()`; `restartMatch()`; the world stands still while over; things
-  that happened go to `world.events` (also shot/superReady/matchStart/matchOver for sounds) (spawn/death/step/impact/hit/heal)
+  that happened go to `world.events` (also shot/superReady/matchStart/matchOver for sounds,
+  turn/freeze) (spawn/death/step/impact/hit/heal)
   via `emit`, read with `takeEvents()`; also box/boxHit/boxBreak/coin. `death` carries
   `killer` (shooter id), `boxBreak` carries `by` (for the pass XP). Snapshots carry medpacks
   (`m`), boxes (`b`) and coins (`c`). `addPlayer(def, x, y, team, style)` / `setStyle`:
@@ -140,7 +141,9 @@ existing things that break it.
   rowdy carry `style` = cosmetic ids, cleaned by `cleanStyle`; `Net.FIELDS` ends with
   skin/trail/title/badge/boss; `Net.PROTOCOL` 3 since the Yard Pass, 4 since bombs: input
   `dist`/`shotDist`, bullet `lob`, `blast` event; 5 since boss fights: welcome `mode.boss`,
-  FIELDS `boss` - the replica makes the boss proxy big with `World.bossLook`). Version
+  FIELDS `boss` - the replica makes the boss proxy big with `World.bossLook`; 6 since the
+  Student/Chef/Agent Angel: bullet + blast `projectile`, `turn` event (a boomerang's
+  second leg: the replica keeps `legs` per bullet), `freeze` event, FIELDS `frozen`). Version
   check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
   `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
   refused with a reason ("The host has a newer build (52): restart to update"), different
@@ -286,7 +289,27 @@ existing things that break it.
   rowdy, boss fight from the pass at tier 10 (`pass = true`, no price; 400 coins up to build 68): spray of 4 water drops, narrow cone; origin set
   by hand - the water tank made the tool's guess too low), Pirate (bomb thrower, 450 coins,
   bought only; origin/muzzle by hand: the tool took the fuse spark as the muzzle),
-  plus `Rowdies.bot` (enemy look + stats).
+  Student (300: fast long pen, super "Book Drop" = a lobbed book), Chef (400: frying pan
+  `boomerang`, super "Waffle Toss" = 2 piercing waffle irons in a V), Agent Angel (450:
+  `burst` of 4 from two toy blasters (`twin`), super "Freeze Balls" = 3 lobbed balls that
+  `freeze` for 1.5 s), plus `Rowdies.bot` (enemy look + stats).
+  New rowdies from Gideon's 8 design sheets (2026-10-08, plan: phase 1 Student/Chef/Agent
+  Angel done; phase 2 Doctor Dummie/Wrestler/Digger, phase 3 Ghostman/Wizard open). Their
+  art is still a PLACEHOLDER (hue-shifted copies of other top views, no side views): the
+  Gemini prompts are in ~/Downloads/yard-wars-art-new/<image>-prompts.md; with the real
+  images run the tool, paste the comic line and check origin/muzzle. Don't publish them
+  with the placeholders.
+  Attacks: `Rowdy.attack` = the normal attack as a table (stats + defaults) like
+  `stats.super`; `Bullet.new(..., attack, dist)` reads every attack field from it. Fields
+  for both (checked on load, same list `ATTACK`): `radius`/`wallRadius`/`pierce` (now also
+  on normal attacks), `boomerang` (flies `range`, a wall/chest turns it early, flies back
+  to the throw point, hits everybody once per leg), `burst` + `burstDelay` (shots per
+  attack, one ammo bar; `Rowdy.bursting` fires the rest in `tick`), `twin` (alternating
+  mirrored muzzle), `freeze` (seconds; `Rowdy.frozen`: `canAct()` false, Player/Enemy
+  stand still, drawn as an ice block), `projectile` (look in bullet.lua `ITEMS`: pen,
+  book, pan, waffle, snowball). Names may contain spaces ("Agent Angel"): profile.txt
+  and pass.txt's skin lines write them with "_" (`Profile.encodeName`), so "_" is not
+  allowed in names.
   Bombs: `lob = true` + `blast` (radius) on an attack (normal or super): the bomb flies
   `aimDist` far (clamped `Bullet.MIN_THROW`..range, measured from the body centre:
   `Rowdy:throwDist`/`landing`) in an arc over walls, rowdies and chests and explodes

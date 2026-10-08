@@ -7,7 +7,8 @@
 -- A rowdy is unlocked by beating it in a boss fight (src/unlock.lua); `beaten` keeps
 -- the ones beaten but not unlocked yet (too few coins, or the Yard Pass tier missing).
 -- Saved in profile.txt: "coins <n>", "unlocked <name> <name> ..." and "beaten <name>
--- ..." (names, not indexes, so the rowdy list can be reordered).
+-- ..." (names, not indexes, so the rowdy list can be reordered; a space in a name is
+-- written as "_": "Agent_Angel", see Profile.encodeName).
 local Profile = {}
 
 Profile.STARTER = "Shotgunner" -- the free one (no price), chosen on a first start
@@ -27,6 +28,11 @@ Profile.testMode = false
 local FILE = "profile.txt"
 local TEST_FILE = "testmode.txt"
 
+-- Rowdy names may contain spaces (src/rowdies.lua forbids "_"), the save files
+-- separate words with spaces
+function Profile.encodeName(name) return (name:gsub(" ", "_")) end
+function Profile.decodeName(word) return (word:gsub("_", " ")) end
+
 function Profile.setTestMode(on)
     Profile.testMode = on
     if on then love.filesystem.write(TEST_FILE, "on\n") else love.filesystem.remove(TEST_FILE) end
@@ -40,19 +46,19 @@ function Profile.load()
         if key == "coins" then
             Profile.coins = math.max(0, math.floor(tonumber(rest) or 0))
         elseif key == "unlocked" then
-            for name in rest:gmatch("%S+") do Profile.unlocked[name] = true end
+            for word in rest:gmatch("%S+") do Profile.unlocked[Profile.decodeName(word)] = true end
         elseif key == "beaten" then
-            for name in rest:gmatch("%S+") do Profile.beaten[name] = true end
+            for word in rest:gmatch("%S+") do Profile.beaten[Profile.decodeName(word)] = true end
         end
     end
 end
 
 function Profile.save()
     local names = {}
-    for name in pairs(Profile.unlocked) do names[#names + 1] = name end
+    for name in pairs(Profile.unlocked) do names[#names + 1] = Profile.encodeName(name) end
     table.sort(names)
     local beaten = {}
-    for name in pairs(Profile.beaten) do beaten[#beaten + 1] = name end
+    for name in pairs(Profile.beaten) do beaten[#beaten + 1] = Profile.encodeName(name) end
     table.sort(beaten)
     love.filesystem.write(FILE, "coins " .. Profile.coins .. "\nunlocked " ..
         table.concat(names, " ") .. "\nbeaten " .. table.concat(beaten, " ") .. "\n")
