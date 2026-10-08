@@ -156,7 +156,7 @@ existing things that break it.
   runs `src/updater_thread.lua` (love.thread: socket.http GET latest.txt, RSA check, download,
   size + sha256, write) and `Updater.update()` reads its status for the lobby's version line;
   a finished download restarts the game at once (`love.event.quit("restart")`) if the lobby
-  is idle, otherwise it's used at the next start.
+  is idle (not on Android, see the moto g67 below), otherwise it's used at the next start.
 - `src/rsa.lua` — pure-Lua RSA verify (PKCS#1 v1.5 + SHA-256, e = 65537; 24-bit limbs,
   Montgomery multiplication; ~5 ms on desktop)
 - `src/codec.lua` — message serializer (no loadstring; rejects malformed input)
@@ -402,7 +402,13 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 - Tested on desktop with a local http server: update + instant restart, tampered .love /
   manifest rejected, crashing build marked bad (fallback to the built-in build), no server /
   timeout / 301 -> "update failed: ..." while the lobby keeps working.
-- moto g67: build 38 + uncommitted changes installed by hand (has the updater) 2026-10-04.
+- moto g67: build 38 + uncommitted changes installed by hand (has the updater) 2026-10-04;
+  it updated itself, then marked build 71 bad ("build 71 crashed - skipped", back on 38).
+  Desktop repro (build 38 booting update-71.love with old save data) ran fine; a start
+  closed within 3 s gives exactly `bad 71`. Build 71 installed by hand 2026-10-08 (old
+  files removed, the phone's conf.lua with identity `brawl-clone` kept, so its progress
+  stays) and runs fine there. Likely cause: the instant `quit("restart")` on Android, so
+  Android now waits for the next start instead.
 - Pixel 6a: build 53 (the published .love, unzipped) installed by hand 2026-10-05; before it
   had a build from 2026-10-01 with the old identity, so its progress started fresh.
 - Published to the real server: builds 47, 51 (replaced), 53 (2026-10-04: rowdy entry
@@ -416,8 +422,8 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 - Boss fights NOT yet tried on a device (touch on the panel, fight feel on a phone).
 - Tablet (TB330FU): build 68 (the published .love, unzipped) installed by hand 2026-10-07;
   before it had a build from 2026-10-03 without build.txt (never updated itself).
-- Open: `love.event.quit("restart")` on Android (if it fails, the
-  update is still used at the next start).
+- Android: no instant restart after a download (moto g67, 2026-10-08); the update is
+  used at the next start.
 
 ## Yard Pass status (2026-10-05, published as build 57)
 - Free season pass, phases 1-3 of the plan: XP/tiers/challenges/pass screen, cosmetics

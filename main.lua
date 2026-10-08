@@ -633,8 +633,11 @@ end
 function love.update(dt)
     Updater.update(dt)
     Menu.status = Updater.status
-    -- A downloaded update is used right away if nobody is busy in the lobby
-    if Updater.ready and state == "menu" and not Menu.modesOpen then
+    -- A downloaded update is used right away if nobody is busy in the lobby. Not on
+    -- Android: the moto g67 marked build 71 bad after such a restart (the restarted build
+    -- never ran 3 s), there it waits for the next start.
+    if Updater.ready and state == "menu" and not Menu.modesOpen
+        and love.system.getOS() ~= "Android" then
         love.event.quit("restart")
     end
     if state == "join" then
