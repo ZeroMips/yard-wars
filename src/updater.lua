@@ -7,12 +7,18 @@
 -- save folder as update-<build>.love and checks size + sha256.
 --
 -- update.txt in the save folder says which downloaded build to use:
---   build 40 / file update-40.love / state ok|trying / bad <builds that crashed>
+--   build 40 / file update-40.love / state ok|trying|retry / crashed 40 /
+--   bad <builds that crashed>
 -- On the next start (or right away via love.event.quit("restart") when it arrives in the
--- lobby) Updater.boot(), the first line of main.lua, mounts that file over the game source
--- and runs its main.lua instead. state "trying" is written before that and set back to
--- "ok" once the build has run for a moment: a start that finds "trying" knows the build
--- crashed, marks it bad and runs the built-in game.
+-- lobby, not on Android) Updater.boot(), the first line of main.lua, mounts that file over
+-- the game source and runs its main.lua instead. state "trying" is written before that and
+-- set back to "ok" once the build has run for a moment. A start that finds "trying" gets
+-- one more go ("retry": the app may only have been closed early) unless the build logged
+-- an error then ("crashed"); a start that finds "retry" marks the build bad and runs the
+-- built-in game. (Builds up to 71 mark it bad at the first "trying" already.)
+--
+-- Every Lua error (error screen) is written to crash.txt with its traceback; the lobby
+-- shows "last crash (build N): ..." while that build or an older one runs.
 --
 -- IMPORTANT: boot() of the build installed by hand on a device runs on every start, before
 -- any update - keep it simple and keep update.txt compatible.
@@ -26,6 +32,7 @@ Updater.URL = "http://yardwars.zeromips.org/updates/"
 Updater.PUBLIC_KEY = "9B7BBD3C86C5D362FEEBF58706BA5EA012B91D4DCA074FB91DFA8D2B3784E163A3A822276A2F4AD46C717AC8F29DE6754ED224143BBFF3FA6C9C0AF836E12FAADD2291D7083CC0C2373A766DEAB5EA1A7144771475CFF73AD0014B643CB9DFE811A57FF90840819159B7745235528A9B5FB1AF62086C266AFE7F06AD803C2FE7C874FC44D6D65D9C777911C222F1EF2FE8EE064DE1986C9F1D566B4841CF59B5F1CEDF84125D1E5987DE9B0DEF0F4E067C018456C80799D8DDF917CE636769DC05E61F4BA38E43A7C0BD092E231A1B98428BFE72DB5A911CA70D313F9CBE5FBD58E41BFE126F8619591CA5A2CD6C7B990ADB00E40CC2D8BD03C4ACFD08437823"
 
 local STATE_FILE = "update.txt"
+local CRASH_FILE = "crash.txt"
 local CONFIRM_AFTER = 3 -- seconds a mounted build has to run before it counts as working
 
 Updater.status = nil -- short text for the lobby ("up to date", ...)
@@ -34,6 +41,8 @@ Updater.ready = nil  -- build number downloaded and ready to use (restart to swi
 local channel, thread
 local runTime = 0
 local confirmed = false
+local check = nil     -- the update check's status ("up to date", ...)
+local lastCrash = nil -- "last crash (build N): ..." from crash.txt, see readCrash()
 
 -- Build number of the running game (build.txt, the mounted update's wins), nil = dev
 function Updater.build()
@@ -56,6 +65,7 @@ local function readState()
         if key == "build" then st.build = tonumber(value)
         elseif key == "file" then st.file = value:match("^update%-%d+%.love$")
         elseif key == "state" then st.state = value
+        elseif key == "crashed" then st.crashed = tonumber(value)
         elseif key == "bad" then
             for b in value:gmatch("%d+") do st.bad[tonumber(b)] = true end
         end
@@ -72,6 +82,7 @@ local function writeState(st)
         lines[#lines + 1] = "build " .. st.build
         lines[#lines + 1] = "file " .. st.file
         lines[#lines + 1] = "state " .. (st.state or "ok")
+        if st.crashed == st.build then lines[#lines + 1] = "crashed " .. st.build end
     end
     if #bad > 0 then lines[#lines + 1] = "bad " .. table.concat(bad, " ") end
     love.filesystem.write(STATE_FILE, table.concat(lines, "\n") .. "\n")
@@ -88,18 +99,50 @@ local function cleanup(keep)
     end
 end
 
+-- Lua errors go to crash.txt (build, date, message, traceback) before LÖVE's error screen.
+-- An error in the first seconds of a mounted build also goes into update.txt ("crashed"):
+-- boot() then skips the second try.
+local function logCrashes()
+    -- LÖVE's own error screen (11.5 still calls the default love.errhand); the mounted
+    -- build's boot() replaces the hand-installed build's handler (that one's `confirmed`
+    -- never changes)
+    YARD_WARS_ERROR_SCREEN = YARD_WARS_ERROR_SCREEN or love.errorhandler or love.errhand
+    local show = YARD_WARS_ERROR_SCREEN
+    love.errorhandler = function(msg)
+        pcall(function()
+            local build = Updater.build()
+            love.filesystem.write(CRASH_FILE, "build " .. tostring(build) .. "  "
+                .. os.date("%Y-%m-%d %H:%M:%S") .. "\n"
+                .. debug.traceback("Error: " .. tostring(msg), 2) .. "\n")
+            if YARD_WARS_UPDATE and not confirmed then
+                local st = readState()
+                if st.build == YARD_WARS_UPDATE then
+                    st.crashed = st.build
+                    writeState(st)
+                end
+            end
+        end)
+        return show(msg)
+    end
+end
+
 -- First line of main.lua: runs a downloaded newer build instead of this one if there is
 -- one. Returns true if it did (main.lua must return right away then).
 function Updater.boot()
+    logCrashes()
     if YARD_WARS_UPDATE then return false end -- we are the mounted build: already booted
     local own = Updater.build()
     if not own or hasArg("--no-update") then return false end
     local st = readState()
     local usable = st.build and st.file and st.build > own and not st.bad[st.build]
         and love.filesystem.getInfo(st.file)
-    if usable and st.state == "trying" then -- the last start of this build never got going
+    -- The last start of this build never got going: closed early (one more try) or an error
+    local retry = false
+    if usable and (st.state == "retry" or st.state == "trying" and st.crashed == st.build) then
         st.bad[st.build] = true
         usable = false
+    elseif usable and st.state == "trying" then
+        retry = true
     end
     if not usable then
         if st.build then
@@ -110,7 +153,7 @@ function Updater.boot()
         return false
     end
     cleanup(st.file)
-    st.state = "trying"
+    st.state = retry and "retry" or "trying"
     writeState(st)
     if not love.filesystem.mount(st.file, "/") then return false end -- "trying": bad next time
     -- Modules of this build already loaded (this one) must come from the update
@@ -121,6 +164,8 @@ function Updater.boot()
     assert(love.filesystem.load("main.lua"))()
     return true
 end
+
+local setStatus, readCrash
 
 -- Start the check in the background (from love.load)
 function Updater.start(args)
@@ -133,7 +178,26 @@ function Updater.start(args)
     channel:clear()
     thread = love.thread.newThread("src/updater_thread.lua")
     thread:start(url or Updater.URL, own, table.concat(bad, " "), Updater.PUBLIC_KEY)
-    Updater.status = "checking for updates"
+    check = "checking for updates"
+    lastCrash = readCrash()
+    setStatus()
+end
+
+-- The lobby's status line: the update check and the running build's last crash
+function setStatus()
+    if check and lastCrash then Updater.status = check .. "  -  " .. lastCrash
+    else Updater.status = check or lastCrash end
+end
+
+-- "last crash (build N): <first line>" if crash.txt is from the running build or a newer
+-- one (skipped after it crashed)
+function readCrash()
+    local s = love.filesystem.getInfo(CRASH_FILE) and love.filesystem.read(CRASH_FILE)
+    local build, msg = (s or ""):match("^build (%d+)[^\n]*\nError: ([^\n]*)")
+    if build and tonumber(build) >= Updater.build() then
+        if #msg > 70 then msg = msg:sub(1, 67) .. "..." end
+        return "last crash (build " .. build .. "): " .. msg
+    end
 end
 
 -- Every frame: confirms a mounted build after a few seconds, reads the check's progress
@@ -142,37 +206,39 @@ function Updater.update(dt)
     if YARD_WARS_UPDATE and not confirmed and runTime > CONFIRM_AFTER then
         confirmed = true
         local st = readState()
-        if st.build == YARD_WARS_UPDATE and st.state == "trying" then
-            st.state = "ok"
+        if st.build == YARD_WARS_UPDATE and (st.state == "trying" or st.state == "retry") then
+            st.state, st.crashed = "ok", nil
             writeState(st)
         end
     end
     if not channel then return end
+    local before = check
     local msg = channel:pop()
     while msg do
         local what, rest = msg:match("^(%S+) ?(.*)$")
         if what == "uptodate" then
-            Updater.status = "up to date"
+            check = "up to date"
         elseif what == "bad" then
-            Updater.status = "build " .. rest .. " crashed - skipped"
+            check = "build " .. rest .. " crashed - skipped"
         elseif what == "downloading" then
-            Updater.status = "downloading build " .. rest .. " ..."
+            check = "downloading build " .. rest .. " ..."
         elseif what == "failed" then
-            Updater.status = "update failed: " .. rest
+            check = "update failed: " .. rest
         elseif what == "ready" then
             local build, file = rest:match("^(%d+) (%S+)$")
             local st = readState()
-            st.build, st.file, st.state = tonumber(build), file, "ok"
+            st.build, st.file, st.state, st.crashed = tonumber(build), file, "ok", nil
             writeState(st)
             Updater.ready = st.build
-            Updater.status = "build " .. build .. " ready - used at the next start"
+            check = "build " .. build .. " ready - used at the next start"
         end
         msg = channel:pop()
     end
     if thread and thread:getError() then
-        Updater.status = "update failed: " .. thread:getError():gsub("\n.*", "")
+        check = "update failed: " .. thread:getError():gsub("\n.*", "")
         thread = nil
     end
+    if check ~= before then setStatus() end
 end
 
 return Updater

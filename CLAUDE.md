@@ -154,8 +154,14 @@ existing things that break it.
   events played when their time comes; clock offset = max(t - arrival), pulled down 10%
 - `src/updater.lua` — self-update: `Updater.boot()` (first line of main.lua) mounts a
   downloaded newer build (`update-N.love` in the save folder, `update.txt`: build/file/
-  state ok|trying/bad) over the game source and runs its main.lua; a build whose start never
-  got past 3 s ("trying" at the next start) is marked bad and skipped. `Updater.start()`
+  state ok|trying|retry/crashed/bad) over the game source and runs its main.lua; a build
+  whose start never got past 3 s gets one more start ("retry"), unless it logged an error
+  then ("crashed"); after that it is marked bad and skipped (builds up to 71: bad at the
+  first failed start, so closing the app within 3 s of a new build's first start killed
+  it). Every Lua error goes to `crash.txt` in the save folder (build, date, traceback;
+  wraps LÖVE 11.5's default `love.errhand` - `love.errorhandler` is nil there); the lobby's
+  status line shows "last crash (build N): ..." while that build or an older one runs.
+  These boot() rules only apply on devices whose hand-installed build has them. `Updater.start()`
   runs `src/updater_thread.lua` (love.thread: socket.http GET latest.txt, RSA check, download,
   size + sha256, write) and `Updater.update()` reads its status for the lobby's version line;
   a finished download restarts the game at once (`love.event.quit("restart")`) if the lobby
@@ -430,8 +436,10 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   Desktop repro (build 38 booting update-71.love with old save data) ran fine; a start
   closed within 3 s gives exactly `bad 71`. Build 71 installed by hand 2026-10-08 (old
   files removed, the phone's conf.lua with identity `brawl-clone` kept, so its progress
-  stays) and runs fine there. Likely cause: the instant `quit("restart")` on Android, so
-  Android now waits for the next start instead.
+  stays) and runs fine there. Gideon: played in the morning, the afternoon start
+  crashed with no download in that session - so not the restart; cause unknown (no
+  desktop repro with old or 71-written save data). Hence the crash log + retry rule;
+  the moto needs one more hand install of a build that has them.
 - Pixel 6a: build 53 (the published .love, unzipped) installed by hand 2026-10-05; before it
   had a build from 2026-10-01 with the old identity, so its progress started fresh.
 - Published to the real server: builds 47, 51 (replaced), 53 (2026-10-04: rowdy entry
