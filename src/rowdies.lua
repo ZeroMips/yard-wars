@@ -188,9 +188,9 @@ local Rowdies = {
                             projectile = "snowball" } },
     },
     {
-        -- Slime potions and a magnet (CHARTER.md: slime, not poison). Name spelling as
-        -- on Gideon's sheet, to be confirmed with him.
-        name = "Doctor Dummie", role = "Slime potions, pulls", price = 400, shot = "shot_potion",
+        -- A cheerful mad scientist: slime potions and a magnet (CHARTER.md: slime, not
+        -- poison). "Doctor Dummie" on Gideon's sheet; he chose the English name.
+        name = "Doctor Fizzle", role = "Slime potions, pulls", price = 400, shot = "shot_potion",
         comic = { image = "doctor", origin = { 51.5, 108 }, muzzle = { 105, -0.5 } },
         stats = { speed = 240, hp = 110, damage = 32, range = 400, bulletSpeed = 520,
                   reload = 0.5, maxAmmo = 3, ammoRefill = 1.6, lob = true, blast = 60,

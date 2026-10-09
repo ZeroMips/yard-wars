@@ -47,7 +47,7 @@ Net.PROTOCOL = 8 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin.
                  -- 5: boss fight (welcome mode.boss, FIELDS boss)
                  -- 6: Student/Chef/Agent Angel (bullet + blast projectile, turn and
                  --    freeze events, FIELDS frozen)
-                 -- 7: Doctor Dummie/Wrestler/Digger (pull, punch, leap, burrow events,
+                 -- 7: Doctor Fizzle/Wrestler/Digger (pull, punch, leap, burrow events,
                  --    FIELDS air + burrowed)
                  -- 8: Ghostman/Wizard (input hold, blink/vanish/appear/grab/fling/bonk
                  --    events, FIELDS beam, grabbing, held, vanished)

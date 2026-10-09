@@ -303,7 +303,7 @@ existing things that break it.
   Student (300: fast long pen, super "Book Drop" = a lobbed book), Chef (400: frying pan
   `boomerang`, super "Waffle Toss" = 2 piercing waffle irons in a V), Agent Angel (450:
   `burst` of 4 from two toy blasters (`twin`), super "Freeze Balls" = 3 lobbed balls that
-  `freeze` for 1.5 s), Doctor Dummie (400: lobbed slime potions, super "Magnet Potion"
+  `freeze` for 1.5 s), Doctor Fizzle (400: lobbed slime potions, super "Magnet Potion"
   = a shot that `pull`s the first one hit to the doctor), Wrestler (450: `kind = "leap"`
   body slam over walls, super "Punch Combo" = `burst` 4 with `dash` + glove melee),
   Digger (350: shovel melee = short wide piercing shot, super `kind = "burrow"` for 4 s),
@@ -313,8 +313,8 @@ existing things that break it.
   crashing into a wall/chest/rowdy does the damage), plus `Rowdies.bot` (enemy look +
   stats).
   New rowdies from Gideon's 8 design sheets (2026-10-08, plan: phase 1 Student/Chef/Agent
-  Angel, phase 2 Doctor Dummie/Wrestler/Digger and phase 3 Ghostman/Wizard all coded;
-  Gideon still has to confirm the spelling "Doctor Dummie"). Their
+  Angel, phase 2 Doctor Fizzle/Wrestler/Digger and phase 3 Ghostman/Wizard all coded;
+  Doctor Fizzle = "Doctor Dummie" on the sheet, renamed with Gideon 2026-10-09). Their
   art is still a PLACEHOLDER (hue-shifted copies of other top views, no side views): the
   Gemini prompts are in ~/Downloads/yard-wars-art-new/<image>-prompts.md; with the real
   images run the tool, paste the comic line and check origin/muzzle. Don't publish them
