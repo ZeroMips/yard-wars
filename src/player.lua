@@ -11,7 +11,8 @@ function Player.new(x, y, image, stats)
 end
 
 -- input = { dx, dy, aim (angle or nil), aimDist (px, how far a bomb flies; nil = its
--- full range), fire, super, aiming } from src/controls.lua
+-- full range), fire, hold (attack held down: a beam), super, aiming } from
+-- src/controls.lua
 function Player:update(dt, input, bullets)
     self:tick(dt)
     if self.dead then return end
@@ -38,6 +39,11 @@ function Player:update(dt, input, bullets)
             sb.time = sb.time - dt
             if sb.time <= 0 or not self:superReady() then self.superBuffer = nil end
         end
+    end
+
+    if self.attack.kind == "beam" then -- held: the beam stays on (src/rowdy.lua)
+        if input.hold then self:shoot(bullets, true) elseif input.fire then self:shoot(bullets) end
+        return
     end
 
     if input.fire then self.fireBuffer = { angle = self.aim, dist = self.aimDist, time = 0.25 } end

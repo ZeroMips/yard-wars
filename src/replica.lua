@@ -179,6 +179,10 @@ local function proxyFor(self, s)
     p.frozen = tonumber(s.frozen) or 0
     p.air = tonumber(s.air) or 0
     p.burrowed = s.burrowed == true or nil -- (Rowdy:untouchable checks for nil)
+    p.beamLen = tonumber(s.beam) or 0
+    p.grabbing = s.grabbing == true
+    p.heldBy = s.held == true or nil
+    p.vanished = s.vanished == true or nil
     p.skin, p.trail, p.title, p.badge = s.skin, s.trail, s.title, s.badge -- nil = none
     return p
 end

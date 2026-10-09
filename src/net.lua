@@ -6,7 +6,7 @@
 --   client -> host   hello {rowdy, style, protocol, content, build}
 --                                           reliable, once after connecting; style =
 --                                           Yard Pass cosmetics {skin, trail, title, badge}
---                    input {dx, dy, aim, dist, shotDist, fire, super} unreliable,
+--                    input {dx, dy, aim, dist, shotDist, fire, super, hold} unreliable,
 --                                             every frame; dist = how far a bomb would
 --                                             fly, shotDist = that of the last shot (kept,
 --                                             so a lost packet loses no distance); fire
@@ -42,13 +42,15 @@ local CH_RELIABLE, CH_FAST = 0, 1
 -- list indexes, the client draws with its own stats). Bump PROTOCOL when messages or
 -- Net.FIELDS change; the content id is a hash of src/rowdies.lua's data, so a new or
 -- changed rowdy needs no manual bump. Builds may differ otherwise (git checkout <-> phone).
-Net.PROTOCOL = 7 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
+Net.PROTOCOL = 8 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
                  -- 4: bombs (input dist, bullet lob, blast event)
                  -- 5: boss fight (welcome mode.boss, FIELDS boss)
                  -- 6: Student/Chef/Agent Angel (bullet + blast projectile, turn and
                  --    freeze events, FIELDS frozen)
                  -- 7: Doctor Dummie/Wrestler/Digger (pull, punch, leap, burrow events,
                  --    FIELDS air + burrowed)
+                 -- 8: Ghostman/Wizard (input hold, blink/vanish/appear/grab/fling/bonk
+                 --    events, FIELDS beam, grabbing, held, vanished)
 
 local function serialize(v, out)
     if type(v) == "table" then
@@ -95,7 +97,8 @@ end
 Net.FIELDS = { "id", "team", "key", "x", "y", "aim", "hp", "ammo", "ammoTimer", "dead",
     "respawnTimer", "walkPhase", "walkBlend", "recoil", "flashTimer", "flashSize",
     "hitFlash", "spawnAnim", "kills", "deaths", "isBot", "charge", "out",
-    "skin", "trail", "title", "badge", "boss", "frozen", "air", "burrowed" }
+    "skin", "trail", "title", "badge", "boss", "frozen", "air", "burrowed", "beam", "grabbing",
+    "held", "vanished" }
 
 local function send(peer, msg, reliable)
     peer:send(Codec.encode(msg), reliable and CH_RELIABLE or CH_FAST,
@@ -244,7 +247,7 @@ function Server:addInputs(inputs)
             local dist = tonumber(shot and i.shotDist or i.dist)
             inputs[c.id] = { dx = clampAxis(i.dx), dy = clampAxis(i.dy),
                 aim = tonumber(i.aim), aimDist = dist and math.max(0, math.min(5000, dist)),
-                fire = fire ~= c.fireSeen,
+                fire = fire ~= c.fireSeen, hold = i.hold == true,
                 super = super ~= (c.superSeen or 0) }
             c.fireSeen, c.superSeen = fire, super
         end
@@ -266,6 +269,10 @@ local function snapshot(world)
         s[29] = round(e.frozen or 0, 100)
         s[30] = round(e.air or 0, 10)
         s[31] = e.burrowed ~= nil -- (a table on the host)
+        s[32] = round(e.beamLen or 0, 1)
+        s[33] = e.grab ~= nil
+        s[34] = e.heldBy ~= nil
+        s[35] = e.vanished ~= nil
         ents[#ents + 1] = s
     end
     local packs = {}
@@ -508,7 +515,8 @@ function Client:sendInput(input)
     if input.super then self.super = self.super + 1 end
     if input.fire or input.super then self.shotDist = input.aimDist end
     send(self.peer, { type = "input", dx = input.dx, dy = input.dy, aim = input.aim,
-        dist = input.aimDist, shotDist = self.shotDist, fire = self.fire, super = self.super })
+        dist = input.aimDist, shotDist = self.shotDist, fire = self.fire, super = self.super,
+        hold = input.hold or nil })
     self.host:flush()
 end
 

@@ -17,6 +17,13 @@ local BURST_DELAY  = 0.08 -- default seconds between the shots of a burst
 local DASH_TIME    = 0.1  -- seconds a punch's dash (attack.dash) takes
 local LEAP_HEIGHT  = 90   -- px: top of a leap's arc (drawn)
 local BURROW_SPEED = 1.25 -- walking faster underground
+local BEAM_TICK    = 0.1  -- s: a beam hits this often (attack.damage each time)
+local BEAM_DRAIN   = 1    -- ammo bars per second of beam
+local BEAM_SOUND   = 0.3  -- s between two "shot" events of a beam (its hum)
+local HOLD_SPEED   = 700  -- px/s: a grabbed rowdy follows the aim this fast at most
+local FLING_SPEED  = 950  -- px/s and FLING_TIME s: how a grabbed rowdy is flung
+local FLING_TIME   = 0.45
+local BEAM_COLOR   = { 0.75, 0.45, 1 }
 local ICE_COLOR    = { 0.55, 0.85, 1 }
 
 local fire -- (defined below, used by tick for the shots of a burst)
@@ -65,6 +72,8 @@ function Rowdy:init(x, y, look, stats)
     self.frozen = 0 -- seconds left frozen (src/rowdies.lua: freeze): no moving, no attacks
     self.muzzleSide = 1 -- twin attacks: which of the two muzzles fires next (1 / -1)
     self.air = 0        -- height above the ground while leaping (drawn)
+    self.beamLen = 0    -- length of the beam this step (0 = off; drawn)
+    self.beamHold = 0   -- seconds the beam stays on (input / bot keeps it up)
     -- push (forced or own movement { vx, vy, t, own }), leap, burrowed: see Rowdy:act
     -- animation state
     self.walkPhase, self.walkBlend, self.stepTimer = 0, 0, 0
@@ -86,8 +95,26 @@ end
 
 -- Back to normal: no burst, push, leap or burrow going on (respawn, rowdy switch)
 function Rowdy:clearActions()
+    self:releaseGrab()
+    if self.vanished then self:reappear() end
     self.bursting, self.push, self.leap, self.burrowed = nil, nil, nil, nil
-    self.frozen, self.air = 0, 0
+    self.frozen, self.air, self.beamLen, self.beamHold = 0, 0, 0, 0
+    self.heldBy = nil
+end
+
+-- Lets go of a grabbed rowdy (without flinging it)
+function Rowdy:releaseGrab()
+    local grab = self.grab
+    self.grab = nil
+    local victim = grab and self.world and self.world.byId[grab.id]
+    if victim and victim.heldBy == self.id then victim.heldBy = nil end
+end
+
+-- The end of a vanish: visible again, and out of the wall it may be in
+function Rowdy:reappear()
+    self.vanished = nil
+    self.x, self.y = Arena.nearestOpen(self.x, self.y, self.radius)
+    self:emit("appear", { id = self.id, x = self.x, y = self.y })
 end
 
 -- Report something that happened (spawn, death, step, ...) to the world, if any.
@@ -122,6 +149,9 @@ function Rowdy:tick(dt)
         self.respawnTimer = self.respawnTimer - dt
         -- out = no lives left (Waves): stays down
         if self.respawnTimer <= 0 and not self.out then self:respawn() end
+    elseif self.attack.kind == "beam" then -- energy: refills smoothly while it's off
+        if self.beamLen <= 0 then self.ammo = math.min(self.maxAmmo, self.ammo + dt / self.ammoRefill) end
+        self.ammoTimer = 0
     elseif self.ammo < self.maxAmmo then
         self.ammoTimer = self.ammoTimer + dt
         if self.ammoTimer >= self.ammoRefill then
@@ -152,6 +182,8 @@ function Rowdy:takeDamage(amount, killer)
     if self.hp <= 0 then
         self.hp = 0
         self.dead = true
+        self:releaseGrab()
+        self.beamLen, self.beamHold = 0, 0
         self.respawnTimer = RESPAWN_TIME
         self:emit("death", { x = self.x, y = self.y, id = self.id, color = self.barColor,
             killer = killer })
@@ -188,7 +220,13 @@ function Rowdy:move(dx, dy, dt)
         self.x = self.x + self.dirX * speed * dt
         self.y = self.y + self.dirY * speed * dt
     end
-    self.x, self.y = Arena.resolveCircle(self.x, self.y, self.radius)
+    if self.vanished then -- walks through walls, but stays in the arena
+        local r = self.radius
+        self.x = math.max(r, math.min(Arena.width - r, self.x))
+        self.y = math.max(r, math.min(Arena.height - r, self.y))
+    else
+        self.x, self.y = Arena.resolveCircle(self.x, self.y, self.radius)
+    end
     self:animateWalk(math.sqrt((self.x - ox) ^ 2 + (self.y - oy) ^ 2), dt)
 end
 
@@ -206,7 +244,7 @@ end
 -- walk unless it is dashing: see Rowdy:walks)
 function Rowdy:canMove()
     return not self.dead and self.frozen <= 0 and not (self.push and not self.push.own)
-        and not self.leap
+        and not self.leap and not self.heldBy
 end
 
 -- Walks by its own input this step (not during any push)
@@ -214,9 +252,9 @@ function Rowdy:walks()
     return self:canMove() and not self.push
 end
 
--- May attack: can move and isn't underground
+-- May attack: can move, isn't underground and holds nobody
 function Rowdy:canAct()
-    return self:canMove() and not self.burrowed
+    return self:canMove() and not self.burrowed and not self.grab
 end
 
 -- Out of reach of bullets and blasts (in the air or underground)
@@ -224,9 +262,24 @@ function Rowdy:untouchable()
     return self.leap ~= nil or self.burrowed ~= nil
 end
 
--- Move by a push: forced (pulled to a rowdy) or own (the dash of a punch)
-function Rowdy:pushBy(vx, vy, t, own)
-    self.push = { vx = vx, vy = vy, t = t, own = own }
+-- Move by a push: forced (pulled to a rowdy, flung) or own (the dash of a punch).
+-- impact = { owner, attack }: hitting a wall, chest or rowdy hurts (a fling)
+function Rowdy:pushBy(vx, vy, t, own, impact)
+    self.push = { vx = vx, vy = vy, t = t, own = own, impact = impact }
+end
+
+-- A flung rowdy hits something: it takes the attack's damage, so does a rowdy it
+-- crashes into (if that is an opponent of the flinger), and a chest
+local function crash(self, push, other, box)
+    local world, imp = self.world, push.impact
+    self.push = nil
+    if not world then return end
+    world:emit("bonk", { id = self.id, x = self.x, y = self.y })
+    world:hitWith(imp.owner, imp.attack, self, self.x, self.y)
+    if other and other.team ~= imp.owner.team then
+        world:hitWith(imp.owner, imp.attack, other, other.x, other.y)
+    end
+    if box then world:hitBox(box, { x = self.x, y = self.y, damage = imp.attack.damage, owner = imp.owner }) end
 end
 
 -- Ongoing actions, every step on the world side (from tick): pushes, leaps, burrows
@@ -235,11 +288,56 @@ function Rowdy:act(dt)
     if push then
         local step = math.min(dt, push.t)
         local ox, oy = self.x, self.y
-        self.x, self.y = Arena.resolveCircle(self.x + push.vx * step, self.y + push.vy * step,
-            self.radius)
+        local wx, wy = self.x + push.vx * step, self.y + push.vy * step
+        self.x, self.y = Arena.resolveCircle(wx, wy, self.radius)
         self:animateWalk(math.sqrt((self.x - ox) ^ 2 + (self.y - oy) ^ 2), dt)
         push.t = push.t - dt
         if push.t <= 0 then self.push = nil end
+        if push.impact and self.world then
+            local other
+            for _, e in ipairs(self.world.entities) do
+                local reach = self.radius + e.radius
+                if e ~= self and e ~= push.impact.owner and not e.dead and not e:untouchable()
+                    and (e.x - self.x) ^ 2 + (e.y - self.y) ^ 2 < reach * reach then
+                    other = e
+                end
+            end
+            local box = self.world.boxAt and self.world:boxAt(self.x, self.y, self.radius + 2)
+            local wall = (wx - self.x) ^ 2 + (wy - self.y) ^ 2 > 1
+            if other or box or wall then crash(self, push, other, box) end
+        end
+    end
+    local v = self.vanished
+    if v then
+        v.time = v.time - dt
+        if v.time <= 0 then self:reappear() end
+    end
+    self:actBeam(dt)
+    local grab = self.grab
+    if grab then -- the grabbed rowdy follows the aim, then it is flung
+        local victim = self.world and self.world.byId[grab.id]
+        grab.time = grab.time - dt
+        if not victim or victim.dead or victim.heldBy ~= self.id or self.frozen > 0 then
+            self:releaseGrab()
+        else
+            local c, s = math.cos(self.aim), math.sin(self.aim)
+            local hx, hy = self.x + c * grab.dist, self.y + s * grab.dist
+            local dx, dy = hx - victim.x, hy - victim.y
+            local d = math.sqrt(dx * dx + dy * dy)
+            local stepLen = math.min(d, HOLD_SPEED * dt)
+            if d > 0 then
+                victim.x, victim.y = Arena.resolveCircle(victim.x + dx / d * stepLen,
+                    victim.y + dy / d * stepLen, victim.radius)
+            end
+            self.beamLen = math.sqrt((victim.x - self.x) ^ 2 + (victim.y - self.y) ^ 2)
+            if grab.time <= 0 then
+                self:releaseGrab()
+                victim:pushBy(c * FLING_SPEED, s * FLING_SPEED, FLING_TIME, false,
+                    { owner = self, attack = grab.attack })
+                self:emit("fling", { id = victim.id, by = self.id, x = victim.x, y = victim.y })
+                self.beamLen = 0
+            end
+        end
     end
     local leap = self.leap
     if leap then
@@ -298,8 +396,63 @@ function Rowdy:leapTarget(attack)
     return self.x, self.y
 end
 
+-- The beam (attack.kind "beam") while it is held: hits the first opponent or chest
+-- on its line every BEAM_TICK, uses BEAM_DRAIN ammo bars per second
+function Rowdy:actBeam(dt)
+    self.beamHold = math.max(0, self.beamHold - dt)
+    if self.grab then return end -- (its beam is the grab's)
+    local attack = self.attack
+    if attack.kind ~= "beam" or self.beamHold <= 0 or not self:canAct() or self.ammo <= 0
+        or not self.world then
+        self.beamLen, self.beamTimer, self.beamSound = 0, nil, nil
+        return
+    end
+    self.ammo = math.max(0, self.ammo - BEAM_DRAIN * dt)
+    local len, victim, box = self.world:traceBeam(self, attack.range or Bullet.range)
+    self.beamLen = len
+    self.beamTimer = (self.beamTimer or 0) - dt
+    if self.beamTimer <= 0 then
+        self.beamTimer = self.beamTimer + BEAM_TICK
+        local x, y = self.x + math.cos(self.aim) * len, self.y + math.sin(self.aim) * len
+        if victim then self.world:hitWith(self, attack, victim, x, y)
+        elseif box then self.world:hitBox(box, { x = x, y = y, damage = attack.damage, owner = self }) end
+    end
+    self.beamSound = (self.beamSound or 0) - dt
+    if self.beamSound <= 0 then
+        self.beamSound = BEAM_SOUND
+        self:emit("shot", { id = self.id, x = self.x, y = self.y })
+    end
+end
+
 -- Attacks that move the rowdy instead of firing projectiles (attack.kind)
 local ACTIONS = {}
+
+function ACTIONS.blink(self, attack) -- teleports (also through walls) with a "boo"
+    local fx, fy = self.x, self.y
+    self.x, self.y = self:leapTarget(attack)
+    self:emit("blink", { id = self.id, x = fx, y = fy, toX = self.x, toY = self.y })
+    if self.world then self.world:blastAt(self, attack, self.x, self.y) end
+end
+
+function ACTIONS.vanish(self, attack) -- invisible and through walls for a while
+    self.vanished = { time = attack.duration or 5 }
+    self:emit("vanish", { id = self.id, x = self.x, y = self.y })
+end
+
+function ACTIONS.grab(self, attack) -- the beam grabs the first opponent on its line
+    if not self.world then return end
+    local len, victim = self.world:traceBeam(self, attack.range or Bullet.range)
+    local x, y = self.x + math.cos(self.aim) * len, self.y + math.sin(self.aim) * len
+    if not victim then
+        self:emit("grab", { id = self.id, x = x, y = y })
+        return
+    end
+    victim.heldBy, victim.push, victim.bursting = self.id, nil, nil
+    victim.beamHold = 0
+    self.grab = { id = victim.id, time = attack.duration or 1.2, attack = attack,
+        dist = math.max(self.radius + victim.radius + 30, math.min(len, 160)) }
+    self:emit("grab", { id = self.id, victim = victim.id, x = victim.x, y = victim.y })
+end
 
 function ACTIONS.leap(self, attack) -- flies on an arc over everything, lands with a slam
     local tx, ty = self:leapTarget(attack)
@@ -388,7 +541,12 @@ end
 
 -- One attack: uses one ammo bar and fires `pellets` projectiles in a cone.
 -- Returns true if the attack happened.
-function Rowdy:shoot(bullets)
+function Rowdy:shoot(bullets, hold)
+    if self.attack.kind == "beam" then -- keeps the beam on (a tap: a bit longer)
+        if not self:canAct() or self.ammo <= 0.05 then return false end
+        self.beamHold = math.max(self.beamHold, hold and 0.12 or 0.35)
+        return true
+    end
     if not self:canAct() or self.cooldown > 0 or self.ammo < 1 or self.bursting then
         return false
     end
@@ -434,11 +592,38 @@ function Rowdy:drawAim(useSuper)
     -- (the normal attack's beam has always been as wide as the body)
     local radius = a.radius or (a == self.attack and self.radius) or Bullet.radius
     local c = (a == self.attack) and self.bulletColor or SUPER_COLOR
-    if a.kind == "leap" or a.kind == "burrow" then
+    if a.kind == "beam" or a.kind == "grab" then -- a thin line to the first wall
+        local mx, my = self:muzzle()
+        local len = Arena.raycast(mx, my, self.aim, a.range or Bullet.range, 3)
+        love.graphics.setColor(c[1], c[2], c[3], 0.5)
+        love.graphics.setLineWidth(3)
+        love.graphics.line(mx, my, mx + math.cos(self.aim) * len, my + math.sin(self.aim) * len)
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(1, 1, 1, 1)
+        return
+    end
+    if a.kind == "vanish" then -- how close opponents still see the ghost
+        love.graphics.setColor(c[1], c[2], c[3], 0.6)
+        love.graphics.setLineWidth(2)
+        for i = 0, 23, 2 do
+            love.graphics.arc("line", "open", self.x, self.y, 150, i / 24 * math.pi * 2, (i + 1) / 24 * math.pi * 2)
+        end
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(1, 1, 1, 1)
+        return
+    end
+    if a.kind == "leap" or a.kind == "burrow" or a.kind == "blink" then
         -- leap: a dotted arc to the landing spot; burrow: around the rowdy. And the
         -- circle the slam / pop-out hits
         local lx, ly = self.x, self.y
-        if a.kind == "leap" then
+        if a.kind == "blink" then -- a dashed line to where it appears
+            lx, ly = self:leapTarget(a)
+            love.graphics.setColor(c[1], c[2], c[3], 0.75)
+            for j = 1, 10, 2 do
+                love.graphics.line(self.x + (lx - self.x) * j / 11, self.y + (ly - self.y) * j / 11,
+                    self.x + (lx - self.x) * (j + 1) / 11, self.y + (ly - self.y) * (j + 1) / 11)
+            end
+        elseif a.kind == "leap" then
             lx, ly = self:leapTarget(a)
             local h = LEAP_HEIGHT * math.max(0.5, math.min(1, math.sqrt((lx - self.x) ^ 2 + (ly - self.y) ^ 2) / 200))
             love.graphics.setColor(c[1], c[2], c[3], 0.75)
@@ -543,7 +728,8 @@ function Rowdy:drawAmmoBar(x, y, w)
         love.graphics.rectangle("fill", sx, y, sw, 5, 1, 1)
         local fill = 0
         if i <= self.ammo then fill = 1
-        elseif i == self.ammo + 1 then fill = self.ammoTimer / self.ammoRefill end
+        elseif i == self.ammo + 1 then fill = self.ammoTimer / self.ammoRefill
+        elseif i - 1 < self.ammo then fill = self.ammo - (i - 1) end -- (beam energy)
         if fill > 0 then
             love.graphics.setColor(1, 0.6, 0.15, 1)
             love.graphics.rectangle("fill", sx, y, sw * fill, 5, 1, 1)
@@ -619,6 +805,36 @@ function Rowdy:drawIce(alpha)
     end
 end
 
+-- The beam (src/rowdies.lua: beam / grab): a wobbling glowing line from the muzzle
+function Rowdy:drawBeam()
+    local mx, my = self:muzzle()
+    local c, s = math.cos(self.aim), math.sin(self.aim)
+    local len = math.max(0, self.beamLen - self.look.muzzle[1])
+    local col = (self.grab or self.grabbing) and SUPER_COLOR or BEAM_COLOR
+    local t = love.timer.getTime()
+    local pts = {}
+    for i = 0, 12 do
+        local k = i / 12
+        local w = math.sin(t * 30 + i * 1.7) * 4 * math.sin(k * math.pi)
+        pts[#pts + 1] = mx + c * len * k - s * w
+        pts[#pts + 1] = my + s * len * k + c * w
+    end
+    love.graphics.setBlendMode("add")
+    love.graphics.setColor(col[1], col[2], col[3], 0.35)
+    love.graphics.setLineWidth(12)
+    love.graphics.line(pts)
+    love.graphics.setColor(col[1], col[2], col[3], 0.9)
+    love.graphics.setLineWidth(4)
+    love.graphics.line(pts)
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.setLineWidth(1.5)
+    love.graphics.line(pts)
+    love.graphics.setColor(col[1], col[2], col[3], 0.6)
+    love.graphics.circle("fill", mx + c * len, my + s * len, 7 + 2 * math.sin(t * 20))
+    love.graphics.setBlendMode("alpha")
+    love.graphics.setLineWidth(1)
+end
+
 -- Underground (src/rowdies.lua: burrow): a heap of dirt with clods that wobble
 function Rowdy:drawMound(alpha)
     local t = love.timer.getTime()
@@ -690,6 +906,9 @@ function Rowdy:draw()
         love.graphics.setLineWidth(1)
     end
 
+    if self.vanished then -- invisible (opponents far away don't draw it at all): a shimmer
+        alpha = alpha * (0.3 + 0.1 * math.sin(t * 9))
+    end
     if self.burrowed then -- underground: only a dirt mound moves around
         self:drawMound(alpha)
         self:drawHealthBar()
@@ -710,6 +929,13 @@ function Rowdy:draw()
         k * sy, k * sx, look.origin[1], look.origin[2])
     if shaded then love.graphics.setShader() end
     if self.frozen > 0 then self:drawIce(alpha) end
+    if self.heldBy then -- grabbed by a beam: purple sparkles around it
+        love.graphics.setColor(BEAM_COLOR[1], BEAM_COLOR[2], BEAM_COLOR[3], 0.8 * alpha)
+        love.graphics.setLineWidth(2)
+        love.graphics.circle("line", self.x, py, self.radius + 8 + 3 * math.sin(t * 12))
+        love.graphics.setLineWidth(1)
+    end
+    if (self.beamLen or 0) > 0 then self:drawBeam() end
 
     self:drawMuzzleFlash()
     self:drawHealthBar()

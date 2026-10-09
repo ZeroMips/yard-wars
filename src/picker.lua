@@ -145,9 +145,11 @@ end
 local function attackText(stats)
     local n = (stats.pellets or 1) * (stats.burst or 1)
     local dmg = (n > 1) and (n .. " x " .. stats.damage) or tostring(stats.damage)
-    if stats.lob then return dmg .. " dmg bomb, range " .. stats.range end
+    if stats.lob then return dmg .. " dmg bomb (" .. stats.range .. ")" end
     if stats.boomerang then return dmg .. " dmg, out + back " .. stats.range end
-    if stats.kind == "leap" then return dmg .. " dmg jump, range " .. stats.range end
+    if stats.kind == "leap" then return dmg .. " dmg jump (" .. stats.range .. ")" end
+    if stats.kind == "blink" then return dmg .. " dmg boo (" .. stats.range .. ")" end
+    if stats.kind == "beam" then return (stats.damage * 10) .. " dmg/s beam (" .. stats.range .. ")" end
     if stats.range < 120 then return dmg .. " dmg, up close" end
     return dmg .. " dmg, range " .. stats.range
 end

@@ -126,6 +126,21 @@ function Arena.raycast(x, y, angle, maxDist, radius)
     return maxDist
 end
 
+-- The free spot nearest to x, y where a circle of radius r fits (rings of 16 px
+-- around it); x, y itself if it is free
+function Arena.nearestOpen(x, y, r)
+    if not Arena.hitsSolid(x, y, r) then return x, y end
+    for d = 16, 640, 16 do
+        local n = math.max(8, math.floor(d / 6))
+        for i = 0, n - 1 do
+            local a = i / n * math.pi * 2
+            local px, py = x + math.cos(a) * d, y + math.sin(a) * d
+            if not Arena.hitsSolid(px, py, r) then return px, py end
+        end
+    end
+    return Arena.spawn.x, Arena.spawn.y
+end
+
 -- A random free spot. With cx, cy, radius: near that point (clamped to the arena).
 function Arena.randomOpenPoint(cx, cy, radius)
     for _ = 1, 30 do

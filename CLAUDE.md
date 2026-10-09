@@ -145,7 +145,8 @@ existing things that break it.
   Student/Chef/Agent Angel: bullet + blast `projectile`, `turn` event (a boomerang's
   second leg: the replica keeps `legs` per bullet), `freeze` event, FIELDS `frozen`; 7
   since Doctor/Wrestler/Digger: pull/punch/leap/burrow events, FIELDS `air` + `burrowed`
-  (a boolean on the wire)). Version
+  (a boolean on the wire); 8 since Ghostman/Wizard: input `hold`, blink/vanish/appear/
+  grab/fling/bonk events, FIELDS beam/grabbing/held/vanished). Version
   check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
   `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
   refused with a reason ("The host has a newer build (52): restart to update"), different
@@ -285,6 +286,8 @@ existing things that break it.
     of the aim stick, charge ring, glows when full) = same gestures for the super.
     No in-game rowdy switching (chosen before each round; switching healed fully)
   - desktop super: hold right mouse button or E to aim, release to fire
+  - `hold` (Wizard's beam): touch = aim stick held outside the dead zone (releasing it
+    fires nothing, a tap = a short beam), desktop = left button down
   - `aimDist` (bombs): touch = how far the aim stick is pulled (dead zone = shortest
     throw, rim = full range), tap = distance to the auto-aim spot, desktop = mouse
     distance; main.lua keeps it with the pending shot (`pendingDist`), the LAN client
@@ -302,11 +305,16 @@ existing things that break it.
   `burst` of 4 from two toy blasters (`twin`), super "Freeze Balls" = 3 lobbed balls that
   `freeze` for 1.5 s), Doctor Dummie (400: lobbed slime potions, super "Magnet Potion"
   = a shot that `pull`s the first one hit to the doctor), Wrestler (450: `kind = "leap"`
-  body slam over walls, super "Four-Punch Combo" = `burst` 4 with `dash` + glove melee),
+  body slam over walls, super "Punch Combo" = `burst` 4 with `dash` + glove melee),
   Digger (350: shovel melee = short wide piercing shot, super `kind = "burrow"` for 4 s),
-  plus `Rowdies.bot` (enemy look + stats).
+  Ghostman (500: `kind = "blink"` teleport with a "boo" blast, super `kind = "vanish"` =
+  5 s invisible beyond 150 px + through walls), Wizard (500: `kind = "beam"` held down,
+  super `kind = "grab"` = Telekinesis: holds the first one on the beam 1.2 s, flings it;
+  crashing into a wall/chest/rowdy does the damage), plus `Rowdies.bot` (enemy look +
+  stats).
   New rowdies from Gideon's 8 design sheets (2026-10-08, plan: phase 1 Student/Chef/Agent
-  Angel and phase 2 Doctor Dummie/Wrestler/Digger done, phase 3 Ghostman/Wizard open). Their
+  Angel, phase 2 Doctor Dummie/Wrestler/Digger and phase 3 Ghostman/Wizard all coded;
+  Gideon still has to confirm the spelling "Doctor Dummie"). Their
   art is still a PLACEHOLDER (hue-shifted copies of other top views, no side views): the
   Gemini prompts are in ~/Downloads/yard-wars-art-new/<image>-prompts.md; with the real
   images run the tool, paste the comic line and check origin/muzzle. Don't publish them
@@ -325,8 +333,14 @@ existing things that break it.
   ("leap": `Rowdy.leap`, `air` height, lands via `World:blastAt`, never in a wall:
   `leapTarget`; "burrow": `Rowdy.burrowed`, hidden + untouchable (`untouchable()`:
   bullets and blasts skip it), pops out on touching an opponent or after `duration`),
-  `duration`. `canMove()` (not frozen/pulled/leaping), `walks()` (also not dashing),
-  `canAct()` (also not underground). Names may contain spaces ("Agent Angel"): profile.txt
+  "blink" (`leapTarget` too, may cross walls), "vanish" (`Rowdy.vanished`: `move` skips
+  the walls, `reappear` puts it on open ground: `Arena.nearestOpen`; `isHiddenFrom`
+  beyond HIDE_REVEAL, drawn as a shimmer up close), "beam" (`input.hold`; `Rowdy:shoot`
+  only keeps `beamHold` up; `actBeam` traces with `World:traceBeam`, hits via
+  `World:hitWith` every 0.1 s, ammo = smooth energy), "grab" (`Rowdy.grab`, the victim's
+  `heldBy`; fling = a forced push with `impact` -> `crash`, "bonk" event),
+  `duration`. `canMove()` (not frozen/pulled/leaping/held), `walks()` (also not
+  dashing), `canAct()` (also not underground or grabbing). Names may contain spaces ("Agent Angel"): profile.txt
   and pass.txt's skin lines write them with "_" (`Profile.encodeName`), so "_" is not
   allowed in names.
   Bombs: `lob = true` + `blast` (radius) on an attack (normal or super): the bomb flies

@@ -539,6 +539,27 @@ local function playEvents(events)
                 if d < 450 then Camera.shake(6 * (1 - d / 450)) end
             end
             Sound.play(dirt and "pop" or "slam", ev.x, ev.y)
+        elseif ev.kind == "blast" and ev.projectile == "boo" then -- a ghost pops up
+            Effects.ring(ev.x, ev.y, tonumber(ev.radius) or 60, { 0.8, 0.92, 1 })
+            Effects.poof(ev.x, ev.y)
+        elseif ev.kind == "blink" then
+            Effects.ring(ev.x, ev.y, 30, { 0.8, 0.92, 1 })
+            Sound.play("boo", ev.x, ev.y)
+        elseif ev.kind == "vanish" or ev.kind == "appear" then
+            Effects.poof(ev.x, ev.y)
+            Sound.play("vanish", ev.x, ev.y)
+        elseif ev.kind == "grab" then
+            Effects.sparks(ev.x, ev.y, 10, { 0.75, 0.45, 1 }, 200)
+            if ev.victim then Sound.play("grab", ev.x, ev.y) end
+        elseif ev.kind == "fling" then
+            Sound.play("fling", ev.x, ev.y)
+        elseif ev.kind == "bonk" then -- a flung rowdy crashes: cartoon stars
+            Effects.poof(ev.x, ev.y)
+            if player then
+                local d = math.sqrt((player.x - ev.x) ^ 2 + (player.y - ev.y) ^ 2)
+                if d < 400 then Camera.shake(5 * (1 - d / 400)) end
+            end
+            Sound.play("bonk", ev.x, ev.y)
         elseif ev.kind == "leap" then
             Effects.puff(ev.x, ev.y + 8)
             Sound.play("jump", ev.x, ev.y)
@@ -649,7 +670,7 @@ local function updateWorld(dt)
         accumulator = accumulator - World.TICK
         local inputs = { [localId] = { dx = input.dx, dy = input.dy, aim = input.aim,
             aimDist = (pendingFire or pendingSuper) and pendingDist or input.aimDist,
-            fire = pendingFire, super = pendingSuper } }
+            fire = pendingFire, super = pendingSuper, hold = input.hold } }
         pendingFire, pendingSuper = nil, nil
         if server then server:addInputs(inputs) end
         world:update(World.TICK, inputs)

@@ -53,6 +53,7 @@ function Enemy:update(dt, world)
         visible = false -- player is hiding in a bush
     end
     if visible and target.burrowed then visible = false end -- underground
+    if visible and target.vanished and dist > BUSH_REVEAL then visible = false end
 
     local mx, my = 0, 0
     if visible then

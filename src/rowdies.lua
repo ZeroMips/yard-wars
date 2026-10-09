@@ -60,9 +60,19 @@
 --                           attack, walks faster; pops out under the first opponent it
 --                           touches (or when the time is up) with a blast; range = how
 --                           near a bot must be to start it
+--                  "blink"  teleports aimDist far (at most range, also through walls,
+--                           onto open ground) with a blast where it appears
+--                  "vanish" invisible (except up close) and through walls for
+--                           `duration` seconds; range: for bots, as for burrow
+--                  "beam"   a beam while the attack is held: hits the first opponent
+--                           or chest on it for `damage` every 0.1 s, uses 1 ammo bar per
+--                           second (refills smoothly while it is off)
+--                  "grab"   the beam grabs the first opponent on it: it follows the aim
+--                           for `duration` seconds (default 1.2), then it is flung;
+--                           crashing into a wall, chest or rowdy does `damage`
 --   projectile   how it is drawn (src/bullet.lua): "pen", "book", "pan", "waffle",
 --                "snowball", "potion", "magnet", "glove", "swing"; for a leap / burrow
---                its blast: "slam", "dirt"; default a ball in bulletColor (a bomb for
+--                / blink its blast: "slam", "dirt", "boo"; default a ball in bulletColor (a bomb for
 --                lob)
 --   super        special attack, charged by dealing damage (optional):
 --                  name, description, charge (damage needed to fill the meter), and
@@ -198,7 +208,7 @@ local Rowdies = {
                   -- the air and lands right on a standing target)
                   bulletSpeed = 650, reload = 0.8, maxAmmo = 2, ammoRefill = 2.0,
                   projectile = "slam", bulletColor = { 1, 0.8, 0.3 },
-                  super = { name = "Four-Punch Combo", description = "Four punches, a step forward each",
+                  super = { name = "Punch Combo", description = "Four punches, a step forward each",
                             -- 4 x 28 = 112 if every punch lands
                             charge = 170, burst = 4, burstDelay = 0.2, dash = 50, damage = 28,
                             range = 70, bulletSpeed = 800, radius = 24, wallRadius = 8,
@@ -214,6 +224,25 @@ local Rowdies = {
                   super = { name = "Burrow", description = "Digs in and pops out under someone",
                             charge = 160, kind = "burrow", duration = 4, damage = 70, blast = 90,
                             range = 450, projectile = "dirt" } },
+    },
+    {
+        -- A friendly cartoon ghost: teleports with a "boo", vanishes through walls
+        name = "Ghostman", role = "Teleports, vanishes", price = 500, shot = "boo",
+        comic = { image = "ghostman", origin = { 33.5, 120.5 }, muzzle = { 60, 1 } },
+        stats = { speed = 250, hp = 90, kind = "blink", damage = 30, blast = 60, range = 220,
+                  reload = 0.6, maxAmmo = 3, ammoRefill = 1.6, projectile = "boo",
+                  bulletColor = { 0.8, 0.92, 1 },
+                  super = { name = "Vanish", description = "Invisible and through walls for 5 s",
+                            charge = 150, kind = "vanish", duration = 5, range = 500 } },
+    },
+    {
+        -- A magic beam you hold; the super grabs someone and flings them (slapstick)
+        name = "Wizard", role = "Magic beam, flings", price = 500, shot = "shot_beam",
+        comic = { image = "wizard", origin = { 55, 98 }, muzzle = { 55, 0 } },
+        stats = { speed = 240, hp = 100, kind = "beam", damage = 3, range = 420, reload = 0.2,
+                  maxAmmo = 3, ammoRefill = 1.5, bulletColor = { 0.75, 0.45, 1 },
+                  super = { name = "Telekinesis", description = "Grabs someone, then flings them into things",
+                            charge = 170, kind = "grab", duration = 1.2, damage = 50, range = 450 } },
     },
 }
 
@@ -243,8 +272,9 @@ local SUPER = { name = STRING, description = STRING, charge = NUMBER }
 for k, v in pairs(ATTACK) do STATS[k], SUPER[k] = v, v end
 local PROJECTILES = { pen = true, book = true, pan = true, waffle = true, snowball = true,
                       potion = true, magnet = true, glove = true, swing = true, slam = true,
-                      dirt = true }
-local KINDS = { shot = true, leap = true, burrow = true }
+                      dirt = true, boo = true }
+local KINDS = { shot = true, leap = true, burrow = true, blink = true, vanish = true,
+                beam = true, grab = true }
 
 local function validate(def, label)
     local function fail(msg) error("src/rowdies.lua: " .. label .. ": " .. msg, 0) end
@@ -282,7 +312,7 @@ local function validate(def, label)
     end
     for _, a in ipairs({ { def.stats, "stats." }, { sup, "stats.super." } }) do
         local t = a[1]
-        local action = t and (t.kind == "leap" or t.kind == "burrow")
+        local action = t and (t.kind == "leap" or t.kind == "burrow" or t.kind == "blink")
         if t and not action and (t.lob or t.blast) and not (t.lob and t.blast and t.blast > 0) then
             fail(a[2] .. "lob and " .. a[2] .. "blast belong together (blast = radius > 0)")
         end
@@ -295,12 +325,14 @@ local function validate(def, label)
         if t and t.kind and not KINDS[t.kind] then
             fail("unknown " .. a[2] .. "kind '" .. t.kind .. "'")
         end
-        if t and (t.kind == "leap" or t.kind == "burrow") and not (t.blast and t.blast > 0) then
+        if t and (t.kind == "leap" or t.kind == "burrow" or t.kind == "blink")
+            and not (t.blast and t.blast > 0) then
             fail(a[2] .. "kind " .. t.kind .. " needs blast (radius of the hit)")
         end
-        if t and t.kind == "burrow" and not (t.duration and t.duration > 0) then
-            fail(a[2] .. "kind burrow needs duration (seconds)")
+        if t and (t.kind == "burrow" or t.kind == "vanish") and not (t.duration and t.duration > 0) then
+            fail(a[2] .. "kind " .. t.kind .. " needs duration (seconds)")
         end
+        if t and t.kind == "beam" and t == sup then fail("a beam can only be the normal attack") end
         if t and t.boomerang and (t.lob or t.pierce) then
             fail(a[2] .. "boomerang can't be lob (it flies low) and pierces anyway")
         end

@@ -127,7 +127,9 @@ end
 --   freeze {id, time} (a rowdy was frozen for `time` seconds)
 --   pull {id, by} (rowdy `id` is pulled to rowdy `by`)  punch {id} (dashes forward)
 --   leap {id, toX, toY} (jumps; lands with a blast)  burrow {id} (digs in; pops out
---         with a blast)
+--         with a blast)  blink {id, toX, toY} (teleports from x, y; a blast there)
+--   vanish {id}  appear {id} (invisible / visible again)  grab {id, victim (nil: missed)}
+--   fling {id, by} (a grabbed rowdy is thrown)  bonk {id} (a flung rowdy crashes)
 function World:emit(kind, data)
     data.kind = kind
     data.t = self.time
@@ -221,7 +223,7 @@ end
 function World:isHiddenFrom(e, viewer)
     if e.dead or not self:isOpponent(e, viewer) then return false end
     if e.burrowed then return true end
-    if not Arena.inBush(e.x, e.y) then return false end
+    if not Arena.inBush(e.x, e.y) and not e.vanished then return false end
     local dx, dy = e.x - viewer.x, e.y - viewer.y
     return dx * dx + dy * dy > World.HIDE_REVEAL * World.HIDE_REVEAL
 end
@@ -463,6 +465,34 @@ function World:blastAt(owner, attack, x, y)
     explode(self, { x = x, y = y, blast = attack.blast or 60, damage = attack.damage or 0,
         owner = owner, team = owner.team, super = attack == owner.super,
         projectile = attack.projectile, freeze = attack.freeze })
+end
+
+-- One hit of a rowdy's own attack (a beam tick, a flung rowdy crashing) on `victim`
+function World:hitWith(owner, attack, victim, x, y)
+    if victim.dead or victim.team == owner.team then return end
+    damage(self, { owner = owner, team = owner.team, damage = attack.damage or 0,
+        super = attack == owner.super, freeze = attack.freeze }, victim, x, y)
+end
+
+-- A beam from `owner` along its aim: how long it is (up to range, the first wall or
+-- crate), and the first opponent or chest on it
+function World:traceBeam(owner, range)
+    local c, s = math.cos(owner.aim), math.sin(owner.aim)
+    local d = 0
+    while d < range do
+        d = math.min(range, d + 6)
+        local x, y = owner.x + c * d, owner.y + s * d
+        if Arena.hitsSolid(x, y, 3) then return d end
+        local box = self:boxAt(x, y, 4)
+        if box then return d, nil, box end
+        for _, e in ipairs(self.entities) do
+            if e.team ~= owner.team and not e.dead and not e:untouchable()
+                and (e.x - x) ^ 2 + (e.y - y) ^ 2 < e.radius * e.radius then
+                return d, e
+            end
+        end
+    end
+    return range
 end
 
 local function updateBullets(self, dt)

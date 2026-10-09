@@ -331,6 +331,7 @@ end
 
 local function attackText(st)
     local n = (st.pellets or 1) * (st.burst or 1)
+    if st.kind == "beam" then return (st.damage * 10) .. "/s" end
     return (n > 1) and (n .. " x " .. st.damage) or tostring(st.damage)
 end
 

@@ -7,6 +7,8 @@
 --                Quick TAP = auto-aim at the nearest enemy in range and fire.
 --                Bombs (src/rowdies.lua: lob) fly as far as the stick is pulled
 --                (desktop: to the mouse pointer; a tap: to the target).
+--                A beam (src/rowdies.lua: kind "beam") is on while the stick is held
+--                outside the dead zone (a tap: a short beam at the auto-aim target).
 --   super button (left of the aim stick, glows when charged): same gestures as the
 --                aim stick, but for the super attack
 -- Both input modes return the same table, so the rest of the game doesn't care.
@@ -161,6 +163,7 @@ end
 -- ---- Read input for this frame ----
 -- target: the enemy to auto-aim at on a tap (nil if none / not visible)
 -- Returns { dx, dy, aim (angle or nil), aimDist (px a bomb flies, or nil), fire (bool),
+--           hold (bool: the attack is held down - a beam),
 --           super (bool: fire the super), aiming (show the beam), aimingSuper (show the
 --           super's aim) }
 function Controls.get(player, target)
@@ -189,8 +192,12 @@ function Controls.get(player, target)
         end
 
         local super = false
+        local beam = player.attack and player.attack.kind == "beam"
+        local hold = beam and aim.id ~= nil and not aim.super and aim.maxMag >= DEADZONE
+            and select(3, stickVector(aim)) >= DEADZONE
         if pendingShot then
-            if pendingShot.super then super = true else fire = true end
+            if pendingShot.super then super = true
+            elseif not beam or pendingShot.tap then fire = true end -- (a beam ends on release)
             if pendingShot.tap then
                 angle, dist = autoAimAngle(player, target, pendingShot.super)
                 angle = angle or lastAim
@@ -201,7 +208,7 @@ function Controls.get(player, target)
             pendingShot = nil
         end
         if angle then lastAim = angle end
-        return { dx = dx, dy = dy, aim = angle, aimDist = dist, fire = fire, super = super,
+        return { dx = dx, dy = dy, aim = angle, aimDist = dist, fire = fire, super = super, hold = hold,
                  aiming = aim.id ~= nil and not aim.super,
                  aimingSuper = aim.id ~= nil and aim.super }
     end
@@ -221,6 +228,7 @@ function Controls.get(player, target)
         aim = math.atan2(my - player.y, mx - player.x),
         aimDist = math.sqrt((mx - player.x) ^ 2 + (my - player.y) ^ 2),
         fire = love.mouse.isDown(1) and not held,
+        hold = love.mouse.isDown(1) and not held, -- (only a beam cares)
         super = super,
         aiming = not held,
         aimingSuper = held and Controls.hasSuper,
