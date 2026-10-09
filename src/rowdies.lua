@@ -150,10 +150,11 @@ local Rowdies = {
                             radius = 16, lob = true, blast = 170 } },
     },
     {
-        -- Gideon's design sheets (2026-10-08): pen + book. Placeholder art (a recoloured
-        -- Gunner) until the Gemini images exist.
+        -- Gideon's design sheets (2026-10-08): pen + book. The new rowdies' art: one
+        -- Gemini sheet each (--scale 0.253), origin + muzzle set by hand (head centre,
+        -- weapon tip); some side views mirrored (drawn facing left)
         name = "Student", role = "Long shots, falls easily", price = 300, shot = "shot_pen",
-        comic = { image = "student", origin = { 46, 80 }, muzzle = { 77, 0 } },
+        comic = { image = "student", origin = { 52.5, 115 }, muzzle = { 110, 0 } },
         stats = { speed = 245, hp = 90, damage = 24, range = 560, bulletSpeed = 900,
                   reload = 0.35, maxAmmo = 3, ammoRefill = 1.5, projectile = "pen",
                   bulletColor = { 0.25, 0.45, 1 },
@@ -164,7 +165,7 @@ local Rowdies = {
     {
         -- A frying pan like a boomerang, waffle irons as the super
         name = "Chef", role = "Pan that comes back", price = 400, shot = "shot_pan",
-        comic = { image = "chef", origin = { 48, 91 }, muzzle = { 70, 0.5 } },
+        comic = { image = "chef", origin = { 52.5, 117 }, muzzle = { 88, 0 } },
         stats = { speed = 235, hp = 120, damage = 26, range = 380, bulletSpeed = 650,
                   reload = 0.5, maxAmmo = 3, ammoRefill = 1.6, boomerang = true,
                   radius = 12, wallRadius = 8, projectile = "pan",
@@ -178,7 +179,7 @@ local Rowdies = {
     {
         -- Two toy blasters (bursts) and freeze balls (CHARTER.md: toys, a short freeze)
         name = "Agent Angel", role = "Blaster bursts, freezes", price = 450, shot = "shot_blaster",
-        comic = { image = "agent", origin = { 46, 80 }, muzzle = { 77, 12 } },
+        comic = { image = "agent", origin = { 54, 104 }, muzzle = { 99, 29 } },
         stats = { speed = 250, hp = 100, damage = 9, burst = 4, burstDelay = 0.07, twin = true,
                   range = 450, bulletSpeed = 800, reload = 0.45, maxAmmo = 3, ammoRefill = 1.5,
                   bulletColor = { 1, 0.4, 0.75 },
@@ -191,7 +192,7 @@ local Rowdies = {
         -- A cheerful mad scientist: slime potions and a magnet (CHARTER.md: slime, not
         -- poison). "Doctor Dummie" on Gideon's sheet; he chose the English name.
         name = "Doctor Fizzle", role = "Slime potions, pulls", price = 400, shot = "shot_potion",
-        comic = { image = "doctor", origin = { 51.5, 108 }, muzzle = { 105, -0.5 } },
+        comic = { image = "doctor", origin = { 54.5, 105 }, muzzle = { 77, 0 } },
         stats = { speed = 240, hp = 110, damage = 32, range = 400, bulletSpeed = 520,
                   reload = 0.5, maxAmmo = 3, ammoRefill = 1.6, lob = true, blast = 60,
                   projectile = "potion", bulletColor = { 0.45, 0.95, 0.3 },
@@ -202,7 +203,7 @@ local Rowdies = {
     {
         -- Jumps onto opponents; the super is a combo of four punches (cartoon gloves)
         name = "Wrestler", role = "Jumps on you, tough", price = 450, shot = "jump",
-        comic = { image = "wrestler", origin = { 46, 96 }, muzzle = { 70, 1 } },
+        comic = { image = "wrestler", origin = { 56, 72 }, muzzle = { 62, 0 } },
         stats = { speed = 215, hp = 150, kind = "leap", damage = 40, blast = 70, range = 250,
                   -- (45 dmg / 1.8 s refill won 10:0 against a bot: it can't be hit in
                   -- the air and lands right on a standing target)
@@ -217,7 +218,7 @@ local Rowdies = {
     {
         -- A shovel (CHARTER.md: no sword) and digging in
         name = "Digger", role = "Shovel up close, digs", price = 350, shot = "shot_shovel",
-        comic = { image = "digger", origin = { 48, 91 }, muzzle = { 60, 0.5 } },
+        comic = { image = "digger", origin = { 79.5, 62 }, muzzle = { 45, 0 } },
         stats = { speed = 240, hp = 130, damage = 36, range = 75, bulletSpeed = 750,
                   radius = 24, wallRadius = 8, pierce = true, reload = 0.4, maxAmmo = 3,
                   ammoRefill = 1.1, projectile = "swing", bulletColor = { 0.85, 0.75, 0.55 },
@@ -228,7 +229,7 @@ local Rowdies = {
     {
         -- A friendly cartoon ghost: teleports with a "boo", vanishes through walls
         name = "Ghostman", role = "Teleports, vanishes", price = 500, shot = "boo",
-        comic = { image = "ghostman", origin = { 33.5, 120.5 }, muzzle = { 60, 1 } },
+        comic = { image = "ghostman", origin = { 58.5, 82 }, muzzle = { 74, 0 } },
         stats = { speed = 250, hp = 90, kind = "blink", damage = 30, blast = 60, range = 220,
                   reload = 0.6, maxAmmo = 3, ammoRefill = 1.6, projectile = "boo",
                   bulletColor = { 0.8, 0.92, 1 },
@@ -238,7 +239,7 @@ local Rowdies = {
     {
         -- A magic beam you hold; the super grabs someone and flings them (slapstick)
         name = "Wizard", role = "Magic beam, flings", price = 500, shot = "shot_beam",
-        comic = { image = "wizard", origin = { 55, 98 }, muzzle = { 55, 0 } },
+        comic = { image = "wizard", origin = { 49.5, 75 }, muzzle = { 70, -1 } },
         stats = { speed = 240, hp = 100, kind = "beam", damage = 3, range = 420, reload = 0.2,
                   maxAmmo = 3, ammoRefill = 1.5, bulletColor = { 0.75, 0.45, 1 },
                   super = { name = "Telekinesis", description = "Grabs someone, then flings them into things",

@@ -314,11 +314,16 @@ existing things that break it.
   stats).
   New rowdies from Gideon's 8 design sheets (2026-10-08, plan: phase 1 Student/Chef/Agent
   Angel, phase 2 Doctor Fizzle/Wrestler/Digger and phase 3 Ghostman/Wizard all coded;
-  Doctor Fizzle = "Doctor Dummie" on the sheet, renamed with Gideon 2026-10-09). Their
-  art is still a PLACEHOLDER (hue-shifted copies of other top views, no side views): the
-  Gemini prompts are in ~/Downloads/yard-wars-art-new/<image>-prompts.md; with the real
-  images run the tool, paste the comic line and check origin/muzzle. Don't publish them
-  with the placeholders.
+  Doctor Fizzle = "Doctor Dummie" on the sheet, renamed with Gideon 2026-10-09). Art
+  (2026-10-09): one Gemini sheet each (~/Downloads/yard-wars-art-new/<image>.jpeg, 1376x768,
+  prompts in <image>-prompts.md), cut in halves into top/ and side/; the side views of
+  Doctor, Digger and Wizard were drawn facing left and are mirrored. Top views made with
+  `--scale 0.253`, origin (head centre; the Ghostman: the hat) and muzzle (weapon tip;
+  Agent: one blaster, `twin` mirrors it) set by hand - the tool's guesses were off for
+  most. Known quirks: the Wizard's top view is drawn half from the front (hands at the
+  bottom, the wand pointing forward past the hat), the Doctor's beard points backwards;
+  rotating doesn't fix either (a new Gemini image would). Website cards added
+  (website/images/<image>.png = side view at 280 px), not uploaded yet.
   Attacks: `Rowdy.attack` = the normal attack as a table (stats + defaults) like
   `stats.super`; `Bullet.new(..., attack, dist)` reads every attack field from it. Fields
   for both (checked on load, same list `ATTACK`): `radius`/`wallRadius`/`pierce` (now also
@@ -394,7 +399,10 @@ existing things that break it.
   relative sizes of the source images instead of scaling each to 88px wide; `--side` makes
   the lobby side views (`assets/images/side/`, 400px tall; enclosed white areas from
   `SIDE_HOLE_MIN` 1500 source px on are cut out - eyes are smaller, the gap in the
-  Gardener's hose loop bigger). Check the printed origin: it assumes the head sits at the
+  Gardener's hose loop bigger). Enclosed areas only count as background if they are as
+  pure white as it (`HOLE_BRIGHT` 252: mean darkest channel; white clothes, beards and
+  the ghost are shaded ~232-240 and stay - before 2026-10-09 the Chef's jacket was cut
+  out). Check the printed origin: it assumes the head sits at the
   bottom of the sprite (wrong with something on the back)
 
 ## Conventions

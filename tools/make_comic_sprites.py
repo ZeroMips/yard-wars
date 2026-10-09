@@ -7,7 +7,9 @@ Usage: python3 tools/make_comic_sprites.py ~/Downloads/yard-wars-art [name ...]
 Names: every comic image = "<name>" of the playable rowdies in src/rowdies.lua that has
 a <name>.png in the folder (or only the names given, e.g. bot). For each: remove the white background
 (flood fill from the image border, plus enclosed white areas of at least HOLE_MIN px, e.g.
-between arms and weapon; smaller white spots inside the outline stay), shrink the mask a little to drop the JPEG
+between arms and weapon, if they are as pure white as the background - white clothes,
+beards or a ghost are shaded a little darker and stay; smaller white spots inside the
+outline stay too), shrink the mask a little to drop the JPEG
 fringe, trim, scale to a fixed width and save to assets/images/comic/<name>.png.
 Prints the body origin and muzzle (in output pixels) as a ready-to-paste
 `comic = { ... },` line for src/rowdies.lua.
@@ -30,7 +32,9 @@ from PIL import Image, ImageFilter
 WIDTH = 88        # output width in px (drawn at Assets.comicScale = 0.6 -> ~53 world px)
 WHITE = 225       # background = all channels at least this bright
 PAD = 2           # transparent border around the trimmed sprite
-HOLE_MIN = 200    # enclosed white areas this big (source px) are background too
+HOLE_MIN = 200    # enclosed white areas this big (source px) are background too...
+HOLE_BRIGHT = 252 # ...if their mean darkest channel is at least this (the background is
+                  # ~254; white clothes ~232-240, the Agent's white wings ~249)
 SIDE_HOLE_MIN = 1500  # side views: only big ones (eyes are up to ~1000 px, the gap in
                       # the Gardener's hose loop 2000+)
 SIDE_HEIGHT = 400  # lobby: drawn up to ~300 HUD px tall, x2 for high-DPI screens
@@ -72,7 +76,7 @@ def white_area(px, w, h, start, seen):
 
 def background_mask(im, hole_min=HOLE_MIN):
     """255 = character, 0 = background: white reachable from the border, and enclosed
-    white areas of at least hole_min px (gaps between arms and weapon)."""
+    pure white areas of at least hole_min px (gaps between arms and weapon)."""
     w, h = im.size
     px = im.load()
     mask = Image.new("L", (w, h), 255)
@@ -94,7 +98,8 @@ def background_mask(im, hole_min=HOLE_MIN):
         for x in range(w):
             if (x, y) not in seen and min(px[x, y]) >= WHITE:
                 area = white_area(px, w, h, (x, y), seen)
-                if len(area) >= hole_min:
+                bright = sum(min(px[p]) for p in area) / len(area)
+                if len(area) >= hole_min and bright >= HOLE_BRIGHT:
                     for p in area:
                         m[p] = 0
     # Erode by ~2px (outlines are ~12px thick) and soften the edge
