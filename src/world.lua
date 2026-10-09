@@ -61,6 +61,8 @@ World.LIVES       = 3
 World.BOSS_HP   = 3
 World.BOSS_SIZE = 1.4 -- drawn and hit this much bigger
 
+World.PULL_SPEED = 900 -- px/s: a rowdy hit by a pull attack flies to the puller
+
 local WAVE_DELAY     = 2   -- seconds between clearing a wave and the next one
 local SPAWN_MIN_DIST = 600 -- bots never spawn closer than this to a player
 local IDLE = { dx = 0, dy = 0 } -- input of a player that sent nothing
@@ -123,6 +125,9 @@ end
 --   turn {bullet, owner, x, y, vx, vy, life, wall} (a boomerang flies back from x, y;
 --         wall = it bounced off a wall or chest)
 --   freeze {id, time} (a rowdy was frozen for `time` seconds)
+--   pull {id, by} (rowdy `id` is pulled to rowdy `by`)  punch {id} (dashes forward)
+--   leap {id, toX, toY} (jumps; lands with a blast)  burrow {id} (digs in; pops out
+--         with a blast)
 function World:emit(kind, data)
     data.kind = kind
     data.t = self.time
@@ -211,11 +216,12 @@ function World:countBots()
     return n
 end
 
--- Is `e` hidden from `viewer`? (an opponent in a bush, farther than HIDE_REVEAL)
+-- Is `e` hidden from `viewer`? (an opponent in a bush, farther than HIDE_REVEAL, or
+-- underground - its dirt mound is drawn anyway)
 function World:isHiddenFrom(e, viewer)
-    if e.dead or not self:isOpponent(e, viewer) or not Arena.inBush(e.x, e.y) then
-        return false
-    end
+    if e.dead or not self:isOpponent(e, viewer) then return false end
+    if e.burrowed then return true end
+    if not Arena.inBush(e.x, e.y) then return false end
     local dx, dy = e.x - viewer.x, e.y - viewer.y
     return dx * dx + dy * dy > World.HIDE_REVEAL * World.HIDE_REVEAL
 end
@@ -390,6 +396,17 @@ local function damage(self, b, victim, x, y)
         victim.bursting = nil
         self:emit("freeze", { id = victim.id, x = victim.x, y = victim.y, time = b.freeze })
     end
+    local puller = b.pull and shooter
+    if puller and not victim.dead and not puller.dead then -- flies to the puller
+        local dx, dy = puller.x - victim.x, puller.y - victim.y
+        local d = math.sqrt(dx * dx + dy * dy)
+        local gap = d - puller.radius - victim.radius - 6
+        if gap > 1 then
+            victim:pushBy(dx / d * World.PULL_SPEED, dy / d * World.PULL_SPEED, gap / World.PULL_SPEED)
+            victim.bursting = nil
+            self:emit("pull", { id = victim.id, by = puller.id, x = victim.x, y = victim.y })
+        end
+    end
     if knockedOut then
         victim.deaths = victim.deaths + 1
         if shooter then shooter.kills = shooter.kills + 1 end
@@ -410,7 +427,8 @@ local function explode(self, b)
         super = b.super, projectile = b.projectile })
     for _, e in ipairs(self.entities) do
         local reach = r + e.radius
-        if e.team ~= b.team and not e.dead and (e.x - x) ^ 2 + (e.y - y) ^ 2 < reach * reach then
+        if e.team ~= b.team and not e.dead and not e:untouchable()
+            and (e.x - x) ^ 2 + (e.y - y) ^ 2 < reach * reach then
             damage(self, b, e, e.x, e.y)
         end
     end
@@ -437,6 +455,14 @@ local function turnBack(self, b, wall)
         self:emit("turn", { x = b.x, y = b.y, vx = b.vx, vy = b.vy, life = b.life,
             bullet = b.id, owner = b.owner.id, wall = wall })
     end
+end
+
+-- A rowdy's own attack hits everybody around x, y (a leap lands, a burrow pops out):
+-- like a bomb of `attack` (its damage, blast radius, projectile) exploding there
+function World:blastAt(owner, attack, x, y)
+    explode(self, { x = x, y = y, blast = attack.blast or 60, damage = attack.damage or 0,
+        owner = owner, team = owner.team, super = attack == owner.super,
+        projectile = attack.projectile, freeze = attack.freeze })
 end
 
 local function updateBullets(self, dt)
@@ -495,7 +521,8 @@ local function updateBullets(self, dt)
             -- Bullets hit any rowdy of another team; piercing ones each rowdy once
             local victim
             for _, e in ipairs(self.entities) do
-                if e.team ~= b.team and not (b.hitIds and b.hitIds[e.id]) and bulletHits(b, e) then
+                if e.team ~= b.team and not (b.hitIds and b.hitIds[e.id]) and not e:untouchable()
+                    and bulletHits(b, e) then
                     victim = e
                     break
                 end

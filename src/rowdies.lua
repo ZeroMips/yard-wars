@@ -49,8 +49,21 @@
 --                one ammo bar for all; twin = true: the shots come alternately from the
 --                muzzle and its mirror image (two blasters)
 --   freeze       seconds an opponent hit (or in the blast) can't move or attack
+--   pull         true: the opponent hit flies to the shooter
+--   dash         px the rowdy dashes forward before each shot (punches: a short range,
+--                big radius and pierce make the "shot" a melee hit)
+--   kind         what the attack does (default: fires projectiles):
+--                  "leap"   the rowdy jumps aimDist far (at most range, over walls,
+--                           at bulletSpeed px/s, can't be hit meanwhile) and lands with
+--                           a blast (blast radius, damage)
+--                  "burrow" the rowdy digs in for `duration` seconds: can't be hit or
+--                           attack, walks faster; pops out under the first opponent it
+--                           touches (or when the time is up) with a blast; range = how
+--                           near a bot must be to start it
 --   projectile   how it is drawn (src/bullet.lua): "pen", "book", "pan", "waffle",
---                "snowball"; default a ball in bulletColor (a bomb for lob)
+--                "snowball", "potion", "magnet", "glove", "swing"; for a leap / burrow
+--                its blast: "slam", "dirt"; default a ball in bulletColor (a bomb for
+--                lob)
 --   super        special attack, charged by dealing damage (optional):
 --                  name, description, charge (damage needed to fill the meter), and
 --                  and every attack field above (pellets, spread, damage, range,
@@ -164,6 +177,44 @@ local Rowdies = {
                             bulletSpeed = 500, radius = 11, lob = true, blast = 70, freeze = 1.5,
                             projectile = "snowball" } },
     },
+    {
+        -- Slime potions and a magnet (CHARTER.md: slime, not poison). Name spelling as
+        -- on Gideon's sheet, to be confirmed with him.
+        name = "Doctor Dummie", role = "Slime potions, pulls", price = 400, shot = "shot_potion",
+        comic = { image = "doctor", origin = { 51.5, 108 }, muzzle = { 105, -0.5 } },
+        stats = { speed = 240, hp = 110, damage = 32, range = 400, bulletSpeed = 520,
+                  reload = 0.5, maxAmmo = 3, ammoRefill = 1.6, lob = true, blast = 60,
+                  projectile = "potion", bulletColor = { 0.45, 0.95, 0.3 },
+                  super = { name = "Magnet Potion", description = "Pulls the first one it hits right to you",
+                            charge = 160, damage = 40, range = 480, bulletSpeed = 850,
+                            radius = 12, pull = true, projectile = "magnet" } },
+    },
+    {
+        -- Jumps onto opponents; the super is a combo of four punches (cartoon gloves)
+        name = "Wrestler", role = "Jumps on you, tough", price = 450, shot = "jump",
+        comic = { image = "wrestler", origin = { 46, 96 }, muzzle = { 70, 1 } },
+        stats = { speed = 215, hp = 150, kind = "leap", damage = 40, blast = 70, range = 250,
+                  -- (45 dmg / 1.8 s refill won 10:0 against a bot: it can't be hit in
+                  -- the air and lands right on a standing target)
+                  bulletSpeed = 650, reload = 0.8, maxAmmo = 2, ammoRefill = 2.0,
+                  projectile = "slam", bulletColor = { 1, 0.8, 0.3 },
+                  super = { name = "Four-Punch Combo", description = "Four punches, a step forward each",
+                            -- 4 x 28 = 112 if every punch lands
+                            charge = 170, burst = 4, burstDelay = 0.2, dash = 50, damage = 28,
+                            range = 70, bulletSpeed = 800, radius = 24, wallRadius = 8,
+                            pierce = true, projectile = "glove" } },
+    },
+    {
+        -- A shovel (CHARTER.md: no sword) and digging in
+        name = "Digger", role = "Shovel up close, digs", price = 350, shot = "shot_shovel",
+        comic = { image = "digger", origin = { 48, 91 }, muzzle = { 60, 0.5 } },
+        stats = { speed = 240, hp = 130, damage = 36, range = 75, bulletSpeed = 750,
+                  radius = 24, wallRadius = 8, pierce = true, reload = 0.4, maxAmmo = 3,
+                  ammoRefill = 1.1, projectile = "swing", bulletColor = { 0.85, 0.75, 0.55 },
+                  super = { name = "Burrow", description = "Digs in and pops out under someone",
+                            charge = 160, kind = "burrow", duration = 4, damage = 70, blast = 90,
+                            range = 450, projectile = "dirt" } },
+    },
 }
 
 -- The enemy bots (not playable, so not part of the list above)
@@ -184,12 +235,16 @@ local COMIC = { image = STRING, origin = TABLE, muzzle = TABLE }
 local ATTACK = { damage = NUMBER, pellets = NUMBER, spread = NUMBER, range = NUMBER,
                  bulletSpeed = NUMBER, radius = NUMBER, wallRadius = NUMBER, pierce = BOOL,
                  lob = BOOL, blast = NUMBER, boomerang = BOOL, burst = NUMBER,
-                 burstDelay = NUMBER, twin = BOOL, freeze = NUMBER, projectile = STRING }
+                 burstDelay = NUMBER, twin = BOOL, freeze = NUMBER, projectile = STRING,
+                 pull = BOOL, dash = NUMBER, kind = STRING, duration = NUMBER }
 local STATS = { speed = NUMBER, hp = NUMBER, reload = NUMBER, maxAmmo = NUMBER,
                 ammoRefill = NUMBER, super = TABLE, barColor = TABLE, bulletColor = TABLE }
 local SUPER = { name = STRING, description = STRING, charge = NUMBER }
 for k, v in pairs(ATTACK) do STATS[k], SUPER[k] = v, v end
-local PROJECTILES = { pen = true, book = true, pan = true, waffle = true, snowball = true }
+local PROJECTILES = { pen = true, book = true, pan = true, waffle = true, snowball = true,
+                      potion = true, magnet = true, glove = true, swing = true, slam = true,
+                      dirt = true }
+local KINDS = { shot = true, leap = true, burrow = true }
 
 local function validate(def, label)
     local function fail(msg) error("src/rowdies.lua: " .. label .. ": " .. msg, 0) end
@@ -227,7 +282,8 @@ local function validate(def, label)
     end
     for _, a in ipairs({ { def.stats, "stats." }, { sup, "stats.super." } }) do
         local t = a[1]
-        if t and (t.lob or t.blast) and not (t.lob and t.blast and t.blast > 0) then
+        local action = t and (t.kind == "leap" or t.kind == "burrow")
+        if t and not action and (t.lob or t.blast) and not (t.lob and t.blast and t.blast > 0) then
             fail(a[2] .. "lob and " .. a[2] .. "blast belong together (blast = radius > 0)")
         end
         if t and t.projectile and not PROJECTILES[t.projectile] then
@@ -235,6 +291,15 @@ local function validate(def, label)
         end
         if t and t.burst and (t.burst < 1 or t.burst % 1 ~= 0) then
             fail(a[2] .. "burst must be a whole number >= 1")
+        end
+        if t and t.kind and not KINDS[t.kind] then
+            fail("unknown " .. a[2] .. "kind '" .. t.kind .. "'")
+        end
+        if t and (t.kind == "leap" or t.kind == "burrow") and not (t.blast and t.blast > 0) then
+            fail(a[2] .. "kind " .. t.kind .. " needs blast (radius of the hit)")
+        end
+        if t and t.kind == "burrow" and not (t.duration and t.duration > 0) then
+            fail(a[2] .. "kind burrow needs duration (seconds)")
         end
         if t and t.boomerang and (t.lob or t.pierce) then
             fail(a[2] .. "boomerang can't be lob (it flies low) and pierces anyway")

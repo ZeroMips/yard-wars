@@ -14,6 +14,9 @@ local SPAWN_TIME   = 0.35 -- pop-in animation after respawn
 local FLASH_TIME   = 0.07 -- muzzle flash
 local SUPER_COLOR  = { 1, 0.82, 0.1 } -- super meter, aim and "ready" glow
 local BURST_DELAY  = 0.08 -- default seconds between the shots of a burst
+local DASH_TIME    = 0.1  -- seconds a punch's dash (attack.dash) takes
+local LEAP_HEIGHT  = 90   -- px: top of a leap's arc (drawn)
+local BURROW_SPEED = 1.25 -- walking faster underground
 local ICE_COLOR    = { 0.55, 0.85, 1 }
 
 local fire -- (defined below, used by tick for the shots of a burst)
@@ -61,6 +64,8 @@ function Rowdy:init(x, y, look, stats)
     self.charge = 0 -- super meter 0..1 (kept when defeated, reset when switching)
     self.frozen = 0 -- seconds left frozen (src/rowdies.lua: freeze): no moving, no attacks
     self.muzzleSide = 1 -- twin attacks: which of the two muzzles fires next (1 / -1)
+    self.air = 0        -- height above the ground while leaping (drawn)
+    -- push (forced or own movement { vx, vy, t, own }), leap, burrowed: see Rowdy:act
     -- animation state
     self.walkPhase, self.walkBlend, self.stepTimer = 0, 0, 0
     self.dirX, self.dirY = 1, 0
@@ -76,7 +81,13 @@ function Rowdy:setRowdy(look, stats)
     self.ammoTimer = 0
     self.cooldown = 0
     self.charge = 0
-    self.bursting = nil
+    self:clearActions()
+end
+
+-- Back to normal: no burst, push, leap or burrow going on (respawn, rowdy switch)
+function Rowdy:clearActions()
+    self.bursting, self.push, self.leap, self.burrowed = nil, nil, nil, nil
+    self.frozen, self.air = 0, 0
 end
 
 -- Report something that happened (spawn, death, step, ...) to the world, if any.
@@ -92,6 +103,7 @@ function Rowdy:tick(dt)
     self.flashTimer = math.max(0, self.flashTimer - dt)
     self.spawnAnim = math.max(0, self.spawnAnim - dt)
     self.frozen = math.max(0, self.frozen - dt)
+    if not self.dead then self:act(dt) end
     local burst = self.bursting -- the rest of a burst (src/rowdies.lua: burst)
     if burst then
         if not self:canAct() or not self.world then
@@ -125,7 +137,7 @@ function Rowdy:respawn()
     self.ammo = self.maxAmmo
     self.ammoTimer = 0
     self.dead = false
-    self.frozen, self.bursting = 0, nil
+    self:clearActions()
     self.cooldown = 0.5
     self.spawnAnim = SPAWN_TIME
     self:emit("spawn", { x = self.x, y = self.y, id = self.id })
@@ -172,8 +184,9 @@ function Rowdy:move(dx, dy, dt)
     local len = math.sqrt(dx * dx + dy * dy)
     if len > 0 then
         self.dirX, self.dirY = dx / len, dy / len
-        self.x = self.x + self.dirX * self.speed * dt
-        self.y = self.y + self.dirY * self.speed * dt
+        local speed = self.burrowed and self.speed * BURROW_SPEED or self.speed
+        self.x = self.x + self.dirX * speed * dt
+        self.y = self.y + self.dirY * speed * dt
     end
     self.x, self.y = Arena.resolveCircle(self.x, self.y, self.radius)
     self:animateWalk(math.sqrt((self.x - ox) ^ 2 + (self.y - oy) ^ 2), dt)
@@ -189,9 +202,118 @@ function Rowdy:muzzle()
            self.y + s * m[1] + c * side
 end
 
--- Not knocked out and not frozen: may move and attack
+-- Not knocked out, frozen, pushed by somebody else or flying through the air (may
+-- walk unless it is dashing: see Rowdy:walks)
+function Rowdy:canMove()
+    return not self.dead and self.frozen <= 0 and not (self.push and not self.push.own)
+        and not self.leap
+end
+
+-- Walks by its own input this step (not during any push)
+function Rowdy:walks()
+    return self:canMove() and not self.push
+end
+
+-- May attack: can move and isn't underground
 function Rowdy:canAct()
-    return not self.dead and self.frozen <= 0
+    return self:canMove() and not self.burrowed
+end
+
+-- Out of reach of bullets and blasts (in the air or underground)
+function Rowdy:untouchable()
+    return self.leap ~= nil or self.burrowed ~= nil
+end
+
+-- Move by a push: forced (pulled to a rowdy) or own (the dash of a punch)
+function Rowdy:pushBy(vx, vy, t, own)
+    self.push = { vx = vx, vy = vy, t = t, own = own }
+end
+
+-- Ongoing actions, every step on the world side (from tick): pushes, leaps, burrows
+function Rowdy:act(dt)
+    local push = self.push
+    if push then
+        local step = math.min(dt, push.t)
+        local ox, oy = self.x, self.y
+        self.x, self.y = Arena.resolveCircle(self.x + push.vx * step, self.y + push.vy * step,
+            self.radius)
+        self:animateWalk(math.sqrt((self.x - ox) ^ 2 + (self.y - oy) ^ 2), dt)
+        push.t = push.t - dt
+        if push.t <= 0 then self.push = nil end
+    end
+    local leap = self.leap
+    if leap then
+        leap.time = leap.time + dt
+        local k = math.min(1, leap.time / leap.duration)
+        self.x = leap.fromX + (leap.toX - leap.fromX) * k
+        self.y = leap.fromY + (leap.toY - leap.fromY) * k
+        self.air = math.sin(k * math.pi) * leap.height
+        if k >= 1 then -- landed: everybody around is hit
+            self.leap, self.air = nil, 0
+            self.x, self.y = Arena.resolveCircle(self.x, self.y, self.radius)
+            if self.world then self.world:blastAt(self, leap.attack, self.x, self.y) end
+        end
+    end
+    local b = self.burrowed
+    if b then
+        b.time = b.time - dt
+        local touched = false
+        for _, e in ipairs(self.world and self.world.entities or {}) do
+            local reach = self.radius + e.radius + 6
+            if e.team ~= self.team and not e.dead and not e:untouchable()
+                and (e.x - self.x) ^ 2 + (e.y - self.y) ^ 2 < reach * reach then
+                touched = true
+            end
+        end
+        if touched or b.time <= 0 then -- pops out, hitting everybody around
+            self.burrowed = nil
+            self.cooldown = math.max(self.cooldown, 0.3)
+            if self.world then self.world:blastAt(self, b.attack, self.x, self.y) end
+        end
+    end
+end
+
+-- How far away an opponent can be for `attack` to reach it (bots decide with it):
+-- punches dash forward first
+function Rowdy:reach(attack)
+    local range = attack.range or Bullet.range
+    if attack.dash then range = range + attack.dash * (attack.burst or 1) end
+    return range
+end
+
+-- Where a leap of `attack` would land now: aimDist away (from the body centre,
+-- MIN_THROW..range), moved back towards the rowdy until there is room to stand
+function Rowdy:leapTarget(attack)
+    local range = attack.range or Bullet.range
+    local d = math.max(Bullet.MIN_THROW, math.min(range, self.aimDist or range))
+    local c, s = math.cos(self.aim), math.sin(self.aim)
+    while d > 0 do
+        local x, y = self.x + c * d, self.y + s * d
+        if not Arena.hitsSolid(x, y, self.radius)
+            and not (self.world and self.world.boxAt and self.world:boxAt(x, y, self.radius)) then
+            return x, y
+        end
+        d = d - 8
+    end
+    return self.x, self.y
+end
+
+-- Attacks that move the rowdy instead of firing projectiles (attack.kind)
+local ACTIONS = {}
+
+function ACTIONS.leap(self, attack) -- flies on an arc over everything, lands with a slam
+    local tx, ty = self:leapTarget(attack)
+    local d = math.sqrt((tx - self.x) ^ 2 + (ty - self.y) ^ 2)
+    self.leap = { fromX = self.x, fromY = self.y, toX = tx, toY = ty, time = 0,
+        duration = math.max(0.25, d / (attack.bulletSpeed or Bullet.speed)),
+        height = LEAP_HEIGHT * math.max(0.5, math.min(1, d / 200)), attack = attack }
+    self.push = nil
+    self:emit("leap", { id = self.id, x = self.x, y = self.y, toX = tx, toY = ty })
+end
+
+function ACTIONS.burrow(self, attack) -- digs in: can't be hit, pops out under somebody
+    self.burrowed = { time = attack.duration or 4, attack = attack }
+    self:emit("burrow", { id = self.id, x = self.x, y = self.y })
 end
 
 -- Fire `attack.pellets` projectiles in a cone of `attack.spread` (attack: self.attack
@@ -200,6 +322,26 @@ end
 -- A burst attack fires its first shot here and the others from tick(); follow = one
 -- of those.
 function fire(self, bullets, attack, follow)
+    local action = ACTIONS[attack.kind]
+    if action then
+        action(self, attack)
+        self.cooldown = self.reload
+        return
+    end
+    if attack.dash then -- a punch: a short dash forward (up to an opponent), then the hit
+        local c, s = math.cos(self.aim), math.sin(self.aim)
+        local dash = attack.dash
+        for _, e in ipairs(self.world and self.world.entities or {}) do
+            if e.team ~= self.team and not e.dead then
+                local along = (e.x - self.x) * c + (e.y - self.y) * s
+                local across = math.abs((e.y - self.y) * c - (e.x - self.x) * s)
+                local room = self.radius + e.radius
+                if along > 0 and across < room then dash = math.min(dash, math.max(0, along - room - 4)) end
+            end
+        end
+        self:pushBy(c * dash / DASH_TIME, s * dash / DASH_TIME, DASH_TIME, true)
+        self:emit("punch", { id = self.id, x = self.x, y = self.y })
+    end
     if attack.twin then self.muzzleSide = -(self.muzzleSide or 1) else self.muzzleSide = 1 end
     local bx, by = self:muzzle()
     local n, spread = attack.pellets or 1, attack.spread or 0
@@ -274,6 +416,7 @@ function Rowdy:shootSuper(bullets)
     if not self:superReady() or not self:canAct() or self.cooldown > 0 then return false end
     self.bursting = nil
     fire(self, bullets, self.super)
+    -- (a burst super keeps its follow-up shots: fire set self.bursting again)
     self.charge = 0
     self.flashSize = 2.2
     local mx, my = self:muzzle()
@@ -291,6 +434,29 @@ function Rowdy:drawAim(useSuper)
     -- (the normal attack's beam has always been as wide as the body)
     local radius = a.radius or (a == self.attack and self.radius) or Bullet.radius
     local c = (a == self.attack) and self.bulletColor or SUPER_COLOR
+    if a.kind == "leap" or a.kind == "burrow" then
+        -- leap: a dotted arc to the landing spot; burrow: around the rowdy. And the
+        -- circle the slam / pop-out hits
+        local lx, ly = self.x, self.y
+        if a.kind == "leap" then
+            lx, ly = self:leapTarget(a)
+            local h = LEAP_HEIGHT * math.max(0.5, math.min(1, math.sqrt((lx - self.x) ^ 2 + (ly - self.y) ^ 2) / 200))
+            love.graphics.setColor(c[1], c[2], c[3], 0.75)
+            for j = 1, 11 do
+                local t = j / 12
+                love.graphics.circle("fill", self.x + (lx - self.x) * t,
+                    self.y + (ly - self.y) * t - math.sin(t * math.pi) * h, 2.5)
+            end
+        end
+        love.graphics.setColor(c[1], c[2], c[3], 0.18)
+        love.graphics.circle("fill", lx, ly, a.blast)
+        love.graphics.setColor(c[1], c[2], c[3], 0.7)
+        love.graphics.setLineWidth(2)
+        love.graphics.circle("line", lx, ly, a.blast)
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(1, 1, 1, 1)
+        return
+    end
     if a.lob then -- bomb: a dotted arc to where it lands and the blast circle there
         local n = a.pellets or 1
         local mx, my = self:muzzle()
@@ -327,7 +493,7 @@ function Rowdy:drawAim(useSuper)
         return
     end
     local mx, my = self:muzzle()
-    local len = Arena.raycast(mx, my, self.aim, a.range or Bullet.range,
+    local len = Arena.raycast(mx, my, self.aim, self:reach(a),
         a.wallRadius or a.radius or Bullet.radius)
     local hw = math.max(9, radius + 3)
     local hwEnd = hw + math.tan(spread / 2) * len
@@ -453,6 +619,22 @@ function Rowdy:drawIce(alpha)
     end
 end
 
+-- Underground (src/rowdies.lua: burrow): a heap of dirt with clods that wobble
+function Rowdy:drawMound(alpha)
+    local t = love.timer.getTime()
+    local r = self.radius + 6
+    local wob = 1 + 0.08 * math.sin(t * 14 + self.walkPhase)
+    love.graphics.setColor(0.25, 0.16, 0.08, 0.9 * alpha)
+    love.graphics.ellipse("fill", self.x, self.y + 4, r * 1.15 * wob, r * 0.8 / wob)
+    love.graphics.setColor(0.5, 0.34, 0.18, alpha)
+    love.graphics.ellipse("fill", self.x, self.y, r * wob, r * 0.65 / wob)
+    love.graphics.setColor(0.62, 0.45, 0.26, alpha)
+    for i = 1, 5 do
+        local a = i * 1.3 + self.walkPhase * 0.3
+        love.graphics.circle("fill", self.x + math.cos(a) * r * 0.55, self.y + math.sin(a) * r * 0.35, 4)
+    end
+end
+
 function Rowdy:draw()
     if self.dead then return end
 
@@ -475,8 +657,16 @@ function Rowdy:draw()
     local px = self.x - math.cos(self.aim) * self.recoil * 5
     local py = self.y - math.sin(self.aim) * self.recoil * 5
 
-    love.graphics.setColor(0, 0, 0, 0.25 * alpha)
-    love.graphics.ellipse("fill", self.x, self.y + 6, self.radius * pop, self.radius * 0.8 * pop)
+    -- In the air (a leap): the shadow stays on the ground, smaller; the body is higher
+    -- and a bit bigger
+    local air = self.air or 0
+    local shadow = 1 - 0.4 * math.min(1, air / LEAP_HEIGHT)
+    py = py - air
+    if not self.burrowed then
+        love.graphics.setColor(0, 0, 0, 0.25 * alpha)
+        love.graphics.ellipse("fill", self.x, self.y + 6, self.radius * pop * shadow,
+            self.radius * 0.8 * pop * shadow)
+    end
 
     -- Team fight: ring in the team color (set by the renderer: allies blue, enemies red)
     if self.teamColor then -- wider than the sprite, so it shows around it
@@ -500,6 +690,13 @@ function Rowdy:draw()
         love.graphics.setLineWidth(1)
     end
 
+    if self.burrowed then -- underground: only a dirt mound moves around
+        self:drawMound(alpha)
+        self:drawHealthBar()
+        love.graphics.setColor(1, 1, 1, 1)
+        return
+    end
+
     if self.hitFlash > 0 then
         love.graphics.setColor(1, 0.4, 0.4, alpha)
     else
@@ -507,7 +704,7 @@ function Rowdy:draw()
     end
     -- The art faces up: rotate a quarter turn more, and sx (the aim axis) is its y
     local look = self.look
-    local k = look.scale
+    local k = look.scale * (1 + air / 400)
     local shaded = Assets.beginSkin(look) -- colour-change skin (src/cosmetics.lua)
     love.graphics.draw(Assets.comic[look.image], px, py, self.aim + sway + math.pi / 2,
         k * sy, k * sx, look.origin[1], look.origin[2])

@@ -143,7 +143,9 @@ existing things that break it.
   `dist`/`shotDist`, bullet `lob`, `blast` event; 5 since boss fights: welcome `mode.boss`,
   FIELDS `boss` - the replica makes the boss proxy big with `World.bossLook`; 6 since the
   Student/Chef/Agent Angel: bullet + blast `projectile`, `turn` event (a boomerang's
-  second leg: the replica keeps `legs` per bullet), `freeze` event, FIELDS `frozen`). Version
+  second leg: the replica keeps `legs` per bullet), `freeze` event, FIELDS `frozen`; 7
+  since Doctor/Wrestler/Digger: pull/punch/leap/burrow events, FIELDS `air` + `burrowed`
+  (a boolean on the wire)). Version
   check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
   `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
   refused with a reason ("The host has a newer build (52): restart to update"), different
@@ -298,9 +300,13 @@ existing things that break it.
   Student (300: fast long pen, super "Book Drop" = a lobbed book), Chef (400: frying pan
   `boomerang`, super "Waffle Toss" = 2 piercing waffle irons in a V), Agent Angel (450:
   `burst` of 4 from two toy blasters (`twin`), super "Freeze Balls" = 3 lobbed balls that
-  `freeze` for 1.5 s), plus `Rowdies.bot` (enemy look + stats).
+  `freeze` for 1.5 s), Doctor Dummie (400: lobbed slime potions, super "Magnet Potion"
+  = a shot that `pull`s the first one hit to the doctor), Wrestler (450: `kind = "leap"`
+  body slam over walls, super "Four-Punch Combo" = `burst` 4 with `dash` + glove melee),
+  Digger (350: shovel melee = short wide piercing shot, super `kind = "burrow"` for 4 s),
+  plus `Rowdies.bot` (enemy look + stats).
   New rowdies from Gideon's 8 design sheets (2026-10-08, plan: phase 1 Student/Chef/Agent
-  Angel done; phase 2 Doctor Dummie/Wrestler/Digger, phase 3 Ghostman/Wizard open). Their
+  Angel and phase 2 Doctor Dummie/Wrestler/Digger done, phase 3 Ghostman/Wizard open). Their
   art is still a PLACEHOLDER (hue-shifted copies of other top views, no side views): the
   Gemini prompts are in ~/Downloads/yard-wars-art-new/<image>-prompts.md; with the real
   images run the tool, paste the comic line and check origin/muzzle. Don't publish them
@@ -313,7 +319,14 @@ existing things that break it.
   attack, one ammo bar; `Rowdy.bursting` fires the rest in `tick`), `twin` (alternating
   mirrored muzzle), `freeze` (seconds; `Rowdy.frozen`: `canAct()` false, Player/Enemy
   stand still, drawn as an ice block), `projectile` (look in bullet.lua `ITEMS`: pen,
-  book, pan, waffle, snowball). Names may contain spaces ("Agent Angel"): profile.txt
+  book, pan, waffle, snowball, potion, magnet, glove, swing; slam/dirt = the blast of a
+  leap/burrow), `pull` (World `PULL_SPEED`: `Rowdy:pushBy`, forced), `dash` (own push
+  before each shot, stops in front of an opponent; bots use `Rowdy:reach`), `kind`
+  ("leap": `Rowdy.leap`, `air` height, lands via `World:blastAt`, never in a wall:
+  `leapTarget`; "burrow": `Rowdy.burrowed`, hidden + untouchable (`untouchable()`:
+  bullets and blasts skip it), pops out on touching an opponent or after `duration`),
+  `duration`. `canMove()` (not frozen/pulled/leaping), `walks()` (also not dashing),
+  `canAct()` (also not underground). Names may contain spaces ("Agent Angel"): profile.txt
   and pass.txt's skin lines write them with "_" (`Profile.encodeName`), so "_" is not
   allowed in names.
   Bombs: `lob = true` + `blast` (radius) on an attack (normal or super): the bomb flies

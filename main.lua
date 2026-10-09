@@ -522,6 +522,34 @@ local function playEvents(events)
             Effects.ring(ev.x, ev.y, r, { 0.6, 0.85, 1 })
             Effects.ice(ev.x, ev.y, 16, r * 0.6)
             Sound.play("freeze", ev.x, ev.y)
+        elseif ev.kind == "blast" and ev.projectile == "potion" then -- green slime splash
+            local r = tonumber(ev.radius) or 60
+            Effects.ring(ev.x, ev.y, r, { 0.45, 0.95, 0.3 })
+            Effects.burst(ev.x, ev.y, { 0.4, 0.9, 0.25 }, 12)
+            Sound.play("splash", ev.x, ev.y)
+        elseif ev.kind == "blast" and (ev.projectile == "slam" or ev.projectile == "dirt") then
+            -- a leap lands / a digger pops out: dust or dirt flies, the ground shakes
+            local r = tonumber(ev.radius) or 70
+            local dirt = ev.projectile == "dirt"
+            Effects.ring(ev.x, ev.y, r, dirt and { 0.6, 0.42, 0.22 } or { 1, 1, 1 })
+            Effects.clods(ev.x, ev.y, dirt and 18 or 10, r, dirt and { 0.5, 0.34, 0.18 } or { 0.75, 0.68, 0.55 })
+            Effects.poof(ev.x, ev.y + 4)
+            if player then
+                local d = math.sqrt((player.x - ev.x) ^ 2 + (player.y - ev.y) ^ 2)
+                if d < 450 then Camera.shake(6 * (1 - d / 450)) end
+            end
+            Sound.play(dirt and "pop" or "slam", ev.x, ev.y)
+        elseif ev.kind == "leap" then
+            Effects.puff(ev.x, ev.y + 8)
+            Sound.play("jump", ev.x, ev.y)
+        elseif ev.kind == "burrow" then
+            Effects.clods(ev.x, ev.y, 12, 40, { 0.5, 0.34, 0.18 })
+            Sound.play("dig", ev.x, ev.y)
+        elseif ev.kind == "punch" then
+            Sound.play("punch", ev.x, ev.y, ev.id == localId and 0.8 or 0.6)
+        elseif ev.kind == "pull" then
+            Effects.ring(ev.x, ev.y, 40, { 0.9, 0.2, 0.2 })
+            Sound.play("magnet", ev.x, ev.y)
         elseif ev.kind == "freeze" then -- the ice block is drawn by Rowdy:drawIce
             Effects.ice(ev.x, ev.y, 10, 18)
         elseif ev.kind == "turn" then -- a boomerang flies back
@@ -1056,7 +1084,8 @@ local function drawGame()
     Effects.drawBelow()
     for _, b in ipairs(world.bullets) do b:draw() end
     for _, e in ipairs(world.entities) do
-        if e ~= player and not hidden(e) then e:draw() end
+        -- (underground opponents are hidden, but their dirt mound shows)
+        if e ~= player and (not hidden(e) or e.burrowed) then e:draw() end
     end
     player:draw() -- own rowdy on top
     Effects.drawAbove()

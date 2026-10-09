@@ -18,7 +18,7 @@ Replica.__index = Replica
 local REMOTE_DELAY = 0.1
 local OWN_DELAY    = 0.05
 local LERPED = { "x", "y", "ammoTimer", "respawnTimer", "walkPhase", "walkBlend", "recoil",
-    "flashTimer", "hitFlash", "spawnAnim", "frozen" }
+    "flashTimer", "hitFlash", "spawnAnim", "frozen", "air" }
 
 function Replica.new()
     return setmetatable({
@@ -177,6 +177,8 @@ local function proxyFor(self, s)
     p.out = s.out == true
     p.boss = s.boss == true
     p.frozen = tonumber(s.frozen) or 0
+    p.air = tonumber(s.air) or 0
+    p.burrowed = s.burrowed == true or nil -- (Rowdy:untouchable checks for nil)
     p.skin, p.trail, p.title, p.badge = s.skin, s.trail, s.title, s.badge -- nil = none
     return p
 end

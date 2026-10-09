@@ -36,8 +36,8 @@ end
 function Enemy:update(dt, world)
     self:tick(dt)
     if self.dead then return end
-    if self.frozen > 0 then -- frozen: stands still (src/rowdies.lua: freeze)
-        self:move(0, 0, dt)
+    if not self:canMove() then -- frozen, pulled or leaping (src/rowdies.lua)
+        if not self.push then self:move(0, 0, dt) end
         return
     end
 
@@ -52,6 +52,7 @@ function Enemy:update(dt, world)
     if visible and dist > BUSH_REVEAL and Arena.inBush(target.x, target.y) then
         visible = false -- player is hiding in a bush
     end
+    if visible and target.burrowed then visible = false end -- underground
 
     local mx, my = 0, 0
     if visible then
@@ -59,7 +60,10 @@ function Enemy:update(dt, world)
         self.aim = math.atan2(dy, dx)
         local ux, uy = dx / dist, dy / dist
 
-        if self.hp < self.maxHp * 0.3 and not self.boss then -- a boss stands its ground
+        if self.burrowed then -- underground: straight at it, to pop out under it
+            self.state = "chase"
+            mx, my = ux, uy
+        elseif self.hp < self.maxHp * 0.3 and not self.boss then -- a boss stands its ground
             self.state = "flee"
             mx, my = -ux, -uy
         elseif dist > math.min(PREFERRED_MAX, self.range * 0.75) then
@@ -82,12 +86,12 @@ function Enemy:update(dt, world)
         self.aimDist = dist
         local super = self.super
         if super and self:superReady() and self.cooldown <= 0
-            and dist <= (super.range or self.range) * SHOOT_RANGE then
+            and dist <= self:reach(super) * SHOOT_RANGE then
             local exact = self.aim
             self.aim = exact + (math.random() - 0.5) * AIM_SPREAD * 0.5
             self:shootSuper(world.bullets)
             self.aim = exact
-        elseif dist <= self.range * SHOOT_RANGE and self.cooldown <= 0 and self.ammo >= 1 then
+        elseif dist <= self:reach(self.attack) * SHOOT_RANGE and self.cooldown <= 0 and self.ammo >= 1 then
             local exact = self.aim
             self.aim = exact + (math.random() - 0.5) * AIM_SPREAD
             self:shoot(world.bullets)
@@ -134,6 +138,7 @@ function Enemy:update(dt, world)
         mx, my = -my * self.unstickDir, mx * self.unstickDir
     end
 
+    if not self:walks() then return end -- dashing (a punch)
     local ox, oy = self.x, self.y
     self:move(mx, my, dt)
 

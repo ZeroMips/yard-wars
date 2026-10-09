@@ -147,6 +147,8 @@ local function attackText(stats)
     local dmg = (n > 1) and (n .. " x " .. stats.damage) or tostring(stats.damage)
     if stats.lob then return dmg .. " dmg bomb, range " .. stats.range end
     if stats.boomerang then return dmg .. " dmg, out + back " .. stats.range end
+    if stats.kind == "leap" then return dmg .. " dmg jump, range " .. stats.range end
+    if stats.range < 120 then return dmg .. " dmg, up close" end
     return dmg .. " dmg, range " .. stats.range
 end
 

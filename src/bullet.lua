@@ -40,6 +40,7 @@ function Bullet.new(x, y, angle, owner, attack, dist)
         lob = attack.lob,       -- a bomb: over everything, explodes when life runs out
         blast = attack.lob and attack.blast or nil,
         freeze = attack.freeze, -- seconds a rowdy it hits can't move or attack
+        pull = attack.pull,     -- the rowdy it hits flies to the shooter
         projectile = attack.projectile, -- how it is drawn (see Bullet:draw)
         flight = range / speed, -- whole flight time (a bomb's arc is drawn from it)
         super = super,
@@ -140,6 +141,84 @@ function ITEMS.snowball(b, x, y, r) -- an icy ball with a sparkle
     local s = 3 + 2 * math.sin(love.timer.getTime() * 12)
     love.graphics.line(x + r - s, y - r, x + r + s, y - r)
     love.graphics.line(x + r, y - r - s, x + r, y - r + s)
+end
+
+function ITEMS.potion(b, x, y, r, spin) -- a round flask of green slime
+    r = math.max(r, 8)
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(spin * 0.7)
+    love.graphics.setColor(0.1, 0.15, 0.1)
+    love.graphics.rectangle("fill", -4, -r - 7, 8, 9, 2, 2)
+    love.graphics.circle("fill", 0, 0, r + 2)
+    love.graphics.setColor(0.75, 0.55, 0.35) -- cork
+    love.graphics.rectangle("fill", -2.5, -r - 6, 5, 6, 1, 1)
+    love.graphics.setColor(0.85, 0.95, 1, 0.9) -- glass
+    love.graphics.circle("fill", 0, 0, r)
+    love.graphics.setColor(0.4, 0.95, 0.25) -- slime
+    love.graphics.arc("fill", "pie", 0, 0, r - 1, 0.1, math.pi - 0.1, 16)
+    love.graphics.circle("fill", -r * 0.3, r * 0.1, r * 0.25)
+    love.graphics.setColor(1, 1, 1, 0.8)
+    love.graphics.circle("fill", -r * 0.4, -r * 0.4, r * 0.2)
+    love.graphics.pop()
+end
+
+function ITEMS.magnet(b, x, y, r, spin, dir) -- a red horseshoe magnet, open end first
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(dir)
+    love.graphics.setLineWidth(r * 0.9 + 3)
+    love.graphics.setColor(0.15, 0.05, 0.05)
+    love.graphics.arc("line", "open", 0, 0, r, math.pi / 2, math.pi * 1.5, 16)
+    love.graphics.setLineWidth(r * 0.9)
+    love.graphics.setColor(0.9, 0.15, 0.15)
+    love.graphics.arc("line", "open", 0, 0, r, math.pi / 2, math.pi * 1.5, 16)
+    love.graphics.setLineWidth(1)
+    love.graphics.setColor(0.85, 0.85, 0.9) -- silver tips
+    love.graphics.rectangle("fill", 0, -r - r * 0.45, r * 0.7, r * 0.9)
+    love.graphics.rectangle("fill", 0, r - r * 0.45, r * 0.7, r * 0.9)
+    love.graphics.pop()
+end
+
+function ITEMS.glove(b, x, y, r, spin, dir) -- a big red boxing glove
+    local g = r * 0.7
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(dir)
+    love.graphics.setColor(0.25, 0.05, 0.05)
+    love.graphics.circle("fill", 0, 0, g + 2)
+    love.graphics.rectangle("fill", -g - 8, -g * 0.6 - 2, 12, g * 1.2 + 4, 3, 3)
+    love.graphics.setColor(0.95, 0.95, 0.9) -- cuff
+    love.graphics.rectangle("fill", -g - 6, -g * 0.6, 9, g * 1.2, 2, 2)
+    love.graphics.setColor(0.9, 0.15, 0.15)
+    love.graphics.circle("fill", 0, 0, g)
+    love.graphics.setColor(1, 1, 1, 0.45)
+    love.graphics.circle("fill", g * 0.3, -g * 0.35, g * 0.3)
+    love.graphics.pop()
+    love.graphics.setColor(1, 1, 1, 0.7) -- speed lines
+    for i = -1, 1 do
+        local c, s = math.cos(dir), math.sin(dir)
+        local ox, oy = -s * i * g * 0.6, c * i * g * 0.6
+        love.graphics.line(x - c * (g + 8) + ox, y - s * (g + 8) + oy, x - c * (g + 20) + ox, y - s * (g + 20) + oy)
+    end
+end
+
+function ITEMS.swing(b, x, y, r, spin, dir) -- a shovel swing: a swoosh and the blade
+    love.graphics.setLineWidth(5)
+    love.graphics.setColor(1, 1, 1, 0.55)
+    love.graphics.arc("line", "open", x - math.cos(dir) * r, y - math.sin(dir) * r, r * 1.3,
+        dir - 1.1, dir + 1.1, 14)
+    love.graphics.setLineWidth(1)
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(dir)
+    love.graphics.setColor(0.15, 0.15, 0.18)
+    love.graphics.polygon("fill", -9, -9, 7, -8, 12, 0, 7, 8, -9, 9)
+    love.graphics.setColor(0.7, 0.72, 0.78)
+    love.graphics.polygon("fill", -7, -7, 6, -6, 9, 0, 6, 6, -7, 7)
+    love.graphics.setColor(0.55, 0.35, 0.18)
+    love.graphics.rectangle("fill", -22, -2.5, 15, 5, 2, 2)
+    love.graphics.pop()
 end
 
 -- A bomb in flight: a shadow on the ground where it is, the bomb above it on an arc
