@@ -323,7 +323,7 @@ existing things that break it.
   most. Known quirks: the Wizard's top view is drawn half from the front (hands at the
   bottom, the wand pointing forward past the hat), the Doctor's beard points backwards;
   rotating doesn't fix either (a new Gemini image would). Website cards added
-  (website/images/<image>.png = side view at 280 px), not uploaded yet.
+  (website/images/<image>.png = side view at 280 px), uploaded with build 79.
   Attacks: `Rowdy.attack` = the normal attack as a table (stats + defaults) like
   `stats.super`; `Bullet.new(..., attack, dist)` reads every attack field from it. Fields
   for both (checked on load, same list `ATTACK`): `radius`/`wallRadius`/`pierce` (now also
@@ -481,10 +481,13 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   check + LAN version check), 57 (2026-10-05: Yard Pass, protocol 3), 59 (2026-10-05: Gardener), 62 (2026-10-06: Pirate +
   bombs, protocol 4), 64 (2026-10-06: hidden
   test mode), build 68 (2026-10-06: charter fixes - challenges never expire, no
-  first-win bonus, knockouts, poof; website "Our promise"), build 71 (2026-10-07,
-  current: boss fights to unlock rowdies, Gardener only via the pass, protocol 5;
-  latest.txt + .love answer 200 over plain http). Website ("coins + boss fight")
-  uploaded the same day.
+  first-win bonus, knockouts, poof; website "Our promise"), build 71 (2026-10-07:
+  boss fights to unlock rowdies, Gardener only via the pass, protocol 5), build 79
+  (2026-10-09, current: the 8 new rowdies from Gideon's sheets, protocol 8, updater crash
+  log; latest.txt + .love answer 200 over plain http). Website with their cards uploaded
+  the same day.
+- New rowdies NOT yet tried on a device (Wizard's held beam on the touch stick, leap /
+  blink distances, burrow and vanish, the feel of each).
 - Boss fights NOT yet tried on a device (touch on the panel, fight feel on a phone).
 - Tablet (TB330FU): build 68 (the published .love, unzipped) installed by hand 2026-10-07;
   before it had a build from 2026-10-03 without build.txt (never updated itself).
