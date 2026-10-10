@@ -494,9 +494,12 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   test mode), build 68 (2026-10-06: charter fixes - challenges never expire, no
   first-win bonus, knockouts, poof; website "Our promise"), build 71 (2026-10-07:
   boss fights to unlock rowdies, Gardener only via the pass, protocol 5), build 79
-  (2026-10-09, current: the 8 new rowdies from Gideon's sheets, protocol 8, updater crash
-  log; latest.txt + .love answer 200 over plain http). Website with their cards uploaded
-  the same day.
+  (2026-10-09: the 8 new rowdies from Gideon's sheets, protocol 8, updater crash
+  log). Website with their cards uploaded the same day. Build 81 (2026-10-10, current:
+  bots are random handicapped rowdies with supers and spread out; protocol unchanged;
+  latest.txt + .love answer 200 over plain http).
+- Random-rowdy bots NOT yet tried on a device (feel of the handicap, how often bots
+  use supers).
 - New rowdies NOT yet tried on a device (Wizard's held beam on the touch stick, leap /
   blink distances, burrow and vanish, the feel of each).
 - Boss fights NOT yet tried on a device (touch on the panel, fight feel on a phone).
