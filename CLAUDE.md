@@ -67,7 +67,9 @@ existing things that break it.
   Legal pages (German law): `impressum.html` (§ 5 DDG, noindex) and `datenschutz.html`
   (DSGVO: no cookies/tracking/third-party content; manitu server logs ~21 days with IP
   anonymization switched on in the manitu panel + AV-Vertrag; the game's update check; LAN
-  stays local; authority LDI NRW), linked in the footer. Keep them true when adding
+  stays local; authority LDI NRW; e-mail contact: mailbox at manitu), linked in the footer.
+  Contact for players: yardwars@zeromips.org (footer of index.html, datenschutz section 5;
+  the legal contact in Impressum/Datenschutz stays info@zeromips.org). Keep them true when adding
   anything that sends data (analytics, embeds, fonts from a CDN, online play, crash
   reports...). publish-site.sh refuses to upload while a `TODO-` placeholder is left.
   Screenshots in website/images/ come from a scripted harness (team fight with an
