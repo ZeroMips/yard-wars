@@ -108,7 +108,13 @@ existing things that break it.
   character style; those sprites were removed 2026-10-04.)
 - `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
   `id`/`team`/`def`/kills/deaths, bullets (sub-stepped, hit other teams), waves, bush
-  hiding (`isHiddenFrom`), `nearestOpponent`, medpacks (dropped when a player makes a kill, not
+  hiding (`isHiddenFrom`), `nearestOpponent`, bots (since 2026-10-10: `newBot` picks a
+  random rowdy of all 14, locked ones too, `randomBotDef` prefers one nobody in the world
+  uses; kept for the round incl. respawns, new ones at `restartMatch`/new wave/team refill;
+  handicap `BOT_DAMAGE` 0.75 (applied in `damage()` via `damageScale`), `BOT_SPEED` 0.8,
+  `BOT_CHARGE` 0.6 (`chargeScale` in `Rowdy:addCharge`); bosses not handicapped;
+  `botTarget`: nearest opponent + `TARGET_CROWD` 250 px per other bot already after it,
+  so bots split up), medpacks (dropped when a player makes a kill, not
   by bot kills; hurt players, not bots, heal `MEDPACK_HEAL` = 40% of max HP; gone after 15 s, max 24);
   loot boxes (`world.boxes`: first after `BOX_FIRST` 8 s, then every `BOX_EVERY` 20 s, max 3,
   away from rowdies/walls/bushes; block bullets and rowdies, `BOX_HP` 120, anybody's bullets
@@ -310,8 +316,9 @@ existing things that break it.
   Ghostman (500: `kind = "blink"` teleport with a "boo" blast, super `kind = "vanish"` =
   5 s invisible beyond 150 px + through walls), Wizard (500: `kind = "beam"` held down,
   super `kind = "grab"` = Telekinesis: holds the first one on the beam 1.2 s, flings it;
-  crashing into a wall/chest/rowdy does the damage), plus `Rowdies.bot` (enemy look +
-  stats).
+  crashing into a wall/chest/rowdy does the damage), plus `Rowdies.bot` (the old grey
+  enemy bot: no longer spawned since 2026-10-10, kept so the key "bot" and the LAN
+  version hash stay valid).
   New rowdies from Gideon's 8 design sheets (2026-10-08, plan: phase 1 Student/Chef/Agent
   Angel, phase 2 Doctor Fizzle/Wrestler/Digger and phase 3 Ghostman/Wizard all coded;
   Doctor Fizzle = "Doctor Dummie" on the sheet, renamed with Gideon 2026-10-09). Art
@@ -365,7 +372,11 @@ existing things that break it.
   "src/rowdies.lua: entry 3 (Sniper): unknown field 'stats.bulletspeed'". Adding a rowdy = one
   entry here + its images (assets, tool and picker pick it up).
 - `src/player.lua` — Player subclass, `update(dt, input, bullets)`, 0.25s fire buffer
-- `src/enemy.lua` — Bot subclass (`isBot`), `update(dt, world)` targets the nearest opponent;
+- `src/enemy.lua` — Bot subclass (`isBot`), `update(dt, world)` targets `World:botTarget`;
+  spreads out (2026-10-10, measured in waves: average bot distance 470 -> 700 px):
+  separation push from team mates within `SPREAD` 130 px, chase/retreat turned by a
+  per-life `flank` angle (up to 0.8 rad), searches around the last seen spot (per-life
+  offset up to 120 px), patrols near the target only 35% of the time (700 px area);
   states patrol/chase/strafe/retreat/flee/search, LOS +
   bush-reveal rules, aim spread, stuck detection (slides sideways); shoots within 0.88 of
   its range (and keeps a distance scaled to it), fires its super when ready and in range,

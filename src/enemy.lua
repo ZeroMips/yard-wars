@@ -12,8 +12,14 @@ local SHOOT_RANGE   = 0.88 -- shoots within this share of its range (bot: 480 ->
 local PREFERRED_MIN = 220  -- closer than this: back off
 local PREFERRED_MAX = 340  -- farther than this: approach (both nearer for short ranges)
 local AIM_SPREAD    = 0.25 -- radians of random inaccuracy
+-- Bots spread out instead of moving as one clump (the target choice: World:botTarget)
+local SPREAD        = 130  -- px: walks away from team mates closer than this
+local FLANK         = 0.8  -- radians: chases on a path turned up to this far (new per life)
+local SEARCH_OFFSET = 120  -- px: searches around the last seen spot, not right on it
+local PATROL_TOWARDS = 0.35 -- share of patrol points near the target (else anywhere)
+local PATROL_AREA   = 700  -- px around the target
 
--- stats: see src/rowdies.lua (Rowdies.bot)
+-- look/stats: of a rowdy in src/rowdies.lua (the world picks it, see World.BOT_DAMAGE)
 function Enemy.new(x, y, look, stats)
     local self = setmetatable({}, Enemy)
     self:init(x, y, look, stats)
@@ -22,6 +28,7 @@ function Enemy.new(x, y, look, stats)
     self.wanderTimer = 0
     self.strafeDir, self.strafeTimer = 1, 0
     self.stuckTimer, self.unstickTimer, self.unstickDir = 0, 0, 1
+    self.flank, self.searchDX, self.searchDY = 0, 0, 0 -- (new ones at every respawn)
     return self
 end
 
@@ -30,9 +37,36 @@ function Enemy:respawn()
     self.state = "patrol"
     self.lastSeenX, self.lastSeenY = nil, nil
     self.wanderTimer = 0
+    self.flank = (math.random() * 2 - 1) * FLANK
+    local a, r = math.random() * math.pi * 2, math.random() * SEARCH_OFFSET
+    self.searchDX, self.searchDY = math.cos(a) * r, math.sin(a) * r
 end
 
--- world: see src/world.lua. The bot goes after the nearest opponent.
+-- Unit vector (x, y) turned by angle a
+local function turn(x, y, a)
+    local c, s = math.cos(a), math.sin(a)
+    return x * c - y * s, x * s + y * c
+end
+
+-- Push away from team mates closer than SPREAD (stronger the closer they are)
+local function separation(self, world)
+    local sx, sy = 0, 0
+    for _, o in ipairs(world.entities) do
+        if o ~= self and o.team == self.team and not o.dead then
+            local dx, dy = self.x - o.x, self.y - o.y
+            local d = math.sqrt(dx * dx + dy * dy)
+            if d < SPREAD then
+                if d < 0.001 then dx, dy, d = math.random() - 0.5, math.random() - 0.5, 1 end
+                local w = (SPREAD - d) / SPREAD
+                local len = math.sqrt(dx * dx + dy * dy)
+                sx, sy = sx + dx / len * w * 1.5, sy + dy / len * w * 1.5
+            end
+        end
+    end
+    return sx, sy
+end
+
+-- world: see src/world.lua. The bot goes after an opponent (World:botTarget).
 function Enemy:update(dt, world)
     self:tick(dt)
     if self.dead then return end
@@ -41,7 +75,7 @@ function Enemy:update(dt, world)
         return
     end
 
-    local target = world:nearestOpponent(self)
+    local target = world:botTarget(self)
     local dx, dy, dist = 0, 0, math.huge
     if target then
         dx, dy = target.x - self.x, target.y - self.y
@@ -58,6 +92,8 @@ function Enemy:update(dt, world)
     local mx, my = 0, 0
     if visible then
         self.lastSeenX, self.lastSeenY = target.x, target.y
+        local ox, oy = target.x + self.searchDX, target.y + self.searchDY
+        if not Arena.hitsSolid(ox, oy, self.radius) then self.lastSeenX, self.lastSeenY = ox, oy end
         self.aim = math.atan2(dy, dx)
         local ux, uy = dx / dist, dy / dist
 
@@ -68,11 +104,11 @@ function Enemy:update(dt, world)
             self.state = "flee"
             mx, my = -ux, -uy
         elseif dist > math.min(PREFERRED_MAX, self.range * 0.75) then
-            self.state = "chase"
-            mx, my = ux, uy
+            self.state = "chase" -- on a curve (flank), so bots come from different sides
+            mx, my = turn(ux, uy, self.flank)
         elseif dist < math.min(PREFERRED_MIN, self.range * 0.45) then
             self.state = "retreat"
-            mx, my = -ux, -uy
+            mx, my = turn(-ux, -uy, self.flank)
         else
             self.state = "strafe"
             self.strafeTimer = self.strafeTimer - dt
@@ -117,14 +153,25 @@ function Enemy:update(dt, world)
         local wx, wy = self.wx - self.x, self.wy - self.y
         local wd = math.sqrt(wx * wx + wy * wy)
         if wd < 30 or self.wanderTimer <= 0 then
-            if target and math.random() < 0.6 then -- roam towards the action
-                self.wx, self.wy = Arena.randomOpenPoint(target.x, target.y, 500)
+            if target and math.random() < PATROL_TOWARDS then -- roam towards the action
+                self.wx, self.wy = Arena.randomOpenPoint(target.x, target.y, PATROL_AREA)
             else
                 self.wx, self.wy = Arena.randomOpenPoint()
             end
             self.wanderTimer = 4
         else
             mx, my = wx / wd, wy / wd
+        end
+    end
+
+    -- Keep apart from team mates (not underground: it heads for its target there)
+    if not self.burrowed then
+        local sx, sy = separation(self, world)
+        local moving = mx ~= 0 or my ~= 0
+        if moving or sx * sx + sy * sy > 0.1 then -- (standing: only when really close)
+            mx, my = mx + sx, my + sy
+            local len = math.sqrt(mx * mx + my * my)
+            if len > 1 then mx, my = mx / len, my / len end
         end
     end
 

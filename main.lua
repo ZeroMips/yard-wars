@@ -1086,8 +1086,7 @@ local function drawGame()
         if e == player then e.hudColor = nil
         elseif ally then e.hudColor = TEAMMATE_COLOR
         elseif world.mode.teams then e.hudColor = ENEMY_TEAM_COLOR
-        elseif e.boss then e.hudColor = BOT_COLOR -- its own bar colour may be green
-        elseif e.isBot then e.hudColor = nil
+        elseif e.boss or e.isBot then e.hudColor = BOT_COLOR -- its rowdy's own bar may be green
         else e.hudColor = OPPONENT_COLOR end
         e.teamColor = world.mode.teams and (ally and TEAMMATE_COLOR or ENEMY_TEAM_COLOR) or nil
     end

@@ -63,6 +63,15 @@ World.BOSS_SIZE = 1.4 -- drawn and hit this much bigger
 
 World.PULL_SPEED = 900 -- px/s: a rowdy hit by a pull attack flies to the puller
 
+-- Bots (duel opponent, team fight bots, waves) are random rowdies of src/rowdies.lua,
+-- picked when they are created (they keep it for the round, respawns too), a bit
+-- weaker than a player's rowdy - fair for young players. Bosses are not handicapped.
+World.BOT_DAMAGE = 0.75 -- share of the damage a bot deals (super charge too)
+World.BOT_SPEED  = 0.8  -- share of its rowdy's walking speed
+World.BOT_CHARGE = 0.6  -- its super meter fills this much slower
+local TARGET_CROWD = 250 -- px: a bot prefers an opponent fewer other bots are after
+local TARGET_KEEP  = 60  -- px: ...and keeps its current one unless another is clearly better
+
 local WAVE_DELAY     = 2   -- seconds between clearing a wave and the next one
 local SPAWN_MIN_DIST = 600 -- bots never spawn closer than this to a player
 local IDLE = { dx = 0, dy = 0 } -- input of a player that sent nothing
@@ -245,6 +254,32 @@ function World:nearestOpponent(e, visibleOnly)
     return best
 end
 
+-- The opponent a bot goes after: the nearest one, but every other bot of its team
+-- already after an opponent makes that one TARGET_CROWD px "farther" - so bots split
+-- up between the players instead of all chasing one. Living ones first (as above).
+function World:botTarget(e)
+    local crowd = {}
+    for _, o in ipairs(self.entities) do
+        if o ~= e and o.isBot and o.team == e.team and o.targetId and not o.dead then
+            crowd[o.targetId] = (crowd[o.targetId] or 0) + 1
+        end
+    end
+    local best, bestScore, bestAlive
+    for _, o in ipairs(self.entities) do
+        if self:isOpponent(e, o) then
+            local d = math.sqrt((o.x - e.x) ^ 2 + (o.y - e.y) ^ 2)
+            local score = d + TARGET_CROWD * (crowd[o.id] or 0)
+            if o.id == e.targetId then score = score - TARGET_KEEP end
+            local alive = not o.dead
+            if not best or (alive and not bestAlive) or (alive == bestAlive and score < bestScore) then
+                best, bestScore, bestAlive = o, score, alive
+            end
+        end
+    end
+    e.targetId = best and best.id
+    return best
+end
+
 local function farFromPlayers(self, x, y)
     for _, e in ipairs(self.entities) do
         if not e.isBot then
@@ -287,9 +322,24 @@ local function freeSpot(self, team)
     return spots[1][1], spots[1][2]
 end
 
-local function addBot(self, team, x, y)
-    local def = Rowdies.bot
+-- A random rowdy for a new bot, if possible one nobody in the world uses right now
+function World:randomBotDef()
+    local used, free = {}, {}
+    for _, e in ipairs(self.entities) do used[e.def] = true end
+    for _, def in ipairs(Rowdies) do
+        if not used[def] then free[#free + 1] = def end
+    end
+    if #free == 0 then return Rowdies[math.random(#Rowdies)] end
+    return free[math.random(#free)]
+end
+
+-- A new bot (random rowdy, handicapped, see BOT_DAMAGE) at x, y
+local function newBot(self, team, x, y)
+    local def = self:randomBotDef()
     local e = self:add(Enemy.new(x, y, Assets.look(def), def.stats), team, def)
+    e.speed = e.speed * World.BOT_SPEED
+    e.damageScale = World.BOT_DAMAGE
+    e.chargeScale = World.BOT_CHARGE
     e:respawn() -- pop-in animation + spawn event
     return e
 end
@@ -324,7 +374,7 @@ end
 -- A player leaves; in a team fight a bot takes over the empty place
 function World:removePlayer(p)
     self:remove(p)
-    if self.mode.teams then addBot(self, p.team, p.spawnX, p.spawnY) end
+    if self.mode.teams then newBot(self, p.team, p.spawnX, p.spawnY) end
 end
 
 -- Kills per team
@@ -345,11 +395,8 @@ local function addBoss(self)
 end
 
 function World:spawnBots(count)
-    local def = Rowdies.bot
     for i = 1, count do
-        local x, y = botSpawnPoint(self, i)
-        local e = self:add(Enemy.new(x, y, Assets.look(def), def.stats), World.TEAM_BOTS, def)
-        e:respawn() -- pop-in animation + spawn event
+        newBot(self, World.TEAM_BOTS, botSpawnPoint(self, i))
     end
 end
 
@@ -368,7 +415,7 @@ function World:start()
             for _, e in ipairs(self.entities) do
                 if e.team == team then members = members + 1 end
             end
-            for _ = members + 1, World.TEAM_SIZE do addBot(self, team, freeSpot(self, team)) end
+            for _ = members + 1, World.TEAM_SIZE do newBot(self, team, freeSpot(self, team)) end
         end
     elseif self.mode.waves then
         self:startWave()
@@ -391,8 +438,9 @@ local function damage(self, b, victim, x, y)
     self:emit("hit", { x = x, y = y, victim = victim.id,
         bullet = b.id, owner = b.owner.id, pierce = b.pierce or b.lob })
     local shooter = self.byId[b.owner.id]
-    if shooter and not b.super then shooter:addCharge(b.damage) end
-    local knockedOut = victim:takeDamage(b.damage, b.owner.id)
+    local amount = b.damage * (b.owner.damageScale or 1) -- bots hit softer
+    if shooter and not b.super then shooter:addCharge(amount) end
+    local knockedOut = victim:takeDamage(amount, b.owner.id)
     if b.freeze and not victim.dead then
         victim.frozen = math.max(victim.frozen, b.freeze)
         victim.bursting = nil

@@ -559,11 +559,11 @@ function Rowdy:superReady()
     return self.super ~= nil and self.charge >= 1 and not self.dead
 end
 
--- Damage dealt with normal attacks fills the super meter
+-- Damage dealt with normal attacks fills the super meter (chargeScale: slower for bots)
 function Rowdy:addCharge(damage)
     if not self.super then return end
     local before = self.charge
-    self.charge = math.min(1, self.charge + damage / self.super.charge)
+    self.charge = math.min(1, self.charge + damage * (self.chargeScale or 1) / self.super.charge)
     -- 10 x 0.1 adds up to 0.999..., which would need one hit more than intended
     if self.charge > 1 - 1e-6 then self.charge = 1 end
     if before < 1 and self.charge >= 1 then self:emit("superReady", { id = self.id }) end

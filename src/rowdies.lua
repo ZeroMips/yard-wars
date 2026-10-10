@@ -247,7 +247,9 @@ local Rowdies = {
     },
 }
 
--- The enemy bots (not playable, so not part of the list above)
+-- The old enemy bot (not playable). No longer spawned - bots are random rowdies from
+-- the list above (src/world.lua, BOT_DAMAGE) - but kept: the key "bot" stays valid
+-- and the LAN version hash (src/net.lua) unchanged.
 Rowdies.bot = {
     name = "Bot", shot = "shot_bot",
     comic = { image = "bot", origin = { 46, 81 }, muzzle = { 79, 0 } },
