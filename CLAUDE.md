@@ -179,7 +179,10 @@ existing things that break it.
   scrolls) and copied (`Updater.mirror()`, at start/check result/confirm/crash/info
   screen) to `yard-wars-info.txt` in the app's shared folder on Android
   (`.../Android/data/org.love2d.android/files/`, next to games/, readable over USB -
-  the save folder is in private storage and is not), desktop only with `--info-dir DIR`. `Updater.start()`
+  the save folder is in private storage and is not), desktop only with `--info-dir DIR`.
+  It is deleted and written anew each time: USB (MTP) keeps the size of a file's first
+  write and cut rewritten copies off there (Pixel, 2026-10-10). Confirmed on the Pixel:
+  info screen, and the copy read complete over USB (`gio cat mtp://...`). `Updater.start()`
   runs `src/updater_thread.lua` (love.thread: socket.http GET latest.txt, RSA check, download,
   size + sha256, write) and `Updater.update()` reads its status for the lobby's version line;
   a finished download restarts the game at once (`love.event.quit("restart")`) if the lobby
@@ -501,7 +504,10 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   53's boot marks a build bad at its first start that doesn't last 3 s, and the 79 file
   was already deleted. Cause unknown (the save folder with update.txt/crash.txt is in
   the app's private storage: not reachable over MTP, no adb here). Build 81 installed by
-  hand the same day (all 69 files checked, conf.lua identity unchanged).
+  hand the same day (all 69 files checked, conf.lua identity unchanged). The info
+  screen then showed `bad 81` and no crash.txt (81 had the crash logger): most likely
+  53's 3-s rule, not a crash. Build 85 (info screen + log, not published) installed by
+  hand the same day.
 - Published to the real server: builds 47, 51 (replaced), 53 (2026-10-04: rowdy entry
   check + LAN version check), 57 (2026-10-05: Yard Pass, protocol 3), 59 (2026-10-05: Gardener), 62 (2026-10-06: Pirate +
   bombs, protocol 4), 64 (2026-10-06: hidden
