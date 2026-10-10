@@ -112,6 +112,31 @@ section.wrap { padding-top: 72px; } /* section.wrap: .wrap alone resets padding 
 .box li { margin-bottom: 0.45em; }
 .note { color: var(--muted); font-size: 0.92rem; }
 
+/* Video: a picture linking to YouTube, with a play symbol on it (placed in the
+   thumbnail's gap between the web address and the rowdies' heads) */
+.video {
+  position: relative; display: block; max-width: 760px; margin: 0 auto;
+  border-radius: 14px; border: 4px solid #000; overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.video img { display: block; width: 100%; }
+.video::before { /* the round button */
+  content: ""; position: absolute; left: 50%; top: 44%; width: 72px; height: 72px;
+  margin: -36px 0 0 -36px; border-radius: 50%; background: rgba(0, 0, 0, 0.6);
+  border: 4px solid var(--gold); box-sizing: border-box; transition: transform 0.15s;
+}
+.video::after { /* the triangle */
+  content: ""; position: absolute; left: 50%; top: 44%; margin: -14px 0 0 -8px;
+  border-style: solid; border-width: 14px 0 14px 24px;
+  border-color: transparent transparent transparent var(--gold);
+}
+.video:hover::before, .video:focus::before { transform: scale(1.1); }
+@media (max-width: 600px) { /* the picture is small: so is the button */
+  .video::before { width: 44px; height: 44px; margin: -22px 0 0 -22px; border-width: 3px; }
+  .video::after { margin: -9px 0 0 -5px; border-width: 9px 0 9px 15px; }
+}
+.video-caption { text-align: center; color: var(--muted); font-size: 0.92rem; margin: 0.6em 0 1.6em; }
+
 /* Rowdy cards */
 /* centred rows (5 rowdies: 3 + 2) */
 .cards { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; }
