@@ -488,6 +488,11 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   the moto needs one more hand install of a build that has them.
 - Pixel 6a: build 53 (the published .love, unzipped) installed by hand 2026-10-05; before it
   had a build from 2026-10-01 with the old identity, so its progress started fresh.
+  It updated itself up to 79, then dropped back to 53 after build 81 arrived (2026-10-10):
+  53's boot marks a build bad at its first start that doesn't last 3 s, and the 79 file
+  was already deleted. Cause unknown (the save folder with update.txt/crash.txt is in
+  the app's private storage: not reachable over MTP, no adb here). Build 81 installed by
+  hand the same day (all 69 files checked, conf.lua identity unchanged).
 - Published to the real server: builds 47, 51 (replaced), 53 (2026-10-04: rowdy entry
   check + LAN version check), 57 (2026-10-05: Yard Pass, protocol 3), 59 (2026-10-05: Gardener), 62 (2026-10-06: Pirate +
   bombs, protocol 4), 64 (2026-10-06: hidden
