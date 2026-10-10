@@ -20,6 +20,13 @@
 -- Every Lua error (error screen) is written to crash.txt with its traceback; the lobby
 -- shows "last crash (build N): ..." while that build or an older one runs.
 --
+-- update-log.txt (last LOG_LINES lines) tells what happened when: every start (which
+-- build, update.txt then), check results, confirmations, boot decisions, crashes.
+-- Updater.report() puts all three files together for the info screen (src/infoview.lua,
+-- long press on the build line in the lobby); on Android the report is also copied to
+-- the app's folder next to games/ (Updater.mirrorPath), which is reachable over USB -
+-- the save folder is not.
+--
 -- IMPORTANT: boot() of the build installed by hand on a device runs on every start, before
 -- any update - keep it simple and keep update.txt compatible.
 --
@@ -33,10 +40,15 @@ Updater.PUBLIC_KEY = "9B7BBD3C86C5D362FEEBF58706BA5EA012B91D4DCA074FB91DFA8D2B37
 
 local STATE_FILE = "update.txt"
 local CRASH_FILE = "crash.txt"
+local LOG_FILE = "update-log.txt"
+local LOG_LINES = 80
+local INFO_FILE = "yard-wars-info.txt" -- the copy of the report (Android: next to games/)
 local CONFIRM_AFTER = 3 -- seconds a mounted build has to run before it counts as working
 
 Updater.status = nil -- short text for the lobby ("up to date", ...)
 Updater.ready = nil  -- build number downloaded and ready to use (restart to switch)
+Updater.mirrorPath = nil  -- where the report copy was written (nil: none)
+Updater.mirrorError = nil -- why it couldn't be written
 
 local channel, thread
 local runTime = 0
@@ -88,6 +100,80 @@ local function writeState(st)
     love.filesystem.write(STATE_FILE, table.concat(lines, "\n") .. "\n")
 end
 
+-- One line in update-log.txt (date, running build, text); keeps the last LOG_LINES
+local function log(text)
+    pcall(function()
+        local s = love.filesystem.getInfo(LOG_FILE) and love.filesystem.read(LOG_FILE) or ""
+        local lines = {}
+        for line in s:gmatch("[^\n]+") do lines[#lines + 1] = line end
+        lines[#lines + 1] = os.date("%Y-%m-%d %H:%M:%S") .. "  [" .. tostring(Updater.build())
+            .. "]  " .. text
+        while #lines > LOG_LINES do table.remove(lines, 1) end
+        love.filesystem.write(LOG_FILE, table.concat(lines, "\n") .. "\n")
+    end)
+end
+Updater.log = log
+
+local function readFile(name)
+    return love.filesystem.getInfo(name) and love.filesystem.read(name) or nil
+end
+
+-- update.txt in one line ("build 81 / file update-81.love / state ok / bad 79")
+local function stateLine()
+    local s = readFile(STATE_FILE)
+    if not s or s:match("^%s*$") then return "(empty)" end
+    return (s:gsub("%s*$", ""):gsub("\n", " / "))
+end
+
+-- Everything about updates and crashes on this device, as text
+function Updater.report()
+    local os_ = love.system and love.system.getOS() or "?"
+    local version = readFile("version.txt")
+    local lines = {
+        "Yard Wars build " .. tostring(Updater.build() or "- (no build.txt: no updates)")
+            .. (version and "  (" .. version:gsub("%s*$", "") .. ")" or ""),
+        "running: " .. (YARD_WARS_UPDATE and "downloaded update" or "installed build")
+            .. "   system: " .. os_ .. "   now: " .. os.date("%Y-%m-%d %H:%M:%S"),
+        "",
+        "--- update.txt",
+        stateLine(),
+        "",
+        "--- crash.txt",
+        ((readFile(CRASH_FILE) or "(no crash logged)"):gsub("%s*$", "")),
+        "",
+        "--- update-log.txt (newest last)",
+        ((readFile(LOG_FILE) or "(empty)"):gsub("%s*$", "")),
+    }
+    return table.concat(lines, "\n") .. "\n"
+end
+
+-- The folder for the report copy: Android = the app's own folder in shared storage
+-- (.../Android/data/<app>/files, where games/ lives; the app may write there and USB
+-- shows it), desktop only with --info-dir DIR (for tests: the save folder is reachable)
+local mirrorDir
+local function findMirrorDir(args)
+    local _, dir = hasArg("--info-dir", args)
+    if dir then return dir end
+    if not (love.system and love.system.getOS() == "Android") then return nil end
+    local source = love.filesystem.getSource() or ""
+    return source:match("^(.-/Android/data/[^/]+/files)/")
+        or "/storage/emulated/0/Android/data/org.love2d.android/files"
+end
+
+-- Write the report copy (if there is a place for it)
+function Updater.mirror()
+    if not mirrorDir then return end
+    local ok, err = pcall(function()
+        local path = mirrorDir .. "/" .. INFO_FILE
+        local f, why = io.open(path, "w")
+        if not f then error(why or "can't open", 0) end
+        f:write(Updater.report())
+        f:close()
+        Updater.mirrorPath, Updater.mirrorError = path, nil
+    end)
+    if not ok then Updater.mirrorPath, Updater.mirrorError = nil, tostring(err) end
+end
+
 -- Delete downloaded builds in the save folder except `keep`
 local function cleanup(keep)
     local save = love.filesystem.getSaveDirectory()
@@ -109,11 +195,11 @@ local function logCrashes()
     YARD_WARS_ERROR_SCREEN = YARD_WARS_ERROR_SCREEN or love.errorhandler or love.errhand
     local show = YARD_WARS_ERROR_SCREEN
     love.errorhandler = function(msg)
+        local trace = debug.traceback("Error: " .. tostring(msg), 2) -- (from where it failed)
         pcall(function()
             local build = Updater.build()
             love.filesystem.write(CRASH_FILE, "build " .. tostring(build) .. "  "
-                .. os.date("%Y-%m-%d %H:%M:%S") .. "\n"
-                .. debug.traceback("Error: " .. tostring(msg), 2) .. "\n")
+                .. os.date("%Y-%m-%d %H:%M:%S") .. "\n" .. trace .. "\n")
             if YARD_WARS_UPDATE and not confirmed then
                 local st = readState()
                 if st.build == YARD_WARS_UPDATE then
@@ -121,6 +207,8 @@ local function logCrashes()
                     writeState(st)
                 end
             end
+            log("crash: " .. (tostring(msg):gsub("\n.*", "")))
+            Updater.mirror()
         end)
         return show(msg)
     end
@@ -141,8 +229,14 @@ function Updater.boot()
     if usable and (st.state == "retry" or st.state == "trying" and st.crashed == st.build) then
         st.bad[st.build] = true
         usable = false
+        log("boot: build " .. st.build .. " marked bad ("
+            .. (st.state == "retry" and "second start ended early too" or "it crashed") .. ")")
     elseif usable and st.state == "trying" then
         retry = true
+        log("boot: build " .. st.build .. " ended early last time - one more try")
+    elseif st.build and st.file and not usable then
+        log("boot: build " .. st.build .. " not used ("
+            .. (st.bad[st.build] and "bad" or st.build <= own and "not newer" or "file missing") .. ")")
     end
     if not usable then
         if st.build then
@@ -169,7 +263,13 @@ local setStatus, readCrash
 
 -- Start the check in the background (from love.load)
 function Updater.start(args)
+    mirrorDir = findMirrorDir(args)
     local own = Updater.build()
+    if own then
+        log("start: " .. (YARD_WARS_UPDATE and "downloaded update" or "installed build")
+            .. "; update.txt: " .. stateLine())
+    end
+    Updater.mirror()
     if not own or hasArg("--no-update", args) then return end
     local _, url = hasArg("--update-url", args)
     local bad = {}
@@ -209,6 +309,8 @@ function Updater.update(dt)
         if st.build == YARD_WARS_UPDATE and (st.state == "trying" or st.state == "retry") then
             st.state, st.crashed = "ok", nil
             writeState(st)
+            log("build " .. st.build .. " ran " .. CONFIRM_AFTER .. " s: confirmed")
+            Updater.mirror()
         end
     end
     if not channel then return end
@@ -238,7 +340,13 @@ function Updater.update(dt)
         check = "update failed: " .. thread:getError():gsub("\n.*", "")
         thread = nil
     end
-    if check ~= before then setStatus() end
+    if check ~= before then
+        setStatus()
+        if check ~= "checking for updates" then
+            log("check: " .. check)
+            Updater.mirror()
+        end
+    end
 end
 
 return Updater

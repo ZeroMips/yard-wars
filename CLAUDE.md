@@ -170,7 +170,16 @@ existing things that break it.
   it). Every Lua error goes to `crash.txt` in the save folder (build, date, traceback;
   wraps LÖVE 11.5's default `love.errhand` - `love.errorhandler` is nil there); the lobby's
   status line shows "last crash (build N): ..." while that build or an older one runs.
-  These boot() rules only apply on devices whose hand-installed build has them. `Updater.start()`
+  These boot() rules only apply on devices whose hand-installed build has them.
+  `update-log.txt` (save folder, last 80 lines): every start (installed build or
+  downloaded update + update.txt then), check results, "confirmed", crashes and (only
+  where the hand-installed build has it, from build 83 on) boot's decisions.
+  `Updater.report()` = header + update.txt + crash.txt + that log: shown by the info
+  screen (`src/infoview.lua`: long press 0.6 s on the build line in the lobby, key I;
+  scrolls) and copied (`Updater.mirror()`, at start/check result/confirm/crash/info
+  screen) to `yard-wars-info.txt` in the app's shared folder on Android
+  (`.../Android/data/org.love2d.android/files/`, next to games/, readable over USB -
+  the save folder is in private storage and is not), desktop only with `--info-dir DIR`. `Updater.start()`
   runs `src/updater_thread.lua` (love.thread: socket.http GET latest.txt, RSA check, download,
   size + sha256, write) and `Updater.update()` reads its status for the lobby's version line;
   a finished download restarts the game at once (`love.event.quit("restart")`) if the lobby

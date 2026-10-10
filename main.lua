@@ -17,6 +17,7 @@ local World    = require("src.world")
 local Effects  = require("src.effects")
 local Menu     = require("src.menu")
 local Join     = require("src.join")
+local InfoView = require("src.infoview")
 local Net      = require("src.net")
 local Replica  = require("src.replica")
 local Medpack  = require("src.medpack")
@@ -372,6 +373,19 @@ local function tapVersion()
         or "Test mode off"
 end
 
+-- Info screen (updates and crashes, src/infoview.lua): long press on the build line, key I
+local INFO_HOLD = 0.6 -- seconds
+local versionPress = nil -- { t = when, done = opened already } while the build line is held
+local function openInfo()
+    Sound.play("click")
+    InfoView.open()
+    state = "info"
+end
+local function closeInfo()
+    Sound.play("click")
+    state = "menu"
+end
+
 -- Start screen actions (from Menu.hit / Menu.keypressed)
 local function menuAction(what, i)
     if what == "play" then play()
@@ -453,6 +467,7 @@ function love.resize()
         title  = love.graphics.newFont(56, "normal", dpi),
         button = love.graphics.newFont(26, "normal", dpi),
         text   = hudFont,
+        small  = love.graphics.newFont(13, "normal", dpi), -- (the info screen)
     }
 end
 
@@ -703,6 +718,11 @@ function love.update(dt)
     -- A downloaded update is used right away if nobody is busy in the lobby. Not on
     -- Android: the moto g67 marked build 71 bad after such a restart (the restarted build
     -- never ran 3 s), there it waits for the next start.
+    if versionPress and not versionPress.done and state == "menu"
+        and love.timer.getTime() - versionPress.t > INFO_HOLD then
+        versionPress.done = true
+        openInfo()
+    end
     if Updater.ready and state == "menu" and not Menu.modesOpen
         and love.system.getOS() ~= "Android" then
         love.event.quit("restart")
@@ -1164,7 +1184,9 @@ local function drawScreen()
         Arena.drawBelow()
         Arena.drawBushes(nil)
         Camera.detach()
-        if state == "menu" then Menu.draw(menuFonts, Controls.touchMode)
+        if state == "menu" or state == "info" then Menu.draw(menuFonts, Controls.touchMode) end
+        if state == "menu" then -- (drawn above)
+        elseif state == "info" then InfoView.draw(menuFonts)
         elseif state == "join" then Join.draw(menuFonts)
         elseif state == "pass" then PassView.draw(menuFonts)
         elseif state == "style" then Wardrobe.draw(menuFonts)
@@ -1195,6 +1217,8 @@ end
 local function press(x, y)
     if state == "menu" then
         menuAction(Menu.hit(x, y))
+    elseif state == "info" then
+        if InfoView.hit(x, y) == "back" then closeInfo() end
     elseif state == "pick" then
         local what, i = Picker.hit(x, y)
         if what == "skins" then
@@ -1242,25 +1266,40 @@ function love.touchpressed(id, x, y)
     end
     if state == "pick" then Picker.touchStart() end
     if state == "pass" then PassView.touchStart() end
+    if state == "info" then InfoView.touchStart() end
+    if state == "menu" and Menu.hit(x, y) == "version" then versionPress = { t = love.timer.getTime() } end
     if playing() then Controls.touchpressed(id, x, y) end
 end
 function love.touchmoved(id, x, y, dx, dy)
     if id == muteTouch then return end
     if state == "pick" then Picker.drag(dy) end
     if state == "pass" then PassView.drag(dx) end
+    if state == "info" then InfoView.drag(dy) end
     if playing() then Controls.touchmoved(id, x, y) end
 end
 function love.touchreleased(id, x, y)
     if id == muteTouch then muteTouch = nil return end
+    local held = versionPress and versionPress.done
+    versionPress = nil
     if playing() then Controls.touchreleased(id, x, y)
+    elseif held then Controls.touchMode = true -- the long press opened the info screen
+    elseif state == "info" and InfoView.dragged then Controls.touchMode = true
     elseif state == "pick" and Picker.dragged then Controls.touchMode = true -- scrolled
     elseif state == "pass" and PassView.dragged then Controls.touchMode = true
     else Controls.touchMode = true; press(x, y) end
 end
 
 -- Mouse (touches also arrive here as emulated mouse events: skip those)
+function love.mousepressed(x, y, button, istouch)
+    if state == "menu" and button == 1 and not istouch and Menu.hit(x, y) == "version" then
+        versionPress = { t = love.timer.getTime() }
+    end
+end
 function love.mousereleased(x, y, button, istouch)
-    if not playing() and button == 1 and not istouch then press(x, y) end
+    if istouch then return end
+    local held = versionPress and versionPress.done
+    versionPress = nil
+    if not playing() and button == 1 and not held then press(x, y) end
 end
 function love.mousemoved(x, y, dx, dy, istouch)
     if state == "menu" and not istouch then
@@ -1271,6 +1310,7 @@ end
 function love.wheelmoved(x, y)
     if state == "pick" then Picker.wheel(y) end
     if state == "pass" then PassView.wheel(x, y) end
+    if state == "info" then InfoView.wheel(y) end
 end
 
 function love.textinput(t)
@@ -1281,6 +1321,14 @@ end
 -- and style screens -> back, menu -> quit
 function love.keypressed(key)
     if key == "m" and state ~= "join" then Sound.toggleMute() return end
+    if state == "info" then
+        if InfoView.keypressed(key) == "back" then closeInfo() end
+        return
+    end
+    if state == "menu" and key == "i" and not (Menu.modesOpen or Menu.bossOpen) then
+        openInfo()
+        return
+    end
     if state == "menu" then
         local before = Menu.rowdy .. " " .. Menu.mode
         menuAction(Menu.keypressed(key))
