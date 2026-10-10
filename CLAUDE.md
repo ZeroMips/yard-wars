@@ -173,7 +173,7 @@ existing things that break it.
   These boot() rules only apply on devices whose hand-installed build has them.
   `update-log.txt` (save folder, last 80 lines): every start (installed build or
   downloaded update + update.txt then), check results, "confirmed", crashes and (only
-  where the hand-installed build has it, from build 83 on) boot's decisions.
+  where the hand-installed build has it, from build 85 on) boot's decisions.
   `Updater.report()` = header + update.txt + crash.txt + that log: shown by the info
   screen (`src/infoview.lua`: long press 0.6 s on the build line in the lobby, key I;
   scrolls) and copied (`Updater.mirror()`, at start/check result/confirm/crash/info

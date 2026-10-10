@@ -165,6 +165,9 @@ function Updater.mirror()
     if not mirrorDir then return end
     local ok, err = pcall(function()
         local path = mirrorDir .. "/" .. INFO_FILE
+        -- a new file each time: USB (MTP) notices new files, but keeps the size of the
+        -- first write for a rewritten one (it read the Pixel's copy cut off at that size)
+        os.remove(path)
         local f, why = io.open(path, "w")
         if not f then error(why or "can't open", 0) end
         f:write(Updater.report())
