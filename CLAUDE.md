@@ -553,14 +553,15 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   (2026-10-09: the 8 new rowdies from Gideon's sheets, protocol 8, updater crash
   log). Website with their cards uploaded the same day. Build 81 (2026-10-10:
   bots are random handicapped rowdies with supers and spread out; protocol unchanged).
-  Build 86 (2026-10-10, current: info screen + update log + USB copy; latest.txt + .love
-  answer 200 over plain http).
+  Build 86 (2026-10-10: info screen + update log + USB copy; latest.txt + .love
+  answer 200 over plain http). Build 93 (2026-10-11, current: Yardball, protocol 9;
+  website with the Yardball card uploaded the same day).
 - Random-rowdy bots NOT yet tried on a device (feel of the handicap, how often bots
   use supers).
 - New rowdies NOT yet tried on a device (Wizard's held beam on the touch stick, leap /
   blink distances, burrow and vanish, the feel of each).
 - Boss fights NOT yet tried on a device (touch on the panel, fight feel on a phone).
-- Yardball (2026-10-11, not published yet): tested on desktop (headless rules test, bot-only
+- Yardball (2026-10-11, published as build 93): tested on desktop (headless rules test, bot-only
   rounds, autopilot solo round + screenshots landscape/portrait, LAN host + client on one
   machine: same goals and carriers on both sides). NOT yet on a device (kick with the
   touch stick, tap-to-goal). Charter: no time limit, so a round only ends with 2 goals -
