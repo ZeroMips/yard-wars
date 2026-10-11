@@ -75,6 +75,7 @@ function Rowdy:init(x, y, look, stats)
     self.beamLen = 0    -- length of the beam this step (0 = off; drawn)
     self.beamHold = 0   -- seconds the beam stays on (input / bot keeps it up)
     -- push (forced or own movement { vx, vy, t, own }), leap, burrowed: see Rowdy:act
+    -- carrying: has the ball (Yardball, set by src/world.lua): no attacks, only the super
     -- animation state
     self.walkPhase, self.walkBlend, self.stepTimer = 0, 0, 0
     self.dirX, self.dirY = 1, 0
@@ -403,7 +404,7 @@ function Rowdy:actBeam(dt)
     if self.grab then return end -- (its beam is the grab's)
     local attack = self.attack
     if attack.kind ~= "beam" or self.beamHold <= 0 or not self:canAct() or self.ammo <= 0
-        or not self.world then
+        or not self.world or self.carrying then
         self.beamLen, self.beamTimer, self.beamSound = 0, nil, nil
         return
     end
@@ -540,8 +541,9 @@ function Rowdy:landing(attack, angle)
 end
 
 -- One attack: uses one ammo bar and fires `pellets` projectiles in a cone.
--- Returns true if the attack happened.
+-- Returns true if the attack happened. (Not while carrying the ball: the attack kicks it.)
 function Rowdy:shoot(bullets, hold)
+    if self.carrying then return false end
     if self.attack.kind == "beam" then -- keeps the beam on (a tap: a bit longer)
         if not self:canAct() or self.ammo <= 0.05 then return false end
         self.beamHold = math.max(self.beamHold, hold and 0.12 or 0.35)

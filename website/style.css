@@ -163,7 +163,7 @@ section.wrap { padding-top: 72px; } /* section.wrap: .wrap alone resets padding 
 .price.free { color: var(--green); }
 
 /* Mode tiles in the colours of the game's mode cards */
-.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.modes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
 .mode {
   border: 3px solid #000;
   border-radius: 14px;
@@ -175,6 +175,7 @@ section.wrap { padding-top: 72px; } /* section.wrap: .wrap alone resets padding 
 .duel  { background: var(--orange); }
 .team  { background: var(--blue); }
 .waves { background: var(--purple); }
+.yardball { background: #269e99; }
 .wide { margin-top: 18px; }
 
 footer {

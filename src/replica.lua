@@ -61,12 +61,21 @@ local function decodeSnap(msg)
                 expires = tonumber(c[7]) or 0 }
         end
     end
+    local ball -- (Yardball)
+    local y = msg.y
+    if type(y) == "table" and tonumber(y[1]) and tonumber(y[2]) then
+        ball = { x = y[1], y = y[2], carrier = tonumber(y[3]) ~= 0 and tonumber(y[3]) or nil,
+            vx = tonumber(y[4]) or 0, vy = tonumber(y[5]) or 0, kickoff = tonumber(y[6]) or 0 }
+    end
     local m = type(msg.match) == "table" and msg.match or {}
+    local goals = type(m.goals) == "table"
+        and { tonumber(m.goals[1]) or 0, tonumber(m.goals[2]) or 0 } or nil
     return { t = tonumber(msg.t) or 0, wave = msg.wave, waveSize = msg.waveSize,
         waveTimer = msg.waveTimer, ents = ents, medpacks = packs, boxes = boxes, coins = coins,
+        ball = ball,
         match = { over = m.over == true, timeLeft = tonumber(m.timeLeft),
                   winner = tonumber(m.winner), winnerTeam = tonumber(m.winnerTeam),
-                  wave = tonumber(m.wave) } }
+                  wave = tonumber(m.wave), goals = goals } }
 end
 
 -- Feed the messages from Client:takeInbox()
@@ -154,6 +163,25 @@ function Replica:sample(id, t)
     return e
 end
 
+-- The ball at time t: interpolated between two snapshots (a jump - a goal, a kick-off -
+-- is not smoothed); a carried one sits in front of its carrier's proxy (see update)
+function Replica:sampleBall(t)
+    local snaps = self.snaps
+    local i = #snaps
+    while i > 1 and snaps[i - 1].t >= t do i = i - 1 end
+    local b1, s0 = snaps[i].ball, snaps[i - 1]
+    local b0 = s0 and s0.ball
+    if not b1 then return nil end
+    local ball = { x = b1.x, y = b1.y, vx = b1.vx, vy = b1.vy, carrier = b1.carrier,
+        kickoff = b1.kickoff }
+    if b0 and t < snaps[i].t and not b0.carrier and not b1.carrier
+        and (b1.x - b0.x) ^ 2 + (b1.y - b0.y) ^ 2 < 200 * 200 then
+        local k = math.max(0, (t - s0.t) / (snaps[i].t - s0.t))
+        ball.x, ball.y = b0.x + (b1.x - b0.x) * k, b0.y + (b1.y - b0.y) * k
+    end
+    return ball
+end
+
 local function proxyFor(self, s)
     local def = Rowdies.byKey(s.key)
     local p = self.proxies[s.id]
@@ -184,6 +212,7 @@ local function proxyFor(self, s)
     p.heldBy = s.held == true or nil
     p.vanished = s.vanished == true or nil
     p.skin, p.trail, p.title, p.badge = s.skin, s.trail, s.title, s.badge -- nil = none
+    p.goals = tonumber(s.goals) or 0
     return p
 end
 
@@ -213,6 +242,18 @@ function Replica:update()
     table.sort(world.entities, function(a, b) return a.id < b.id end)
     world.wave, world.waveSize, world.waveTimer = newest.wave, newest.waveSize, newest.waveTimer
     world.match = newest.match
+
+    -- The ball (Yardball): as of the remote time; carried = in front of the carrier
+    local ball = newest.ball and self:sampleBall(remoteT)
+    world.ball, world.kickoff = ball, ball and ball.kickoff or 0
+    for _, p in ipairs(world.entities) do p.carrying = nil end
+    local carrier = ball and ball.carrier and world.byId[ball.carrier]
+    if carrier then
+        carrier.carrying = true
+        ball.x, ball.y = World.carrySpot(carrier)
+    elseif ball then
+        ball.carrier = nil
+    end
 
     -- Medpacks, loot boxes and coins as of the remote time (the newest snapshot not
     -- newer than that)

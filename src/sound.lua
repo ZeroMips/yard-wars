@@ -188,6 +188,19 @@ local DEFS = {
                          { { wave = "sine", f1 = 400, f2 = 1600, dur = 0.3, vol = 0.12, attack = 0.05 } }),
     claim        = notes({ { E5, 0.05 }, { G5, 0.05 }, { C6, 0.16 } }, "square", 0.16,
                          { { wave = "noise", f1 = 1, f2 = 1, dur = 0.25, vol = 0.1, lowpass = 0.6, delay = 0.08 } }),
+    -- Yardball: a kick (a soft "thock"), taking the ball, a bounce off a wall, a goal
+    -- (a jingle over a cheering crowd of noise)
+    kick         = { { wave = "sine", f1 = 260, f2 = 90, dur = 0.12, vol = 0.7 },
+                     { wave = "noise", f1 = 1, f2 = 1, dur = 0.06, vol = 0.35, lowpass = 0.5 } },
+    pickup       = { { wave = "triangle", f1 = 500, f2 = 800, dur = 0.08, vol = 0.25 },
+                     { wave = "sine", f1 = 180, f2 = 120, dur = 0.06, vol = 0.3 } },
+    bounce       = { { wave = "sine", f1 = 220, f2 = 130, dur = 0.08, vol = 0.4 } },
+    goal         = notes({ { C5, 0.08 }, { E5, 0.08 }, { G5, 0.08 }, { C6, 0.08 }, { G5, 0.08 }, { C6, 0.4 } },
+                         "square", 0.16,
+                         { { wave = "noise", f1 = 1, f2 = 1, dur = 1.3, vol = 0.28, lowpass = 0.35, attack = 0.15,
+                             curve = 1 },
+                           { wave = "noise", f1 = 1, f2 = 1, dur = 1.0, vol = 0.18, lowpass = 0.7, attack = 0.1,
+                             delay = 0.15, curve = 1.2 } }),
     -- rounds and UI
     roundStart   = notes({ { G5, 0.09 }, { C6, 0.16 } }, "square", 0.18),
     victory      = notes({ { C5, 0.11 }, { E5, 0.11 }, { G5, 0.11 }, { C6, 0.35 } }, "square", 0.2,

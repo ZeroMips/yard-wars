@@ -18,6 +18,7 @@ local FLANK         = 0.8  -- radians: chases on a path turned up to this far (n
 local SEARCH_OFFSET = 120  -- px: searches around the last seen spot, not right on it
 local PATROL_TOWARDS = 0.35 -- share of patrol points near the target (else anywhere)
 local PATROL_AREA   = 700  -- px around the target
+local GOAL_SPREAD   = 80   -- px: Yardball shots aim this far up or down the goal mouth
 
 -- look/stats: of a rowdy in src/rowdies.lua (the world picks it, see World.BOT_DAMAGE)
 function Enemy.new(x, y, look, stats)
@@ -40,6 +41,7 @@ function Enemy:respawn()
     self.flank = (math.random() * 2 - 1) * FLANK
     local a, r = math.random() * math.pi * 2, math.random() * SEARCH_OFFSET
     self.searchDX, self.searchDY = math.cos(a) * r, math.sin(a) * r
+    self.aimOffset = (math.random() * 2 - 1) * GOAL_SPREAD -- (Yardball: where it shoots)
 end
 
 -- Unit vector (x, y) turned by angle a
@@ -88,6 +90,9 @@ function Enemy:update(dt, world)
     end
     if visible and target.burrowed then visible = false end -- underground
     if visible and target.vanished and dist > BUSH_REVEAL then visible = false end
+    if target and target.carrying and not target.dead and dist <= SIGHT_RANGE then
+        visible = Arena.hasLineOfSight(self.x, self.y, target.x, target.y) -- the ball shows it
+    end
 
     local mx, my = 0, 0
     if visible then
@@ -164,6 +169,19 @@ function Enemy:update(dt, world)
         end
     end
 
+    -- Yardball (World:ballPlan): carry the ball to the goal and shoot, go for a free ball
+    -- or the carrier - shooting at the target goes on as above
+    local plan = world.ballPlan and world:ballPlan(self)
+    if plan and plan.kick then
+        world:kick(self, plan.angle, plan.dist)
+    elseif plan then
+        local px, py = plan.x - self.x, plan.y - self.y
+        local pd = math.sqrt(px * px + py * py)
+        if pd > 4 then mx, my = px / pd, py / pd else mx, my = 0, 0 end
+        self.state = "ball"
+        if self.carrying and (mx ~= 0 or my ~= 0) then self.aim = math.atan2(my, mx) end
+    end
+
     -- Keep apart from team mates (not underground: it heads for its target there)
     if not self.burrowed then
         local sx, sy = separation(self, world)
@@ -195,9 +213,16 @@ function Enemy:update(dt, world)
         if moved < self.speed * dt * 0.25 then
             self.stuckTimer = self.stuckTimer + dt
             if self.stuckTimer > 0.3 then
+                -- slide sideways, to the open side if only one is
+                local open = {}
+                for _, dir in ipairs({ 1, -1 }) do
+                    if not Arena.hitsSolid(self.x - my * dir * 56, self.y + mx * dir * 56, self.radius) then
+                        open[#open + 1] = dir
+                    end
+                end
+                self.unstickDir = #open == 1 and open[1] or ((math.random(2) == 1) and 1 or -1)
                 self.stuckTimer = 0
                 self.unstickTimer = 0.8
-                self.unstickDir = (math.random(2) == 1) and 1 or -1
                 self.wanderTimer = 0
             end
         else

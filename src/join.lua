@@ -54,7 +54,8 @@ end
 
 -- One line describing a found game
 function Join.describe(g)
-    return string.format("%s  -  %s  -  %d player%s", g.waves and "Waves (co-op)" or "Duel",
+    local mode = g.waves and "Waves (co-op)" or (g.mode ~= "?" and g.mode) or "Duel"
+    return string.format("%s  -  %s  -  %d player%s", mode,
         g.address, g.players, g.players == 1 and "" or "s")
 end
 

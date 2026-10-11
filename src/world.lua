@@ -1,5 +1,5 @@
 -- The simulation: all rowdies (players + bots) with ids and teams, bullets, hits,
--- scores and the game mode (duel / team fight / waves / boss fight). It runs in fixed steps of World.TICK.
+-- scores and the game mode (duel / team fight / waves / boss fight / Yardball). It runs in fixed steps of World.TICK.
 --
 -- No input devices, rendering, camera or particles in here: players are driven by
 -- input tables (src/controls.lua format), and everything worth showing is pushed as
@@ -61,6 +61,28 @@ World.LIVES       = 3
 World.BOSS_HP   = 3
 World.BOSS_SIZE = 1.4 -- drawn and hit this much bigger
 
+-- Yardball (mode.yardball, a team fight with a ball on the "pitch" layout, see
+-- src/arena.lua): the ball starts in the middle; a rowdy that walks over it carries it
+-- (in front of it) and kicks it with the attack button (no attacks while carrying, the
+-- super still works) - as far as it aims (KICK_MIN..KICK_MAX from its body centre).
+-- A rolling ball bounces off walls, crates, chests and the border, except at the goal
+-- mouths: reaching the back of a goal (rolling or carried) scores for the other team
+-- (own goals count). Anybody who touches a free ball takes it (passes, interceptions,
+-- goalkeeping); the kicker only after PICKUP_DELAY. A carrier that is knocked out,
+-- frozen, grabbed, digs in or vanishes drops it. After a goal everybody goes back to
+-- their spot and the ball to the middle (nobody can take it for KICKOFF_DELAY). First
+-- team to YARDBALL_GOALS goals wins; no time limit.
+World.YARDBALL_GOALS = 2
+World.BALL_RADIUS    = 14
+World.BALL_FRICTION  = 620 -- px/s^2: how fast a rolling ball slows down
+World.KICK_MIN, World.KICK_MAX = 120, 650
+World.KICKOFF_DELAY  = 1.5
+local PICKUP_DELAY   = 0.4
+local BALL_BOUNCE    = 0.6 -- share of the speed a ball keeps when it bounces
+local CARRIER_BONUS  = 700 -- px: bots go after the ball carrier as if it were this much nearer
+local BOT_SHOT_RANGE = 520 -- px: a bot with the ball shoots at the goal from this close
+local BOT_THREAT     = 120 -- px: ...or from farther when an opponent is this close
+
 World.PULL_SPEED = 900 -- px/s: a rowdy hit by a pull attack flies to the puller
 
 -- Bots (duel opponent, team fight bots, waves) are random rowdies of src/rowdies.lua,
@@ -78,6 +100,7 @@ local IDLE = { dx = 0, dy = 0 } -- input of a player that sent nothing
 
 -- mode: entry of MODES in main.lua ({ waves = bool, ... })
 function World.new(mode)
+    Arena.setLayout(mode.yardball and "pitch" or "yard")
     return setmetatable({
         mode = mode,
         entities = {}, -- every rowdy, in insertion order (players and bots)
@@ -97,13 +120,16 @@ function World.new(mode)
         wave = 0, waveSize = 0,
         waveTimer = 0, -- countdown to the next wave once all bots are dead
         match = World.newMatch(mode),
+        ball = nil,    -- Yardball: { x, y, vx, vy, carrier = id, lastKick = id, noPick }
+        kickoff = 0,   -- Yardball: seconds until the ball can be taken
     }, World)
 end
 
 -- Round state: { over = bool, timeLeft (duel), winner = entity id or nil (draw),
--- wave = wave reached (waves) }
+-- wave = wave reached (waves), goals = { [team] = n } (Yardball) }
 function World.newMatch(mode)
-    return { over = false, timeLeft = not (mode.waves or mode.boss) and World.TIME_LIMIT or nil }
+    return { over = false, goals = mode.yardball and { 0, 0 } or nil,
+        timeLeft = not (mode.waves or mode.boss or mode.yardball) and World.TIME_LIMIT or nil }
 end
 
 -- The boss's look: the rowdy's own, BOSS_SIZE bigger (also used by src/replica.lua)
@@ -139,6 +165,8 @@ end
 --         with a blast)  blink {id, toX, toY} (teleports from x, y; a blast there)
 --   vanish {id}  appear {id} (invisible / visible again)  grab {id, victim (nil: missed)}
 --   fling {id, by} (a grabbed rowdy is thrown)  bonk {id} (a flung rowdy crashes)
+--   Yardball: pickup {id}  kick {id}  ballDrop {id}  goal {team (that scored), by}
+--         bounce (the ball hit a wall)
 function World:emit(kind, data)
     data.kind = kind
     data.t = self.time
@@ -154,7 +182,7 @@ end
 
 function World:add(e, team, def)
     e.id, e.team, e.def, e.world = self.nextId, team, def, self
-    e.kills, e.deaths = 0, 0
+    e.kills, e.deaths, e.goals = 0, 0, 0
     self.nextId = self.nextId + 1
     self.entities[#self.entities + 1] = e
     self.byId[e.id] = e
@@ -231,6 +259,7 @@ end
 -- underground - its dirt mound is drawn anyway)
 function World:isHiddenFrom(e, viewer)
     if e.dead or not self:isOpponent(e, viewer) then return false end
+    if e.carrying then return false end -- the ball gives it away
     if e.burrowed then return true end
     if not Arena.inBush(e.x, e.y) and not e.vanished then return false end
     local dx, dy = e.x - viewer.x, e.y - viewer.y
@@ -270,6 +299,7 @@ function World:botTarget(e)
             local d = math.sqrt((o.x - e.x) ^ 2 + (o.y - e.y) ^ 2)
             local score = d + TARGET_CROWD * (crowd[o.id] or 0)
             if o.id == e.targetId then score = score - TARGET_KEEP end
+            if o.carrying then score = score - CARRIER_BONUS end -- (Yardball)
             local alive = not o.dead
             if not best or (alive and not bestAlive) or (alive == bestAlive and score < bestScore) then
                 best, bestScore, bestAlive = o, score, alive
@@ -407,8 +437,18 @@ function World:startWave()
     self:spawnBots(self.waveSize)
 end
 
+-- Yardball: the ball back to the middle, nobody may take it for KICKOFF_DELAY
+local function kickoff(self)
+    self.ball = { x = Arena.center.x, y = Arena.center.y, vx = 0, vy = 0, noPick = {} }
+    self.kickoff = World.KICKOFF_DELAY
+end
+
 -- Call after the players were added.
 function World:start()
+    if self.mode.yardball then
+        for _, e in ipairs(self.entities) do e.carrying = nil end
+        kickoff(self)
+    end
     if self.mode.teams then -- fill both teams with bots
         for _, team in ipairs({ World.TEAM_BLUE, World.TEAM_RED }) do
             local members = 0
@@ -726,6 +766,11 @@ local function boxSpot(self)
         for _, box in ipairs(self.boxes) do
             if (box.x - x) ^ 2 + (box.y - y) ^ 2 < (2 * BOX_MIN_DIST) ^ 2 then ok = false end
         end
+        local ball = self.ball -- (Yardball: not on the ball, not in front of a goal)
+        if ball and (ball.x - x) ^ 2 + (ball.y - y) ^ 2 < BOX_MIN_DIST ^ 2 then ok = false end
+        for _, g in ipairs(ball and Arena.goals or {}) do
+            if (g.x - x) ^ 2 + ((g.y1 + g.y2) / 2 - y) ^ 2 < 400 ^ 2 then ok = false end
+        end
         if ok then return x, y end
     end
 end
@@ -800,9 +845,217 @@ local function endMatch(self, winner, winnerTeam)
         wave = self.wave })
 end
 
+---------------------------------------------------------------------------- Yardball
+
+local BR = World.BALL_RADIUS
+
+-- Where a rowdy carries the ball: just in front of it, along its aim
+function World.carrySpot(e)
+    local d = e.radius + BR + 2
+    return e.x + math.cos(e.aim) * d, e.y + math.sin(e.aim) * d
+end
+
+local function otherTeam(team)
+    return team == World.TEAM_BLUE and World.TEAM_RED or World.TEAM_BLUE
+end
+
+-- The goal (= index of the team defending it) whose back a ball at x, y touches, or nil
+local function goalAt(x, y)
+    for team, g in ipairs(Arena.goals or {}) do
+        if y >= g.y1 and y <= g.y2
+            and ((g.dir < 0 and x - BR <= 0) or (g.dir > 0 and x + BR >= Arena.width)) then
+            return team
+        end
+    end
+end
+
+-- Does a ball at x, y overlap something it bounces off? (the border has the goal mouths)
+local function ballBlocked(self, x, y)
+    if y - BR < 0 or y + BR > Arena.height then return true end
+    if x - BR < 0 or x + BR > Arena.width then
+        local g = Arena.goals and Arena.goals[1]
+        if not g or y < g.y1 or y > g.y2 then return true end
+        return false
+    end
+    return Arena.hitsSolid(x, y, BR) or self:boxAt(x, y, BR) ~= nil
+end
+
+-- Can `e` keep the ball / take it? (not knocked out, frozen, grabbed, underground or
+-- invisible)
+local function canHold(e)
+    return not e.dead and e.frozen <= 0 and not e.heldBy and not e.burrowed and not e.vanished
+end
+
+local function dropBall(self, e)
+    local ball = self.ball
+    ball.carrier, ball.vx, ball.vy = nil, 0, 0
+    if e then
+        e.carrying = nil
+        self:emit("ballDrop", { id = e.id, x = ball.x, y = ball.y })
+    end
+end
+
+-- `team` scored (at x, y): count it, end the round or kick off again
+local function scoreGoal(self, team, x, y)
+    local ball, m = self.ball, self.match
+    local by = ball.carrier or ball.lastKick
+    local scorer = by and self.byId[by]
+    if scorer and scorer.team == team then scorer.goals = scorer.goals + 1 end
+    if scorer then scorer.carrying = nil end
+    ball.carrier, ball.x, ball.y, ball.vx, ball.vy = nil, x, y, 0, 0
+    m.goals[team] = m.goals[team] + 1
+    self:emit("goal", { team = team, by = by, x = x, y = y })
+    if m.goals[team] >= World.YARDBALL_GOALS then
+        endMatch(self, nil, team)
+        return
+    end
+    self.bullets = {}
+    for _, e in ipairs(self.entities) do
+        e.carrying = nil
+        e:respawn() -- back to its spot (not a knockout)
+    end
+    kickoff(self)
+end
+
+-- Kick the ball (only its carrier): towards `angle`, rolling to `dist` px from the
+-- kicker's body centre (KICK_MIN..KICK_MAX; nil = KICK_MAX). Returns true if it kicked.
+function World:kick(e, angle, dist)
+    local ball = self.ball
+    if not ball or ball.carrier ~= e.id or e.dead then return false end
+    e.aim = angle or e.aim
+    local x, y = World.carrySpot(e)
+    if not goalAt(x, y) then x, y = Arena.resolveCircle(x, y, BR) end
+    local d = math.max(World.KICK_MIN, math.min(World.KICK_MAX, tonumber(dist) or World.KICK_MAX))
+    local roll = math.max(20, d - (e.radius + BR + 2))
+    local v = math.sqrt(2 * World.BALL_FRICTION * roll) -- rolls exactly `roll` px
+    ball.x, ball.y = x, y
+    ball.vx, ball.vy = math.cos(e.aim) * v, math.sin(e.aim) * v
+    ball.carrier, e.carrying = nil, nil
+    ball.lastKick = e.id
+    ball.noPick[e.id] = self.time + PICKUP_DELAY
+    e.recoil = 1
+    self:emit("kick", { id = e.id, x = x, y = y })
+    return true
+end
+
+-- The ball each step: carried, rolling (bounces, goals) or picked up
+local function updateBall(self, dt)
+    local ball = self.ball
+    if self.kickoff > 0 then
+        self.kickoff = math.max(0, self.kickoff - dt)
+        return
+    end
+    if ball.carrier then
+        local c = self.byId[ball.carrier]
+        if not c or not canHold(c) then
+            dropBall(self, c)
+        else
+            local x, y = World.carrySpot(c)
+            local g = goalAt(x, y)
+            if g then return scoreGoal(self, otherTeam(g), x, y) end
+            ball.x, ball.y = Arena.resolveCircle(x, y, BR)
+            return
+        end
+    end
+
+    -- Rolling: in small steps, each axis on its own (all solids are axis-aligned boxes)
+    local speed = math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy)
+    if speed > 0 then
+        local steps = math.max(1, math.ceil(speed * dt / 8))
+        local h = dt / steps
+        local bounced = false
+        for _ = 1, steps do
+            local nx = ball.x + ball.vx * h
+            if ballBlocked(self, nx, ball.y) then ball.vx, bounced = -ball.vx * BALL_BOUNCE, true
+            else ball.x = nx end
+            local ny = ball.y + ball.vy * h
+            if ballBlocked(self, ball.x, ny) then ball.vy, bounced = -ball.vy * BALL_BOUNCE, true
+            else ball.y = ny end
+            local g = goalAt(ball.x, ball.y)
+            if g then return scoreGoal(self, otherTeam(g), ball.x, ball.y) end
+        end
+        if bounced and speed > 150 then self:emit("bounce", { x = ball.x, y = ball.y }) end
+        local k = math.max(0, speed - World.BALL_FRICTION * dt) / speed
+        ball.vx, ball.vy = ball.vx * k, ball.vy * k
+        if k == 0 then ball.vx, ball.vy = 0, 0 end
+    end
+
+    -- Picked up by the nearest rowdy touching it
+    local best, bestD2
+    for _, e in ipairs(self.entities) do
+        if canHold(e) and not e.leap and not (e.push and not e.push.own)
+            and not ((ball.noPick[e.id] or 0) > self.time) then
+            local r = e.radius + BR + 4
+            local d2 = (e.x - ball.x) ^ 2 + (e.y - ball.y) ^ 2
+            if d2 < r * r and (not bestD2 or d2 < bestD2) then best, bestD2 = e, d2 end
+        end
+    end
+    if best then
+        ball.carrier, ball.vx, ball.vy = best.id, 0, 0
+        best.carrying = true
+        if best.bursting and best.bursting.attack == best.attack then best.bursting = nil end
+        best.beamHold = 0
+        self:emit("pickup", { id = best.id, x = ball.x, y = ball.y })
+    end
+end
+
+-- The nearest living bot of `team` to x, y
+local function nearestBot(self, team, x, y)
+    local best, bestD2
+    for _, e in ipairs(self.entities) do
+        if e.isBot and e.team == team and not e.dead then
+            local d2 = (e.x - x) ^ 2 + (e.y - y) ^ 2
+            if not bestD2 or d2 < bestD2 then best, bestD2 = e, d2 end
+        end
+    end
+    return best
+end
+
+-- What bot `e` does about the ball (Yardball; src/enemy.lua), or nil = fight as usual:
+--   { kick = true, angle, dist }: kick it now; { x, y }: walk there
+function World:ballPlan(e)
+    local ball = self.ball
+    if not ball or self.match.over then return nil end
+    if ball.carrier == e.id then -- to the opponents' goal, and shoot when it's clear
+        local g = Arena.goals[otherTeam(e.team)]
+        local gx, gy = g.x - g.dir * 2, (g.y1 + g.y2) / 2 + (e.aimOffset or 0)
+        local dx, dy = gx - e.x, gy - e.y
+        local d = math.sqrt(dx * dx + dy * dy)
+        local angle = math.atan2(dy, dx)
+        local clear = Arena.raycast(e.x, e.y, angle, d, BR) >= d - 1
+        local threat = false
+        for _, o in ipairs(self.entities) do
+            if o.team ~= e.team and not o.dead
+                and (o.x - e.x) ^ 2 + (o.y - e.y) ^ 2 < BOT_THREAT * BOT_THREAT then
+                threat = true
+            end
+        end
+        if clear and (d <= BOT_SHOT_RANGE or (threat and d <= World.KICK_MAX + 300)) then
+            return { kick = true, angle = angle + (math.random() - 0.5) * 0.12, dist = d + 80 }
+        end
+        if Arena.hasLineOfSight(e.x, e.y, gx, gy) then return { x = gx, y = gy } end
+        -- around the cover: through the open lane in the middle
+        return { x = g.x - g.dir * 600, y = (g.y1 + g.y2) / 2 }
+    end
+    if ball.carrier then -- an opponent has it: the nearest bot goes straight for it
+        local c = self.byId[ball.carrier]
+        if c and c.team ~= e.team and nearestBot(self, e.team, c.x, c.y) == e then
+            return { x = c.x, y = c.y }
+        end
+        return nil
+    end
+    -- free ball: the nearest bot of each team runs to where it will be
+    if nearestBot(self, e.team, ball.x, ball.y) == e then
+        return { x = ball.x + ball.vx * 0.3, y = ball.y + ball.vy * 0.3 }
+    end
+end
+
+----------------------------------------------------------------------------
+
 -- Has the round been decided?
 local function checkMatch(self, dt)
     local m = self.match
+    if self.mode.yardball then return end -- (goals: scoreGoal; no time limit)
     if self.mode.waves then
         local players, out = 0, 0
         for _, e in ipairs(self.entities) do
@@ -855,7 +1108,7 @@ function World:restartMatch()
     self.boxTimer = World.BOX_FIRST
     self.wave, self.waveSize, self.waveTimer = 0, 0, 0
     for _, e in ipairs(self.entities) do
-        e.kills, e.deaths, e.out, e.charge = 0, 0, false, 0
+        e.kills, e.deaths, e.goals, e.out, e.charge = 0, 0, 0, false, 0
         e.fireBuffer, e.superBuffer = nil, nil
         e:respawn()
     end
@@ -875,11 +1128,19 @@ function World:update(dt, inputs)
         if e.isBot then
             e:update(dt, self)
         else
-            e:update(dt, inputs[e.id] or IDLE, self.bullets)
+            local input = inputs[e.id] or IDLE
+            if input.fire and self.ball and self.ball.carrier == e.id then -- fire = kick
+                self:kick(e, input.aim, input.aimDist)
+                e.fireBuffer = nil
+                input = { dx = input.dx, dy = input.dy, aim = input.aim,
+                    aimDist = input.aimDist, super = input.super }
+            end
+            e:update(dt, input, self.bullets)
         end
     end
     newBullets(self)
     updateBullets(self, dt)
+    if self.ball and not self.match.over then updateBall(self, dt) end
     updateMedpacks(self)
     updateLoot(self, dt)
     if self.mode.waves then updateWaves(self, dt) end

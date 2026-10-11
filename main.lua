@@ -34,6 +34,7 @@ local PassView = require("src.passview")
 local Seasons  = require("src.seasons")
 local Unlock   = require("src.unlock")
 local Wardrobe = require("src.wardrobe")
+local Ball     = require("src.ball")
 
 -- Game modes (round rules: see World.KILL_TARGET / TIME_LIMIT / LIVES).
 --   waves = false: duel - the bots respawn; first to 10 kills or most kills after
@@ -44,10 +45,13 @@ local Wardrobe = require("src.wardrobe")
 --                  first team to 15 kills
 --   boss = index : boss fight against that rowdy (src/unlock.lua; built in startBoss,
 --                  not on the mode list) - no time limit, won when the boss is out
+--   yardball     : a team fight with a ball and two goals (src/world.lua) - first team
+--                  to 2 goals, no time limit
 local MODES = {
     duel  = { name = "Duel",  waves = false },
     team  = { name = "Team fight", waves = false, teams = true },
     waves = { name = "Waves", waves = true },
+    yardball = { name = "Yardball", waves = false, teams = true, yardball = true },
 }
 
 -- Modes on the start screen (src/menu.lua): solo first, then the LAN ones.
@@ -59,12 +63,16 @@ Menu.entries = {
       icon = "team", mode = MODES.team },
     { id = "waves", name = "Waves", description = "3 lives - every wave brings one more bot",
       icon = "waves", mode = MODES.waves },
+    { id = "yardball", name = "Yardball", description = "3 vs 3 with a ball - first team to 2 goals",
+      icon = "ball", mode = MODES.yardball },
     { id = "hostDuel", name = "Host duel", description = "Free-for-all - everybody against everybody",
       icon = "duel", mode = MODES.duel, host = true, lan = true },
     { id = "hostTeam", name = "Host team fight", description = "Play together - 3 vs 3 with bots",
       icon = "team", mode = MODES.team, host = true, lan = true },
     { id = "hostWaves", name = "Host waves", description = "Survive waves together",
       icon = "waves", mode = MODES.waves, host = true, lan = true },
+    { id = "hostYardball", name = "Host Yardball", description = "Yardball together - 3 vs 3 with bots",
+      icon = "ball", mode = MODES.yardball, host = true, lan = true },
     { id = "join", name = "Join", description = "Play in a game hosted in your Wi-Fi",
       icon = "join", join = true, lan = true },
 }
@@ -115,6 +123,7 @@ local function resetGame()
     Effects.clear()
     Controls.reset()
     Scoreboard.clear()
+    Ball.reset()
     watch = {}
     roundCoins, roundReward, roundXp, tierUpSoundAt, roundUnlock = 0, nil, nil, nil, nil
     Pass.roundStart()
@@ -132,6 +141,7 @@ local function openMenu(message)
     closeFinder()
     server, client, replica = nil, nil, nil
     state, role = "menu", nil
+    Arena.setLayout("yard") -- (Yardball plays on the pitch)
     Menu.modesOpen = false
     Menu.message, Menu.notice = message, nil
     Controls.reset()
@@ -433,6 +443,7 @@ function love.load(args)
     love.resize()
     openMenu()
     -- Testing shortcuts: love . [--rowdy N] [--coins N] --host [team|waves] |
+    -- --host yardball |
     -- --boss N [host] (boss fight against rowdy N, fighting with the last used one) |
     -- --join <address> | --find   (--coins adds to the saved coins)
     for i, a in ipairs(args or {}) do
@@ -445,7 +456,7 @@ function love.load(args)
             startBoss(args[i + 2] == "host")
         end
         if a == "--host" then
-            newGame(MODES[args[i + 1]] or MODES.duel, true) -- duel / team / waves
+            newGame(MODES[args[i + 1]] or MODES.duel, true) -- duel / team / waves / yardball
         elseif a == "--join" and args[i + 1] then
             Join.address = args[i + 1]
             joinGame()
@@ -630,6 +641,23 @@ local function playEvents(events)
             else
                 Sound.play("coin", ev.x, ev.y, 0.5)
             end
+        elseif ev.kind == "kick" then -- Yardball
+            Effects.puff(ev.x, ev.y)
+            Sound.play("kick", ev.x, ev.y)
+        elseif ev.kind == "pickup" then
+            Effects.ring(ev.x, ev.y, 26, { 1, 1, 1 })
+            Sound.play("pickup", ev.x, ev.y, ev.id == localId and 1 or 0.6)
+        elseif ev.kind == "ballDrop" then
+            Effects.puff(ev.x, ev.y)
+        elseif ev.kind == "bounce" then
+            Sound.play("bounce", ev.x, ev.y, 0.7)
+        elseif ev.kind == "goal" then -- confetti in the goal, a cheer
+            for i, c in ipairs({ GOLD, { 1, 1, 1 }, { 0.4, 0.8, 1 }, { 1, 0.45, 0.4 } }) do
+                Effects.sparks(ev.x, ev.y, 10, c, 220 + i * 40)
+            end
+            Effects.ring(ev.x, ev.y, 90, GOLD)
+            Camera.shake(4)
+            Sound.play("goal")
         elseif ev.kind == "matchStart" then
             roundCoins, roundReward, roundXp, tierUpSoundAt, roundUnlock = 0, nil, nil, nil, nil
             Pass.roundStart()
@@ -669,7 +697,14 @@ local function readInput()
     end
     Controls.hasSuper = player.super ~= nil
     Controls.superCharge = player.charge or 0
-    input = Controls.get(player, world:nearestOpponent(player, true))
+    local target = world:nearestOpponent(player, true)
+    -- Yardball: carrying, the attack kicks (a tap: at the middle of the opponents' goal)
+    Controls.kick = player.carrying and { min = World.KICK_MIN, max = World.KICK_MAX } or nil
+    if player.carrying and Arena.goals then
+        local g = Arena.goals[player.team == World.TEAM_BLUE and World.TEAM_RED or World.TEAM_BLUE]
+        target = { id = "goal", x = g.x, y = (g.y1 + g.y2) / 2, kick = true }
+    end
+    input = Controls.get(player, target)
 end
 
 -- Local / host: run the simulation in fixed steps
@@ -789,6 +824,11 @@ local function drawMinimap(screenW)
     for _, w in ipairs(Arena.walls) do
         love.graphics.rectangle("fill", x0 + w.x * T, y0 + w.y * T, w.w * T, w.h * T)
     end
+    for team, g in ipairs(world.ball and Arena.goals or {}) do -- Yardball: goals + ball
+        local c = (team == player.team) and TEAMMATE_COLOR or ENEMY_TEAM_COLOR
+        love.graphics.setColor(c)
+        love.graphics.rectangle("fill", x0 + (g.dir < 0 and 0 or mw - 4), y0 + g.y1 * s, 4, (g.y2 - g.y1) * s)
+    end
     love.graphics.setColor(1, 0.8, 0.15, 1)
     for _, b in ipairs(world.boxes) do
         love.graphics.rectangle("fill", x0 + b.x * s - 3.5, y0 + b.y * s - 3.5, 7, 7)
@@ -803,6 +843,12 @@ local function drawMinimap(screenW)
     if not player.dead then
         love.graphics.setColor(0.3, 0.7, 1, 1)
         love.graphics.circle("fill", x0 + player.x * s, y0 + player.y * s, 3.5)
+    end
+    if world.ball then
+        love.graphics.setColor(0, 0, 0, 1)
+        love.graphics.circle("fill", x0 + world.ball.x * s, y0 + world.ball.y * s, 4.5)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.circle("fill", x0 + world.ball.x * s, y0 + world.ball.y * s, 3)
     end
 end
 
@@ -839,8 +885,11 @@ end
 -- "1 knockout", "3 knockouts"
 local function count(n, word) return n .. " " .. word .. (n == 1 and "" or "s") end
 
--- A scoreboard line's numbers: "3 knockouts   out 1 time"
-local function score(e) return count(e.kills, "knockout") .. "   out " .. count(e.deaths, "time") end
+-- A scoreboard line's numbers: "3 knockouts   out 1 time" (Yardball: goals first)
+local function score(e)
+    local goals = world.mode.yardball and (count(e.goals or 0, "goal") .. "   ") or ""
+    return goals .. count(e.kills, "knockout") .. "   out " .. count(e.deaths, "time")
+end
 
 -- Name with the Yard Pass title, for the result scoreboard ('You "Yard Veteran"')
 local function fullName(e)
@@ -872,6 +921,7 @@ local function resultInfo()
         table.sort(list, function(a, b)
             local ma, mb = a.team == player.team, b.team == player.team
             if ma ~= mb then return ma end
+            if (a.goals or 0) ~= (b.goals or 0) then return (a.goals or 0) > (b.goals or 0) end
             if a.kills ~= b.kills then return a.kills > b.kills end
             return a.id < b.id
         end)
@@ -890,11 +940,19 @@ local function resultInfo()
         else
             info.title, info.color = "Defeat", { 1, 0.35, 0.3 }
         end
-        local s = world:teamScores()
-        local own, other = s[player.team] or 0, 0
-        for team, k in pairs(s) do if team ~= player.team then other = other + k end end
-        info.subtitle = ((m.timeLeft and m.timeLeft <= 0) and "Time is up" or "Knockout target reached")
-            .. "   -   Your team " .. own .. " : " .. other .. " Enemies"
+        if world.mode.yardball then -- (always a winner: no time limit)
+            local g = m.goals or { 0, 0 }
+            local own = g[player.team] or 0
+            info.subtitle = (m.winnerTeam == player.team and "Your team scored " or "The enemies scored ")
+                .. World.YARDBALL_GOALS .. " goals   -   Your team " .. own .. " : "
+                .. ((g[1] or 0) + (g[2] or 0) - own) .. " Enemies"
+        else
+            local s = world:teamScores()
+            local own, other = s[player.team] or 0, 0
+            for team, k in pairs(s) do if team ~= player.team then other = other + k end end
+            info.subtitle = ((m.timeLeft and m.timeLeft <= 0) and "Time is up" or "Knockout target reached")
+                .. "   -   Your team " .. own .. " : " .. other .. " Enemies"
+        end
     elseif world.mode.boss then -- always won: you can't lose a boss fight
         local boss = world:boss()
         info.title, info.color = "Boss beaten!", { 1, 0.82, 0.1 }
@@ -976,6 +1034,14 @@ local function scoreboardInfo()
                  lives = world:livesLeft(player), maxLives = World.LIVES }
     end
     local info = { kind = "versus", timeLeft = m.timeLeft }
+    if world.mode.yardball then -- goals, no timer
+        local g = m.goals or { 0, 0 }
+        local own = g[player.team] or 0
+        info.left = { name = "YOUR TEAM", score = own, color = TEAMMATE_COLOR }
+        info.right = { name = "ENEMIES", score = (g[1] or 0) + (g[2] or 0) - own, color = ENEMY_TEAM_COLOR }
+        info.target, info.goals = World.YARDBALL_GOALS, true
+        return info
+    end
     if world.mode.teams then
         local s = world:teamScores()
         local other = 0
@@ -1009,6 +1075,16 @@ function watchMatch()
             if watch.share and watch.share > mark[1] and now.share <= mark[1] then
                 Scoreboard.flash(mark[2], { 0.5, 1, 0.5 })
             end
+        end
+    elseif world.mode.yardball then
+        local info = scoreboardInfo()
+        now.left, now.right = info.left.score, info.right.score
+        local need = info.target - now.left
+        if watch.left and now.left > watch.left then
+            Scoreboard.flash(need == 1 and "GOAL! 1 more to win!" or "GOAL!", { 0.5, 1, 0.5 })
+        elseif watch.right and now.right > watch.right then
+            Scoreboard.flash(info.target - now.right == 1 and "The enemies scored - they need 1 more"
+                or "The enemies scored", { 1, 0.45, 0.45 })
         end
     elseif world.mode.waves then
         now.wave, now.lives = world.wave, world:livesLeft(player)
@@ -1087,6 +1163,11 @@ local function drawHud()
     elseif player.dead then
         love.graphics.printf(string.format("You're out - back in %.1f",
             math.max(0, player.respawnTimer)), 0, y, sw, "center")
+    elseif world.ball and (world.kickoff or 0) > 0 then
+        love.graphics.printf("Kick-off!", 0, y, sw, "center")
+    elseif player.carrying then
+        love.graphics.printf(Controls.touchMode and "You have the ball - the attack stick kicks it"
+            or "You have the ball - click to kick it", 0, y, sw, "center")
     elseif world.mode.waves and world:countBots() == 0 then
         love.graphics.printf(string.format("Wave cleared! %d bots incoming in %.1f",
             math.min(world.waveSize + 1, World.MAX_BOTS), math.max(0, world.waveTimer)),
@@ -1114,20 +1195,28 @@ local function drawGame()
     -- World (moves with the camera)
     Camera.attach()
     Arena.drawBelow()
+    local ball = world.ball -- (Yardball)
+    if ball then
+        Ball.drawGoals({ [player.team] = TEAMMATE_COLOR,
+            [player.team == World.TEAM_BLUE and World.TEAM_RED or World.TEAM_BLUE] = ENEMY_TEAM_COLOR })
+    end
     if input and not player.dead then
         if input.aimingSuper and player.super then player:drawAim(true)
+        elseif input.aiming and player.carrying then Ball.drawKickAim(player, input.aimDist)
         elseif input.aiming then player:drawAim() end
     end
     for _, m in ipairs(world.medpacks) do Medpack.draw(m, world.time) end
     for _, c in ipairs(world.coins) do Loot.drawGroundCoin(c, world.time) end
     for _, b in ipairs(world.boxes) do Loot.drawBox(b, world.time) end
     Effects.drawBelow()
+    if ball and not ball.carrier then Ball.draw(ball, world.kickoff) end -- (rowdies walk over it)
     for _, b in ipairs(world.bullets) do b:draw() end
     for _, e in ipairs(world.entities) do
         -- (underground opponents are hidden, but their dirt mound shows)
         if e ~= player and (not hidden(e) or e.burrowed) then e:draw() end
     end
     player:draw() -- own rowdy on top
+    if ball and ball.carrier then Ball.draw(ball) end -- in the carrier's hands
     Effects.drawAbove()
     Arena.drawBushes(player)
     Camera.detach()

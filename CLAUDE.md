@@ -1,7 +1,8 @@
 # Yard Wars (LÖVE 11.x)
 
-Top-down arena shooter in LÖVE (Lua) with mobile twin-stick controls. Currently 1 player
-vs. 1 bot in a mirrored arena. The characters are "rowdies" (code: `Rowdy`, `Rowdies`).
+Top-down arena shooter in LÖVE (Lua) with mobile twin-stick controls. Modes: duel, team
+fight, waves, Yardball (a ball game) and boss fights, solo against bots or over LAN, in a
+mirrored arena. The characters are "rowdies" (code: `Rowdy`, `Rowdies`).
 Name everything "Yard Wars" / "yard-wars": no references to other games or their
 trademarks anywhere (code, comments, docs, website, file names; renamed 2026-10-04).
 Developed on Linux, tested on a Pixel 6a, a moto g67 (second
@@ -23,7 +24,7 @@ existing things that break it.
 - Test coins: `love . --coins 300` (adds to the saved coins in `profile.txt`).
 - Boss fight: `love . --boss 4` (against rowdy 4, any rowdy, also owned ones; `--boss 4 host`
   hosts it for LAN helpers).
-- LAN test on one machine: `love . --host` (or `--host waves`) and `love . --join 127.0.0.1`
+- LAN test on one machine: `love . --host` (or `--host waves` / `team` / `yardball`) and `love . --join 127.0.0.1`
   (or `love . --find` for the join screen with discovery) in a second terminal.
   UDP ports 27015 (game) + 27016 (discovery); if a phone can't connect/find the desktop:
   `sudo ufw allow 27015:27016/udp`.
@@ -95,8 +96,8 @@ existing things that break it.
 
 ## Layout
 - `main.lua` — client: state (menu/pick/join/game/pass/style), roles local/host/client, the modes of
-  the start screen (`Menu.entries`: Duel, Team fight, Waves, Host duel = free-for-all, Host
-  team fight, Host waves = co-op, Join); PLAY starts the chosen mode with the chosen
+  the start screen (`Menu.entries`: Duel, Team fight, Waves, Yardball, Host duel = free-for-all, Host
+  team fight, Host waves = co-op, Host Yardball, Join); PLAY starts the chosen mode with the chosen
   rowdy (`Menu.rowdy`); a locked rowdy: `openBoss` (panel) → `startBoss(host)` = newGame with
   mode `{ boss = index }` and `Menu.fighter`; matchOver of a won boss fight →
   `Unlock.won` (message = result subtitle); result screen (Play again / Rowdy / Menu; LAN clients:
@@ -106,6 +107,9 @@ existing things that break it.
   Yard Pass: every world event goes to `Pass.onEvent`, `matchOver` to `Pass.onRoundOver`
   (result screen XP, `tierUp` sound when its bar is full); `Pass.style(def)` (skin/trail/
   title/badge) goes into `addPlayer`/`setRowdy`/`Net.newClient`/`selectRowdy`.
+  Yardball: goals + ball drawn with src/ball.lua, kick preview while carrying, a tap
+  kicks at the opponents' goal (passed to `Controls.get` as a `kick` target), banners
+  "GOAL!"; `openMenu` sets the arena back to the "yard" layout.
   Escape / Android back: game → menu, menu → quit. (F2 used to toggle a Kenney
   character style; those sprites were removed 2026-10-04.)
 - `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
@@ -127,7 +131,24 @@ existing things that break it.
   red only when blue is full; replaces a bot), `removePlayer` (bot refills), `teamScores`, first team to
   `TEAM_KILL_TARGET` 15; rounds (`world.match`): duel = first to `KILL_TARGET` 10 or most kills after
   `TIME_LIMIT` 180 s (tie = draw), waves = `LIVES` 3 per player (`out` = no respawn), over
-  when all players are out; boss fight (`mode.boss` = rowdy index): the players (team
+  when all players are out; Yardball (`mode.yardball`, also `teams`, so team placement/
+  bots/refill/colours work as in the team fight; checked BEFORE the `teams` branches):
+  `World.new` switches the arena to the "pitch" layout, `world.ball` {x, y, vx, vy,
+  carrier, lastKick, noPick}, walk over it = carry it (`e.carrying`, `World.carrySpot` in
+  front along the aim), a player's `fire` while carrying = `World:kick` (aimDist from the
+  body centre, `KICK_MIN` 120..`KICK_MAX` 650, the ball rolls exactly that far with
+  `BALL_FRICTION`; the kicker can't take it back for 0.4 s), `Rowdy:shoot`/beam refuse
+  while carrying, the super works; rolling ball bounces (axis-separated sub-steps) off
+  solids, chests and the border except the goal mouths; reaching a goal's back line
+  (rolling or carried) = goal for the other team (own goals count), `match.goals`,
+  `e.goals`; carrier knocked out / frozen / grabbed / burrowed / vanished drops it; after
+  a goal everybody respawns at the spot (no knockout) and the ball goes to the centre
+  (`KICKOFF_DELAY` 1.5 s `world.kickoff`); first to `YARDBALL_GOALS` 2, no time limit
+  (bot-only rounds: median ~100 s, 2026-10-11); a carrier is never hidden in a bush;
+  `World:ballPlan(e)` for the bots (carrier: to the goal / the middle lane, shoots from
+  520 px or when an opponent is within 120 px; free ball: the nearest bot of each team;
+  opponent carries: the nearest bot goes for it, `botTarget` makes the carrier 700 px
+  "nearer"); boxes never appear on the ball or near a goal; boss fight (`mode.boss` = rowdy index): the players (team
   `TEAM_PLAYERS`) vs one big bot with that rowdy's def (`boss` flag, `BOSS_HP` 3x HP,
   `BOSS_SIZE` 1.4: `World.bossLook`, radius), no time limit, players respawn forever, the
   boss never respawns (`out`) - won (`winnerTeam` = players) when it is out (charter: you
@@ -154,14 +175,17 @@ existing things that break it.
   second leg: the replica keeps `legs` per bullet), `freeze` event, FIELDS `frozen`; 7
   since Doctor/Wrestler/Digger: pull/punch/leap/burrow events, FIELDS `air` + `burrowed`
   (a boolean on the wire); 8 since Ghostman/Wizard: input `hold`, blink/vanish/appear/
-  grab/fling/bonk events, FIELDS beam/grabbing/held/vanished). Version
+  grab/fling/bonk events, FIELDS beam/grabbing/held/vanished; 9 since Yardball: welcome
+  `mode.yardball`, snapshot `y` (ball: x, y, carrier or 0, vx, vy, kickoff) +
+  `match.goals`, kick/pickup/ballDrop/goal/bounce events, FIELDS `goals`). Version
   check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
   `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
   refused with a reason ("The host has a newer build (52): restart to update"), different
   builds with the same protocol and rowdies may play together (git checkout <-> phone).
   Clients up to build 51 have no check: a newer host refuses them ("Could not connect")
 - `src/replica.lua` — client-side World copy from snapshots: others interpolated 100 ms
-  behind the host, own rowdy 50 ms; bullets drawn from spawn records (straight lines);
+  behind the host, own rowdy 50 ms; the ball at the remote time, a carried one at its
+  carrier's proxy (`carrying` set on the proxies); bullets drawn from spawn records (straight lines);
   events played when their time comes; clock offset = max(t - arrival), pulled down 10%
 - `src/updater.lua` — self-update: `Updater.boot()` (first line of main.lua) mounts a
   downloaded newer build (`update-N.love` in the save folder, `update.txt`: build/file/
@@ -249,6 +273,9 @@ existing things that break it.
   lobby (STYLE, key Y) and the picker cards' "Skins" button (also between rounds).
 - `src/loot.lua` — drawing of loot boxes (treasure chest, shake/flash on hit, HP bar), coins
   (fly out, spin, blink), coin icon/counter and padlock for the menus
+- `src/ball.lua` — Yardball drawing: the ball (spins while it rolls, pulses during the
+  kick-off), goals (net + posts in the viewer's team colours), kick preview
+  (`drawKickAim`), `drawIcon` (scoreboard, mode card icon "ball")
 - `src/medpack.lua` — medpack drawing (comic box + red cross, bob, pop-in, blinks last 3 s);
   confirmed on the Pixel 2026-10-01
 - `src/unlock.lua` — how a locked rowdy is won: `Unlock.state(def)` → nil / "challenge"
@@ -293,7 +320,10 @@ existing things that break it.
   (side view on the lobby pedestal, false if none), both with an optional skin id;
   `Assets.beginSkin(look)` sets the hue/tint shader (Rowdy:draw uses it)
 - `src/arena.lua` — 40x24 tiles (64px), left half defined and mirrored to the right;
-  walls (solid, 2x2), crates (solid), bushes (hiding, 2x2); `resolveCircle`, `hitsSolid`,
+  walls (solid, 2x2), crates (solid), bushes (hiding, 2x2); layouts (`Arena.setLayout`:
+  "yard" = the normal arena, "pitch" = Yardball: no centre wall, an open middle lane,
+  `Arena.goals` [team defending it] = mouths of 4 tiles in the left/right border,
+  `Arena.center`, pitch markings in `drawBelow`); `resolveCircle`, `hitsSolid`,
   raycast, `hasLineOfSight`, `randomOpenPoint`, spawns
 - `src/camera.lua` — follows player; `viewSize=720` world units along the SHORTER screen
   side (landscape + portrait); clamp to arena; shake; `toWorld()`
@@ -312,6 +342,8 @@ existing things that break it.
     throw, rim = full range), tap = distance to the auto-aim spot, desktop = mouse
     distance; main.lua keeps it with the pending shot (`pendingDist`), the LAN client
     sends it as `shotDist` too (a lost packet loses no distance)
+  - `Controls.kick` = {min, max} while carrying the ball (set by main.lua): the stick
+    pull maps to the kick distance, a beam rowdy kicks on release too
 - `src/rowdy.lua` — base class: stats, HP, ammo (3 bars + refill timer), shoot
   (pellets/spread), aim beam/cone (`drawAim`), health/ammo bars, animation (pose, walk
   sway/bob, breathing, recoil, muzzle flash, spawn pop-in); logic reports via `self:emit`
@@ -391,7 +423,9 @@ existing things that break it.
   separation push from team mates within `SPREAD` 130 px, chase/retreat turned by a
   per-life `flank` angle (up to 0.8 rad), searches around the last seen spot (per-life
   offset up to 120 px), patrols near the target only 35% of the time (700 px area);
-  states patrol/chase/strafe/retreat/flee/search, LOS +
+  states patrol/chase/strafe/retreat/flee/search (+ "ball": Yardball moves from
+  `World:ballPlan`, shooting goes on), stuck = slides to the open side (2026-10-11;
+  random before - bot-only team fights: stuck > 3 s 59 -> 40 times in 20 rounds), LOS +
   bush-reveal rules, aim spread, stuck detection (slides sideways); shoots within 0.88 of
   its range (and keeps a distance scaled to it), fires its super when ready and in range,
   bombs aimed at the target's distance (`aimDist`); a `boss` never flees
@@ -399,12 +433,12 @@ existing things that break it.
 - `src/sound.lua` — sound effects synthesized at startup (sfxr-style layers: square/saw/
   sine/triangle/noise with pitch slides + envelopes; no files): per-rowdy shots, hit/hurt,
   impact, poof (knockout), spawn, super, superReady chime, heal, round start, victory/defeat/draw, click,
-  box/boxHit/boxBreak, coin, unlock, tierUp, claim.
+  box/boxHit/boxBreak, coin, unlock, tierUp, claim, kick/pickup/bounce/goal.
   `Sound.play(name, x, y)`: quieter with distance from the own rowdy, panned; same sound
   not faster than 35 ms; M mutes (touch: speaker button top right on every screen, the
   minimap moves left for it); the setting is saved in `sound.txt`. ~70 ms to build on desktop (~220 ms without JIT).
 - `src/scoreboard.lua` — in-game scoreboard top centre (duel/team: scores with bars to the kill
-  target + timer, red in the last 30 s; waves: wave, lives as hearts, bots left; boss: one
+  target + timer, red in the last 30 s; Yardball: goals, a ball instead of the timer; waves: wave, lives as hearts, bots left; boss: one
   wide health bar; below the minimap on narrow screens) and banners (time marks, new wave,
   lost life, 1 kill to win, boss at half / 20%)
 - `src/effects.lua` — particles: puff, sparks, burst, ring, heal ("+" signs), poof (a
@@ -526,6 +560,11 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 - New rowdies NOT yet tried on a device (Wizard's held beam on the touch stick, leap /
   blink distances, burrow and vanish, the feel of each).
 - Boss fights NOT yet tried on a device (touch on the panel, fight feel on a phone).
+- Yardball (2026-10-11, not published yet): tested on desktop (headless rules test, bot-only
+  rounds, autopilot solo round + screenshots landscape/portrait, LAN host + client on one
+  machine: same goals and carriers on both sides). NOT yet on a device (kick with the
+  touch stick, tap-to-goal). Charter: no time limit, so a round only ends with 2 goals -
+  watch the round length; a time limit would be one line in `World.newMatch`.
 - Tablet (TB330FU): build 68 (the published .love, unzipped) installed by hand 2026-10-07;
   before it had a build from 2026-10-03 without build.txt (never updated itself).
 - Android: no instant restart after a download (moto g67, 2026-10-08); the update is

@@ -16,7 +16,8 @@
 --   host -> client   welcome {id, mode, protocol, content, build}  reliable
 --                    refused {reason}         reliable, then disconnect (other version)
 --                    events {list}            reliable, world events (with world time t)
---                    snap {t, wave, ..., e}   unreliable, SNAPSHOT_EVERY steps
+--                    snap {t, wave, ..., e, y}  unreliable, SNAPSHOT_EVERY steps (y = the
+--                                             Yardball ball)
 local enet     = require("enet")
 local socket   = require("socket")
 local Codec    = require("src.codec")
@@ -42,7 +43,7 @@ local CH_RELIABLE, CH_FAST = 0, 1
 -- list indexes, the client draws with its own stats). Bump PROTOCOL when messages or
 -- Net.FIELDS change; the content id is a hash of src/rowdies.lua's data, so a new or
 -- changed rowdy needs no manual bump. Builds may differ otherwise (git checkout <-> phone).
-Net.PROTOCOL = 8 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
+Net.PROTOCOL = 9 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
                  -- 4: bombs (input dist, bullet lob, blast event)
                  -- 5: boss fight (welcome mode.boss, FIELDS boss)
                  -- 6: Student/Chef/Agent Angel (bullet + blast projectile, turn and
@@ -51,6 +52,8 @@ Net.PROTOCOL = 8 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin.
                  --    FIELDS air + burrowed)
                  -- 8: Ghostman/Wizard (input hold, blink/vanish/appear/grab/fling/bonk
                  --    events, FIELDS beam, grabbing, held, vanished)
+                 -- 9: Yardball (welcome mode.yardball, snapshot y + match.goals,
+                 --    kick/pickup/ballDrop/goal/bounce events, FIELDS goals)
 
 local function serialize(v, out)
     if type(v) == "table" then
@@ -98,7 +101,7 @@ Net.FIELDS = { "id", "team", "key", "x", "y", "aim", "hp", "ammo", "ammoTimer", 
     "respawnTimer", "walkPhase", "walkBlend", "recoil", "flashTimer", "flashSize",
     "hitFlash", "spawnAnim", "kills", "deaths", "isBot", "charge", "out",
     "skin", "trail", "title", "badge", "boss", "frozen", "air", "burrowed", "beam", "grabbing",
-    "held", "vanished" }
+    "held", "vanished", "goals" }
 
 local function send(peer, msg, reliable)
     peer:send(Codec.encode(msg), reliable and CH_RELIABLE or CH_FAST,
@@ -206,7 +209,8 @@ local function receive(self, peer, msg)
         c.id, c.fireSeen = p.id, 0
         local v = Net.version()
         send(peer, { type = "welcome", id = p.id, mode = { name = world.mode.name,
-            waves = world.mode.waves, teams = world.mode.teams, boss = world.mode.boss },
+            waves = world.mode.waves, teams = world.mode.teams, boss = world.mode.boss,
+            yardball = world.mode.yardball },
             protocol = v.protocol, content = v.content, build = v.build }, true)
     elseif msg.type == "input" and c.id then
         c.input = msg
@@ -287,11 +291,14 @@ local function snapshot(world)
         coins[#coins + 1] = { c.id, round(c.x, 10), round(c.y, 10), round(c.ox, 10),
             round(c.oy, 10), c.born, c.expires }
     end
-    local m = world.match
+    local m, ball = world.match, world.ball
     return { type = "snap", t = world.time, wave = world.wave, waveSize = world.waveSize,
         waveTimer = world.waveTimer, e = ents, m = packs, b = boxes, c = coins,
+        y = ball and { round(ball.x, 10), round(ball.y, 10), ball.carrier or 0,
+            round(ball.vx, 10), round(ball.vy, 10), round(world.kickoff or 0, 100) },
         match = { over = m.over, timeLeft = m.timeLeft and round(m.timeLeft, 10),
-                  winner = m.winner, winnerTeam = m.winnerTeam, wave = m.wave } }
+                  winner = m.winner, winnerTeam = m.winnerTeam, wave = m.wave,
+                  goals = m.goals and { m.goals[1], m.goals[2] } } }
 end
 
 -- Call after every world step with the events of that step

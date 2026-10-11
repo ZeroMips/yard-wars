@@ -22,6 +22,8 @@ Controls.touchMode = (osName == "Android" or osName == "iOS")
 Controls.font = nil              -- HUD font (set by main.lua)
 Controls.superCharge = 0         -- 0..1, shown on the super button (set by main.lua)
 Controls.hasSuper = false        -- the current rowdy has a super (set by main.lua)
+Controls.kick = nil              -- { min, max }: carrying the ball (Yardball), the attack
+                                 -- kicks it that far (set by main.lua)
 
 local DEADZONE = 0.25
 
@@ -56,6 +58,8 @@ local function throwDist(player, super, mag)
     local attack = (super and player.super) or player
     local range = attack.range or player.range or Bullet.range
     local f = math.max(0, math.min(1, (mag - DEADZONE) / (1 - DEADZONE)))
+    local kick = not super and Controls.kick
+    if kick then return kick.min + (kick.max - kick.min) * f end
     return Bullet.MIN_THROW + (range - Bullet.MIN_THROW) * f
 end
 
@@ -146,6 +150,10 @@ end
 -- (Walls are ignored on purpose: a quick tap should always fire at someone.)
 local function autoAimAngle(player, target, super)
     if not target then return nil end
+    if target.kick and not super then -- a kick at a spot (the goal): no range, no lead
+        local dx, dy = target.x - player.x, target.y - player.y
+        return math.atan2(dy, dx), math.sqrt(dx * dx + dy * dy)
+    end
     local attack = (super and player.super) or player
     local range = attack.range or player.range
     local speed = attack.bulletSpeed or player.bulletSpeed
@@ -161,7 +169,8 @@ local function autoAimAngle(player, target, super)
 end
 
 -- ---- Read input for this frame ----
--- target: the enemy to auto-aim at on a tap (nil if none / not visible)
+-- target: the enemy to auto-aim at on a tap (nil if none / not visible); a spot
+-- { x, y, kick = true } while carrying the ball
 -- Returns { dx, dy, aim (angle or nil), aimDist (px a bomb flies, or nil), fire (bool),
 --           hold (bool: the attack is held down - a beam),
 --           super (bool: fire the super), aiming (show the beam), aimingSuper (show the
@@ -192,7 +201,7 @@ function Controls.get(player, target)
         end
 
         local super = false
-        local beam = player.attack and player.attack.kind == "beam"
+        local beam = player.attack and player.attack.kind == "beam" and not Controls.kick
         local hold = beam and aim.id ~= nil and not aim.super and aim.maxMag >= DEADZONE
             and select(3, stickVector(aim)) >= DEADZONE
         if pendingShot then

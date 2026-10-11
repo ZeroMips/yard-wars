@@ -12,17 +12,41 @@ Arena.width, Arena.height = Arena.cols * TILE, Arena.rows * TILE
 Arena.spawn      = { x = 2.5 * TILE,  y = 12 * TILE }
 Arena.enemySpawn = { x = 37.5 * TILE, y = 12 * TILE }
 
-local walls, bushes, crates = {}, {}, {}
+local walls, bushes, crates, solids = {}, {}, {}, {}
 
--- Objects on the left half (mirrored) ...
-local leftWalls  = { {x=6, y=4, w=2, h=4}, {x=6, y=16, w=2, h=4}, {x=11, y=10, w=2, h=4} }
-local leftBushes = { {x=9, y=1, w=4, h=2}, {x=3, y=17, w=2, h=4}, {x=13, y=19, w=4, h=4},
-                     {x=3, y=3, w=2, h=2} }
-local leftCrates = { {x=4, y=8}, {x=4, y=15}, {x=8, y=12}, {x=15, y=7}, {x=15, y=16},
-                     {x=9, y=20}, {x=16, y=11}, {x=16, y=12} }
--- ... and objects in the middle (must be symmetric: x = (cols - w) / 2)
-local centerWalls  = { {x=18, y=10, w=4, h=4} }
-local centerBushes = { {x=18, y=4, w=4, h=2}, {x=18, y=18, w=4, h=2} }
+-- Layouts: objects on the left half (mirrored) and in the middle (must be symmetric:
+-- x = (cols - w) / 2). "yard": the normal arena; "pitch": Yardball (src/world.lua) - no
+-- wall in the middle (the ball starts there), nothing in front of the goals, cover on
+-- the flanks, an open lane through the middle.
+local LAYOUTS = {
+    yard = {
+        walls  = { {x=6, y=4, w=2, h=4}, {x=6, y=16, w=2, h=4}, {x=11, y=10, w=2, h=4} },
+        bushes = { {x=9, y=1, w=4, h=2}, {x=3, y=17, w=2, h=4}, {x=13, y=19, w=4, h=4},
+                   {x=3, y=3, w=2, h=2} },
+        crates = { {x=4, y=8}, {x=4, y=15}, {x=8, y=12}, {x=15, y=7}, {x=15, y=16},
+                   {x=9, y=20}, {x=16, y=11}, {x=16, y=12} },
+        centerWalls  = { {x=18, y=10, w=4, h=4} },
+        centerBushes = { {x=18, y=4, w=4, h=2}, {x=18, y=18, w=4, h=2} },
+    },
+    pitch = {
+        walls  = { {x=7, y=3, w=2, h=4}, {x=7, y=17, w=2, h=4}, {x=13, y=8, w=2, h=2},
+                   {x=13, y=14, w=2, h=2} },
+        bushes = { {x=3, y=1, w=4, h=2}, {x=3, y=21, w=4, h=2}, {x=16, y=2, w=2, h=4},
+                   {x=16, y=18, w=2, h=4} },
+        crates = { {x=4, y=7}, {x=4, y=16}, {x=10, y=5}, {x=10, y=18} },
+        centerWalls = {}, centerBushes = {},
+        goals = true,
+    },
+}
+
+-- Goals (pitch only): a mouth of GOAL_TILES tiles in the middle of the left and right
+-- border, indexed by the team that defends it (World.TEAM_BLUE = 1 plays on the left).
+-- { x = the border line, y1, y2, dir = which way is "into the goal" (-1 left, 1 right) }
+local GOAL_TILES = 4
+Arena.GOAL_DEPTH = 48 -- px: how far the net reaches into the field (drawn)
+Arena.center = { x = Arena.width / 2, y = Arena.height / 2 }
+Arena.goals = nil
+Arena.layout = nil
 
 local function mirrored(list, out)
     for _, o in ipairs(list) do
@@ -30,20 +54,34 @@ local function mirrored(list, out)
         out[#out + 1] = { x = Arena.cols - o.x - (o.w or 1), y = o.y, w = o.w, h = o.h }
     end
 end
-mirrored(leftWalls, walls);   mirrored(leftBushes, bushes);   mirrored(leftCrates, crates)
-for _, o in ipairs(centerWalls)  do walls[#walls + 1] = o end
-for _, o in ipairs(centerBushes) do bushes[#bushes + 1] = o end
 
-Arena.walls, Arena.bushes = walls, bushes -- exposed for the minimap
+-- Switch to another layout ("yard" or "pitch"): walls, bushes, crates, goals
+function Arena.setLayout(name)
+    local L = LAYOUTS[name] or LAYOUTS.yard
+    Arena.layout = LAYOUTS[name] and name or "yard"
+    walls, bushes, crates, solids = {}, {}, {}, {}
+    mirrored(L.walls, walls);   mirrored(L.bushes, bushes);   mirrored(L.crates, crates)
+    for _, o in ipairs(L.centerWalls)  do walls[#walls + 1] = o end
+    for _, o in ipairs(L.centerBushes) do bushes[#bushes + 1] = o end
+    Arena.walls, Arena.bushes = walls, bushes -- exposed for the minimap
 
--- Solid rectangles in pixels (used for collision)
-local solids = {}
-for _, w in ipairs(walls) do
-    solids[#solids + 1] = { x = w.x * TILE, y = w.y * TILE, w = w.w * TILE, h = w.h * TILE }
+    -- Solid rectangles in pixels (used for collision)
+    for _, w in ipairs(walls) do
+        solids[#solids + 1] = { x = w.x * TILE, y = w.y * TILE, w = w.w * TILE, h = w.h * TILE }
+    end
+    for _, c in ipairs(crates) do
+        solids[#solids + 1] = { x = c.x * TILE, y = c.y * TILE, w = TILE, h = TILE }
+    end
+
+    Arena.goals = nil
+    if L.goals then
+        local y1 = (Arena.rows - GOAL_TILES) / 2 * TILE
+        local y2 = y1 + GOAL_TILES * TILE
+        Arena.goals = { { x = 0, y1 = y1, y2 = y2, dir = -1 },
+                        { x = Arena.width, y1 = y1, y2 = y2, dir = 1 } }
+    end
 end
-for _, c in ipairs(crates) do
-    solids[#solids + 1] = { x = c.x * TILE, y = c.y * TILE, w = TILE, h = TILE }
-end
+Arena.setLayout("yard")
 
 -- Push a circle out of all solids and keep it inside the arena.
 function Arena.resolveCircle(x, y, r)
@@ -175,6 +213,22 @@ function Arena.drawBelow()
     if not grassBatch then buildGrass() end
     love.graphics.setColor(1, 1, 1)
     love.graphics.draw(grassBatch)
+
+    if Arena.goals then -- pitch markings: centre line + circle, a box in front of each goal
+        local cx, cy = Arena.center.x, Arena.center.y
+        love.graphics.setColor(1, 1, 1, 0.3)
+        love.graphics.setLineWidth(6)
+        love.graphics.line(cx, 0, cx, Arena.height)
+        love.graphics.circle("line", cx, cy, 180)
+        love.graphics.circle("fill", cx, cy, 10)
+        for _, g in ipairs(Arena.goals) do
+            local w = 3 * TILE
+            local bx = g.dir < 0 and 0 or Arena.width - w
+            love.graphics.rectangle("line", bx, g.y1 - 2 * TILE, w, g.y2 - g.y1 + 4 * TILE)
+        end
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(1, 1, 1)
+    end
 
     for _, w in ipairs(walls) do
         for bx = 0, w.w / 2 - 1 do

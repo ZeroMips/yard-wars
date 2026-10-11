@@ -3,10 +3,13 @@
 -- Drawn in HUD units (720 along the short screen side, already scaled by the caller).
 --
 -- info (built by main.lua, plain data):
---   versus: { kind = "versus", left = side, right = side, target, timeLeft }
+--   versus: { kind = "versus", left = side, right = side, target, timeLeft, goals }
 --           side = { name, score, color }  (left = you / your team)
+--           goals = true (Yardball): a ball instead of the timer (no time limit)
 --   waves : { kind = "waves", wave, bots, lives, maxLives }
 --   boss  : { kind = "boss", name, hp, maxHp }  (one wide health bar)
+local Ball = require("src.ball")
+
 local Scoreboard = {}
 
 Scoreboard.WIDTH  = 300 -- panel size (HUD units), for the caller's layout
@@ -89,8 +92,15 @@ function Scoreboard.draw(info, fonts, cx, y, time)
         local sideW, midW = 100, W - 2 * 100 - 16
         scoreBox(info.left, x, y, sideW, info.target, fonts)
         scoreBox(info.right, x + W - sideW, y, sideW, info.target, fonts)
-        -- timer: turns red in the last 30 s and pulses in the last 10 s
         local mx = x + sideW + 8
+        if info.goals then -- Yardball: no timer
+            box(mx, y, midW, BOX_H, { 0.15, 0.15, 0.2 })
+            Ball.drawIcon(mx + midW / 2, y + BOX_H / 2, 15, time * 0.5)
+            label("first to " .. info.target .. " goals", fonts.small, mx - 20, y + BOX_H + 3, midW + 40)
+            love.graphics.setColor(1, 1, 1, 1)
+            return
+        end
+        -- timer: turns red in the last 30 s and pulses in the last 10 s
         local t = info.timeLeft or 0
         local urgent = t <= 30
         box(mx, y, midW, BOX_H, urgent and { 0.75, 0.12, 0.12 } or { 0.15, 0.15, 0.2 })

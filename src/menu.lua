@@ -18,13 +18,14 @@ local Profile  = require("src.profile")
 local Pass     = require("src.pass")
 local Decor    = require("src.decor")
 local Seasons  = require("src.seasons")
+local Ball     = require("src.ball")
 local PassView = require("src.passview")
 local Unlock   = require("src.unlock")
 
 local Menu = {}
 
 Menu.entries = {}       -- modes to choose from (set by main.lua): { id, name, description,
-                        --   icon = "duel"|"team"|"waves"|"join", lan = bool, ... }
+                        --   icon = "duel"|"team"|"waves"|"ball"|"join", lan = bool, ... }
 Menu.mode = 1           -- index into Menu.entries
 Menu.rowdy = 1        -- index into Rowdies
 Menu.modesOpen = false  -- the mode list is shown over the lobby
@@ -50,6 +51,7 @@ local MODE_COLORS = {
     duel  = { 0.95, 0.5, 0.15 },
     team  = { 0.25, 0.55, 0.95 },
     waves = { 0.65, 0.3, 0.85 },
+    ball  = { 0.15, 0.62, 0.6 },
     join  = { 0.2, 0.7, 0.45 },
 }
 local PLAY_COLOR     = { 1, 0.78, 0.1 }
@@ -154,7 +156,9 @@ local function modesLayout()
     for i, e in ipairs(Menu.entries) do table.insert(groups[e.lan and 2 or 1], i) end
     local twoCols = sw >= 2 * 360 + 100
     local W = twoCols and math.min(420, (sw - 100) / 2) or math.min(460, sw - 48)
-    local H, GAP = twoCols and 84 or 80, 12
+    local most = math.max(#groups[1], #groups[2])
+    local GAP = 12
+    local H = twoCols and math.min(84, math.floor((sh - 228) / most) - GAP) or 80
     local x1 = twoCols and (sw / 2 - W - 20) or (sw - W) / 2
     local x2 = twoCols and (sw / 2 + 20) or x1
     local y = 110
@@ -169,7 +173,7 @@ local function modesLayout()
         end
         y = y + 16
     end
-    local closeY = twoCols and (110 + 34 + 4 * (H + GAP) + 10) or y
+    local closeY = twoCols and (110 + 34 + most * (H + GAP) + 10) or y
     return { cards = cards, heads = heads, sw = sw, sh = sh,
              close = { x = (sw - 200) / 2, y = math.min(closeY, sh - 90), w = 200, h = 64 } }
 end
@@ -309,6 +313,12 @@ local function drawIcon(kind, cx, cy, s)
             end
             love.graphics.line(pts)
         end
+    elseif kind == "ball" then -- Yardball: a ball in front of a goal
+        love.graphics.rectangle("line", cx + s * 0.25, cy - s * 0.7, s * 0.45, s * 1.4)
+        for i = 1, 2 do
+            love.graphics.line(cx + s * 0.25, cy - s * 0.7 + i * s * 0.47, cx + s * 0.7, cy - s * 0.7 + i * s * 0.47)
+        end
+        Ball.drawIcon(cx - s * 0.35, cy + s * 0.15, s * 0.45, 0.3)
     else -- join: wifi arcs
         love.graphics.circle("fill", cx, cy + s * 0.5, s * 0.12)
         for i = 1, 3 do
