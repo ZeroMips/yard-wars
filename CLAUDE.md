@@ -574,14 +574,16 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   website with the Yardball card uploaded the same day).
 - New rowdies 2 (Gideon's photos of 2026-10-12, ~/Downloads/download (2).zip): Posion
   (goo spray cone + firework rockets; name as Gideon wants it), Fruit Man (two apples in
-  a V + heals himself), Officer (handcuffs: no damage, hold 1.2 s + a barrier 6 s that
-  also stops shots), Tornalo (spin + wind gust to an opponent), Mecha Robot (4 slingshot
+  a V + heals himself), Officer (handcuffs: 12 damage - "no damage" scored 0 knockouts,
+  so the user chose a little damage 2026-10-12 - hold 1.2 s, quick and 4 ammo bars; + a
+  barrier 6 s that also stops shots), Tornalo (spin + wind gust to an opponent), Mecha Robot (4 slingshot
   stones all around + pulls the two nearest). Mechanics coded + tested headless
   (2026-10-12, /tmp/yw-new); the planned entries (stats tuned in 1v1 bot fights:
-  knockout shares Posion 46%, Fruit Man 41%, Tornalo 47%, Mecha 39%, existing 38-50%)
+  knockout shares Posion 46%, Fruit Man 41%, Officer 45%, Tornalo 47%, Mecha 39%,
+  existing 38-50%)
   are in ~/Downloads/yard-wars-art-new/gideon-2026-10-12-entries.lua with a placeholder
   comic; Gemini prompts <image>-prompts.md there (posion, fruitman, officer, tornalo,
-  mecha). Open: the art; the Officer can't knock anybody out (0% in bot duels).
+  mecha). Open: the art.
 - Random-rowdy bots NOT yet tried on a device (feel of the handicap, how often bots
   use supers).
 - New rowdies NOT yet tried on a device (Wizard's held beam on the touch stick, leap /
