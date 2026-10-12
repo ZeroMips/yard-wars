@@ -84,6 +84,16 @@ local BOT_SHOT_RANGE = 520 -- px: a bot with the ball shoots at the goal from th
 local BOT_THREAT     = 120 -- px: ...or from farther when an opponent is this close
 
 World.PULL_SPEED = 900 -- px/s: a rowdy hit by a pull attack flies to the puller
+World.GOO_TIME   = 2   -- s: sticky goo (attack.goo) does its extra damage over this long
+local GOO_TICK   = 0.5 -- s between two goo stings
+
+-- Barriers (attack kind "barrier", the Officer): a curved fence in front of the rowdy
+-- for `duration` seconds. Opponents can't walk or shoot through it (bombs fly over,
+-- beams stop at it); the own team passes.
+World.BARRIER_DIST   = 130  -- px from the rowdy to the middle of the fence
+World.BARRIER_ANGLE  = 1.5  -- radians the arc spans
+World.BARRIER_HALF   = 9    -- px: half its thickness
+local BARRIER_POINTS = 7
 
 -- Bots (duel opponent, team fight bots, waves) are random rowdies of src/rowdies.lua,
 -- picked when they are created (they keep it for the round, respawns too), a bit
@@ -112,6 +122,7 @@ function World.new(mode)
         medpacks = {}, -- { id, x, y, born, expires }
         nextMedpackId = 1,
         boxes = {},    -- { id, x, y, hp, born, hitAt }
+        barriers = {}, -- { id, team, owner, points = { x1, y1, x2, y2, ... }, born, expires }
         coins = {},    -- { id, x, y, ox, oy (flies out from there), born, expires }
         nextLootId = 1,
         boxTimer = World.BOX_FIRST,
@@ -165,6 +176,8 @@ end
 --         with a blast)  blink {id, toX, toY} (teleports from x, y; a blast there)
 --   vanish {id}  appear {id} (invisible / visible again)  grab {id, victim (nil: missed)}
 --   fling {id, by} (a grabbed rowdy is thrown)  bonk {id} (a flung rowdy crashes)
+--   cuff {id, time} (handcuffed: can't walk)  heal also for a healing super
+--   gust {id, toX, toY} (dashes there on a gust of wind)  barrier {id, barrier}
 --   Yardball: pickup {id}  kick {id}  ballDrop {id}  goal {team (that scored), by}
 --         bounce (the ball hit a wall)
 function World:emit(kind, data)
@@ -478,13 +491,24 @@ local function damage(self, b, victim, x, y)
     self:emit("hit", { x = x, y = y, victim = victim.id,
         bullet = b.id, owner = b.owner.id, pierce = b.pierce or b.lob })
     local shooter = self.byId[b.owner.id]
-    local amount = b.damage * (b.owner.damageScale or 1) -- bots hit softer
-    if shooter and not b.super then shooter:addCharge(amount) end
+    local amount = (b.damage or 0) * (b.owner.damageScale or 1) -- bots hit softer
+    if shooter and not b.super then shooter:addCharge(b.chargeHit or amount) end
     local knockedOut = victim:takeDamage(amount, b.owner.id)
     if b.freeze and not victim.dead then
         victim.frozen = math.max(victim.frozen, b.freeze)
         victim.bursting = nil
         self:emit("freeze", { id = victim.id, x = victim.x, y = victim.y, time = b.freeze })
+    end
+    if b.hold and not victim.dead then -- handcuffs: stands still (may still attack)
+        victim.rooted = math.max(victim.rooted or 0, b.hold)
+        self:emit("cuff", { id = victim.id, x = victim.x, y = victim.y, time = b.hold })
+    end
+    if b.goo and not victim.dead then -- sticky goo: more damage over GOO_TIME
+        local n = World.GOO_TIME / GOO_TICK
+        local g = victim.goo
+        if not g or g.left < n or g.per < b.goo / n then
+            victim.goo = { by = b.owner.id, team = b.team, per = b.goo / n, left = n, timer = GOO_TICK }
+        end
     end
     local puller = b.pull and shooter
     if puller and not victim.dead and not puller.dead then -- flies to the puller
@@ -498,6 +522,7 @@ local function damage(self, b, victim, x, y)
         end
     end
     if knockedOut then
+        victim.goo, victim.rooted = nil, 0
         victim.deaths = victim.deaths + 1
         if shooter then shooter.kills = shooter.kills + 1 end
         if shooter and not shooter.isBot then self:dropMedpack(victim.x, victim.y) end
@@ -559,7 +584,8 @@ end
 function World:hitWith(owner, attack, victim, x, y)
     if victim.dead or victim.team == owner.team then return end
     damage(self, { owner = owner, team = owner.team, damage = attack.damage or 0,
-        super = attack == owner.super, freeze = attack.freeze }, victim, x, y)
+        super = attack == owner.super, freeze = attack.freeze, pull = attack.pull,
+        hold = attack.hold, goo = attack.goo }, victim, x, y)
 end
 
 -- A beam from `owner` along its aim: how long it is (up to range, the first wall or
@@ -570,7 +596,7 @@ function World:traceBeam(owner, range)
     while d < range do
         d = math.min(range, d + 6)
         local x, y = owner.x + c * d, owner.y + s * d
-        if Arena.hitsSolid(x, y, 3) then return d end
+        if Arena.hitsSolid(x, y, 3) or self:barrierAt(x, y, 3, owner.team) then return d end
         local box = self:boxAt(x, y, 4)
         if box then return d, nil, box end
         for _, e in ipairs(self.entities) do
@@ -606,6 +632,11 @@ local function updateBullets(self, dt)
             b:update(dt / steps)
             local outbound = b.boomerang and not b.returning
             local box = self:boxAt(b.x, b.y, b.wallRadius or b.radius)
+            if box and not (b.hitBoxes and b.hitBoxes[box.id]) and b.blast then
+                explode(self, b) -- a firework rocket bursts on the chest
+                remove = true
+                break
+            end
             if box and not (b.hitBoxes and b.hitBoxes[box.id]) then
                 self:hitBox(box, b)
                 if outbound then -- a boomerang bounces back off a chest
@@ -619,7 +650,14 @@ local function updateBullets(self, dt)
                     break
                 end
             end
-            if Arena.hitsSolid(b.x, b.y, b.wallRadius or b.radius) then
+            local wall = Arena.hitsSolid(b.x, b.y, b.wallRadius or b.radius)
+                or self:barrierAt(b.x, b.y, b.wallRadius or b.radius, b.team)
+            if wall and b.blast then -- a rocket bursts at the wall
+                b.x, b.y = px, py
+                explode(self, b)
+                remove = true
+                break
+            elseif wall then
                 if outbound then -- ... and off a wall
                     b.x, b.y = px, py
                     turnBack(self, b, true)
@@ -631,6 +669,7 @@ local function updateBullets(self, dt)
                 end
             elseif b.life <= 0 then
                 if not outbound then
+                    if b.blast then explode(self, b) end -- (a rocket bursts at its range)
                     remove = true
                     break
                 end
@@ -645,7 +684,11 @@ local function updateBullets(self, dt)
                     break
                 end
             end
-            if victim then
+            if victim and b.blast then -- a rocket bursts on the one it hits (and around)
+                explode(self, b)
+                remove = true
+                break
+            elseif victim then
                 damage(self, b, victim, b.x, b.y)
                 if b.pierce then
                     b.hitIds = b.hitIds or {}
@@ -660,6 +703,101 @@ local function updateBullets(self, dt)
         if remove then table.remove(bullets, i) end
     end
 end
+
+-- Sticky goo stings now and then (World.GOO_TIME, see damage)
+local function updateGoo(self, dt)
+    for _, e in ipairs(self.entities) do
+        local g = e.goo
+        if g and e.dead then e.goo = nil
+        elseif g then
+            g.timer = g.timer - dt
+            if g.timer <= 0 then
+                g.timer, g.left = g.timer + GOO_TICK, g.left - 1
+                local owner = self.byId[g.by] or { id = g.by }
+                if not e:untouchable() then
+                    damage(self, { owner = owner, team = g.team, damage = g.per }, e, e.x, e.y)
+                end
+                if e.goo == g and g.left <= 0 then e.goo = nil end
+            end
+        end
+    end
+end
+
+---------------------------------------------------------------------------- barriers
+
+-- Closest point of segment a-b to p: distance and the push-out direction
+local function segmentPush(ax, ay, bx, by, px, py)
+    local dx, dy = bx - ax, by - ay
+    local len2 = dx * dx + dy * dy
+    local t = len2 > 0 and math.max(0, math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) or 0
+    local cx, cy = ax + dx * t, ay + dy * t
+    local ox, oy = px - cx, py - cy
+    local d = math.sqrt(ox * ox + oy * oy)
+    if d < 1e-6 then return 0, -dy, dx end -- on the line: out sideways
+    return d, ox / d, oy / d
+end
+
+-- A barrier of another team than `team` that a circle at x, y (radius r) touches
+function World:barrierAt(x, y, r, team)
+    for _, w in ipairs(self.barriers) do
+        if w.team ~= team then
+            local p = w.points
+            for i = 1, #p - 3, 2 do
+                if segmentPush(p[i], p[i + 1], p[i + 2], p[i + 3], x, y) < r + World.BARRIER_HALF then
+                    return w
+                end
+            end
+        end
+    end
+end
+
+-- The fence a barrier attack would put up now (points along an arc in front of `e`)
+function World.barrierPoints(e)
+    local pts = {}
+    for i = 0, BARRIER_POINTS - 1 do
+        local a = e.aim + (i / (BARRIER_POINTS - 1) - 0.5) * World.BARRIER_ANGLE
+        pts[#pts + 1] = e.x + math.cos(a) * World.BARRIER_DIST
+        pts[#pts + 1] = e.y + math.sin(a) * World.BARRIER_DIST
+    end
+    return pts
+end
+
+-- A barrier attack: the fence in front of `owner` for attack.duration seconds
+function World:addBarrier(owner, attack)
+    local w = { id = self.nextLootId, team = owner.team, owner = owner.id,
+        points = World.barrierPoints(owner), born = self.time,
+        expires = self.time + (attack.duration or 6) }
+    self.nextLootId = self.nextLootId + 1
+    self.barriers[#self.barriers + 1] = w
+    self:emit("barrier", { id = owner.id, barrier = w.id, x = owner.x, y = owner.y })
+end
+
+-- Old barriers go; opponents are pushed out of the ones that stand
+local function updateBarriers(self)
+    local list = self.barriers
+    for i = #list, 1, -1 do
+        if self.time >= list[i].expires then table.remove(list, i) end
+    end
+    if #list == 0 then return end
+    for _, e in ipairs(self.entities) do
+        if not e.dead and not e.vanished and not e.leap and not e.burrowed then
+            for _, w in ipairs(list) do
+                if w.team ~= e.team then
+                    local p = w.points
+                    for i = 1, #p - 3, 2 do
+                        local d, nx, ny = segmentPush(p[i], p[i + 1], p[i + 2], p[i + 3], e.x, e.y)
+                        local reach = e.radius + World.BARRIER_HALF
+                        if d < reach then
+                            e.x, e.y = Arena.resolveCircle(e.x + nx * (reach - d), e.y + ny * (reach - d), e.radius)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+----------------------------------------------------------------------------
 
 -- Waves: killed bots stay dead (removed); once the wave is cleared the next one follows.
 -- Otherwise dead bots stay in the world and respawn by themselves.
@@ -1104,7 +1242,7 @@ function World:restartMatch()
         local e = self.entities[i]
         if e.isBot then self:remove(e) end
     end
-    self.bullets, self.medpacks, self.boxes, self.coins = {}, {}, {}, {}
+    self.bullets, self.medpacks, self.boxes, self.coins, self.barriers = {}, {}, {}, {}, {}
     self.boxTimer = World.BOX_FIRST
     self.wave, self.waveSize, self.waveTimer = 0, 0, 0
     for _, e in ipairs(self.entities) do
@@ -1138,8 +1276,10 @@ function World:update(dt, inputs)
             e:update(dt, input, self.bullets)
         end
     end
+    updateBarriers(self)
     newBullets(self)
     updateBullets(self, dt)
+    updateGoo(self, dt)
     if self.ball and not self.match.over then updateBall(self, dt) end
     updateMedpacks(self)
     updateLoot(self, dt)

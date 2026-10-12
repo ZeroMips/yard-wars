@@ -43,7 +43,7 @@ local CH_RELIABLE, CH_FAST = 0, 1
 -- list indexes, the client draws with its own stats). Bump PROTOCOL when messages or
 -- Net.FIELDS change; the content id is a hash of src/rowdies.lua's data, so a new or
 -- changed rowdy needs no manual bump. Builds may differ otherwise (git checkout <-> phone).
-Net.PROTOCOL = 9 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
+Net.PROTOCOL = 10 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
                  -- 4: bombs (input dist, bullet lob, blast event)
                  -- 5: boss fight (welcome mode.boss, FIELDS boss)
                  -- 6: Student/Chef/Agent Angel (bullet + blast projectile, turn and
@@ -54,6 +54,8 @@ Net.PROTOCOL = 9 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin.
                  --    events, FIELDS beam, grabbing, held, vanished)
                  -- 9: Yardball (welcome mode.yardball, snapshot y + match.goals,
                  --    kick/pickup/ballDrop/goal/bounce events, FIELDS goals)
+                 -- 10: Posion/Fruit Man/Officer/Tornalo/Mecha Robot (snapshot w =
+                 --    barriers, cuff/gust/barrier/magnet events, FIELDS rooted + goo)
 
 local function serialize(v, out)
     if type(v) == "table" then
@@ -101,7 +103,7 @@ Net.FIELDS = { "id", "team", "key", "x", "y", "aim", "hp", "ammo", "ammoTimer", 
     "respawnTimer", "walkPhase", "walkBlend", "recoil", "flashTimer", "flashSize",
     "hitFlash", "spawnAnim", "kills", "deaths", "isBot", "charge", "out",
     "skin", "trail", "title", "badge", "boss", "frozen", "air", "burrowed", "beam", "grabbing",
-    "held", "vanished", "goals" }
+    "held", "vanished", "goals", "rooted", "goo" }
 
 local function send(peer, msg, reliable)
     peer:send(Codec.encode(msg), reliable and CH_RELIABLE or CH_FAST,
@@ -260,6 +262,17 @@ end
 
 local function round(v, k) return math.floor(v * k + 0.5) / k end
 
+-- Barriers (the Officer's fences): { id, team, expires, x1, y1, x2, y2, ... }
+local function barriers(world)
+    local list = {}
+    for _, w in ipairs(world.barriers or {}) do
+        local b = { w.id, w.team, w.expires }
+        for _, v in ipairs(w.points) do b[#b + 1] = round(v, 10) end
+        list[#list + 1] = b
+    end
+    return list
+end
+
 local function snapshot(world)
     local ents = {}
     for _, e in ipairs(world.entities) do
@@ -277,6 +290,8 @@ local function snapshot(world)
         s[33] = e.grab ~= nil
         s[34] = e.heldBy ~= nil
         s[35] = e.vanished ~= nil
+        s[37] = round(e.rooted or 0, 100)
+        s[38] = e.goo ~= nil
         ents[#ents + 1] = s
     end
     local packs = {}
@@ -294,6 +309,7 @@ local function snapshot(world)
     local m, ball = world.match, world.ball
     return { type = "snap", t = world.time, wave = world.wave, waveSize = world.waveSize,
         waveTimer = world.waveTimer, e = ents, m = packs, b = boxes, c = coins,
+        w = barriers(world),
         y = ball and { round(ball.x, 10), round(ball.y, 10), ball.carrier or 0,
             round(ball.vx, 10), round(ball.vy, 10), round(world.kickoff or 0, 100) },
         match = { over = m.over, timeLeft = m.timeLeft and round(m.timeLeft, 10),

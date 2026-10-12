@@ -188,6 +188,29 @@ local DEFS = {
                          { { wave = "sine", f1 = 400, f2 = 1600, dur = 0.3, vol = 0.12, attack = 0.05 } }),
     claim        = notes({ { E5, 0.05 }, { G5, 0.05 }, { C6, 0.16 } }, "square", 0.16,
                          { { wave = "noise", f1 = 1, f2 = 1, dur = 0.25, vol = 0.1, lowpass = 0.6, delay = 0.08 } }),
+    -- Posion, Fruit Man, Officer, Tornalo, Mecha Robot (2026-10-12)
+    shot_goo     = { { wave = "noise", f1 = 1, f2 = 1, dur = 0.18, vol = 0.35, lowpass = 0.3, attack = 0.01 },
+                     { wave = "sine", f1 = 260, f2 = 140, dur = 0.12, vol = 0.3, vibrato = { 0.15, 25 } } },
+    shot_sling   = { { wave = "triangle", f1 = 700, f2 = 180, dur = 0.12, vol = 0.3 },
+                     { wave = "noise", f1 = 1, f2 = 1, dur = 0.05, vol = 0.2, lowpass = 0.6 } },
+    shot_cuffs   = { { wave = "square", f1 = 1900, f2 = 1700, dur = 0.05, vol = 0.1, duty = 0.2 },
+                     { wave = "noise", f1 = 1, f2 = 1, dur = 0.14, vol = 0.2, lowpass = 0.4, attack = 0.03 } },
+    -- handcuffs click shut
+    cuff         = { { wave = "square", f1 = 2400, f2 = 2200, dur = 0.03, vol = 0.12, duty = 0.2 },
+                     { wave = "square", f1 = 2000, f2 = 1900, dur = 0.04, vol = 0.12, duty = 0.2, delay = 0.06 } },
+    whirl        = { { wave = "noise", f1 = 1, f2 = 1, dur = 0.4, vol = 0.45, lowpass = 0.2, attack = 0.08, curve = 1 },
+                     { wave = "sine", f1 = 300, f2 = 900, dur = 0.35, vol = 0.12, vibrato = { 0.2, 14 } } },
+    gust         = { { wave = "noise", f1 = 1, f2 = 1, dur = 0.5, vol = 0.5, lowpass = 0.12, attack = 0.05, curve = 1.2 },
+                     { wave = "sine", f1 = 200, f2 = 600, dur = 0.4, vol = 0.1 } },
+    -- a firework rocket pops: a bang and crackles
+    firework     = { { wave = "noise", f1 = 1, f2 = 1, dur = 0.25, vol = 0.5, lowpass = 0.4 },
+                     { wave = "sine", f1 = 900, f2 = 1400, dur = 0.1, vol = 0.12 },
+                     { wave = "noise", f1 = 1, f2 = 1, dur = 0.04, vol = 0.3, lowpass = 0.95, delay = 0.15 },
+                     { wave = "noise", f1 = 1, f2 = 1, dur = 0.04, vol = 0.25, lowpass = 0.95, delay = 0.24 },
+                     { wave = "noise", f1 = 1, f2 = 1, dur = 0.04, vol = 0.2, lowpass = 0.95, delay = 0.31 } },
+    -- the barrier goes up: a whistle and a thump
+    barrier      = { { wave = "sine", f1 = 2200, f2 = 2200, dur = 0.25, vol = 0.12, vibrato = { 0.04, 30 } },
+                     { wave = "sine", f1 = 140, f2 = 70, dur = 0.2, vol = 0.5, delay = 0.08 } },
     -- Yardball: a kick (a soft "thock"), taking the ball, a bounce off a wall, a goal
     -- (a jingle over a cheering crowd of noise)
     kick         = { { wave = "sine", f1 = 260, f2 = 90, dur = 0.12, vol = 0.7 },

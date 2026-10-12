@@ -70,6 +70,7 @@ function Rowdy:init(x, y, look, stats)
     self.respawnTimer = 0
     self.charge = 0 -- super meter 0..1 (kept when defeated, reset when switching)
     self.frozen = 0 -- seconds left frozen (src/rowdies.lua: freeze): no moving, no attacks
+    self.rooted = 0 -- seconds left handcuffed (src/rowdies.lua: hold): no walking
     self.muzzleSide = 1 -- twin attacks: which of the two muzzles fires next (1 / -1)
     self.air = 0        -- height above the ground while leaping (drawn)
     self.beamLen = 0    -- length of the beam this step (0 = off; drawn)
@@ -100,6 +101,7 @@ function Rowdy:clearActions()
     if self.vanished then self:reappear() end
     self.bursting, self.push, self.leap, self.burrowed = nil, nil, nil, nil
     self.frozen, self.air, self.beamLen, self.beamHold = 0, 0, 0, 0
+    self.rooted, self.goo = 0, nil
     self.heldBy = nil
 end
 
@@ -131,6 +133,7 @@ function Rowdy:tick(dt)
     self.flashTimer = math.max(0, self.flashTimer - dt)
     self.spawnAnim = math.max(0, self.spawnAnim - dt)
     self.frozen = math.max(0, self.frozen - dt)
+    self.rooted = math.max(0, (self.rooted or 0) - dt)
     if not self.dead then self:act(dt) end
     local burst = self.bursting -- the rest of a burst (src/rowdies.lua: burst)
     if burst then
@@ -248,9 +251,9 @@ function Rowdy:canMove()
         and not self.leap and not self.heldBy
 end
 
--- Walks by its own input this step (not during any push)
+-- Walks by its own input this step (not during any push, not handcuffed)
 function Rowdy:walks()
-    return self:canMove() and not self.push
+    return self:canMove() and not self.push and (self.rooted or 0) <= 0
 end
 
 -- May attack: can move, isn't underground and holds nobody
@@ -294,6 +297,20 @@ function Rowdy:act(dt)
         self:animateWalk(math.sqrt((self.x - ox) ^ 2 + (self.y - oy) ^ 2), dt)
         push.t = push.t - dt
         if push.t <= 0 then self.push = nil end
+        if push.gust and self.world then -- a gust: stops at the first opponent or a wall
+            local hit = push.t <= 0 or (wx - self.x) ^ 2 + (wy - self.y) ^ 2 > 1
+            for _, e in ipairs(self.world.entities) do
+                local reach = self.radius + e.radius + 6
+                if e.team ~= self.team and not e.dead and not e:untouchable()
+                    and (e.x - self.x) ^ 2 + (e.y - self.y) ^ 2 < reach * reach then
+                    hit = true
+                end
+            end
+            if hit then
+                self.push = nil
+                self.world:blastAt(self, push.gust, self.x, self.y)
+            end
+        end
         if push.impact and self.world then
             local other
             for _, e in ipairs(self.world.entities) do
@@ -465,6 +482,58 @@ function ACTIONS.leap(self, attack) -- flies on an arc over everything, lands wi
     self:emit("leap", { id = self.id, x = self.x, y = self.y, toX = tx, toY = ty })
 end
 
+function ACTIONS.heal(self, attack) -- heals itself (a share of its max HP)
+    local amount = math.min(self.maxHp - self.hp, math.ceil(self.maxHp * (attack.heal or 0.5)))
+    self.hp = self.hp + amount
+    self:emit("heal", { id = self.id, x = self.x, y = self.y, amount = amount })
+end
+
+function ACTIONS.spin(self, attack) -- a spin: hits everybody around it
+    if self.world then self.world:blastAt(self, attack, self.x, self.y) end
+end
+
+-- Where a gust (kind "gust") would carry the rowdy now: aimDist far (MIN_THROW..range),
+-- up to the first wall
+function Rowdy:gustTarget(attack)
+    local range = attack.range or Bullet.range
+    local d = math.max(Bullet.MIN_THROW, math.min(range, self.aimDist or range))
+    d = Arena.raycast(self.x, self.y, self.aim, d, self.radius)
+    return self.x + math.cos(self.aim) * d, self.y + math.sin(self.aim) * d, d
+end
+
+function ACTIONS.gust(self, attack) -- rides a gust of wind; hits the first opponent
+    local tx, ty, d = self:gustTarget(attack)
+    local speed = attack.bulletSpeed or 900
+    local c, s = math.cos(self.aim), math.sin(self.aim)
+    self.push = { vx = c * speed, vy = s * speed, t = math.max(0.05, d / speed), own = true,
+        gust = attack }
+    self:emit("gust", { id = self.id, x = self.x, y = self.y, toX = tx, toY = ty })
+end
+
+function ACTIONS.magnet(self, attack) -- pulls the `targets` nearest opponents in range
+    local world = self.world
+    if not world then return end
+    local list = {}
+    for _, e in ipairs(world.entities) do
+        local d2 = (e.x - self.x) ^ 2 + (e.y - self.y) ^ 2
+        local range = (attack.range or Bullet.range) + e.radius
+        if e.team ~= self.team and not e.dead and not e:untouchable() and d2 < range * range
+            and not world:isHiddenFrom(e, self)
+            and Arena.hasLineOfSight(self.x, self.y, e.x, e.y) then
+            list[#list + 1] = { e = e, d2 = d2 }
+        end
+    end
+    table.sort(list, function(a, b) return a.d2 < b.d2 end)
+    self:emit("magnet", { id = self.id, x = self.x, y = self.y, n = math.min(#list, attack.targets or 2) })
+    for i = 1, math.min(#list, attack.targets or 2) do
+        world:hitWith(self, attack, list[i].e, list[i].e.x, list[i].e.y)
+    end
+end
+
+function ACTIONS.barrier(self, attack) -- a fence only the own team gets through
+    if self.world then self.world:addBarrier(self, attack) end
+end
+
 function ACTIONS.burrow(self, attack) -- digs in: can't be hit, pops out under somebody
     self.burrowed = { time = attack.duration or 4, attack = attack }
     self:emit("burrow", { id = self.id, x = self.x, y = self.y })
@@ -503,10 +572,11 @@ function fire(self, bullets, attack, follow)
     if ring then bx, by = self.x, self.y end
     for i = 1, n do
         local a = self.aim
-        if n > 1 then
+        if ring then -- evenly all around, the first one straight along the aim
+            a = a + (i - 1) / n * math.pi * 2
+        elseif n > 1 then
             local t = (i - 1) / (n - 1) - 0.5 -- -0.5 .. 0.5 across the cone
-            a = a + t * spread
-            if not ring then a = a + (math.random() - 0.5) * spread * 0.15 end
+            a = a + t * spread + (math.random() - 0.5) * spread * 0.15
         end
         bullets[#bullets + 1] = Bullet.new(bx, by, a, self, attack, self:throwDist())
     end
@@ -604,6 +674,34 @@ function Rowdy:drawAim(useSuper)
         love.graphics.setColor(1, 1, 1, 1)
         return
     end
+    if a.kind == "heal" then -- a green "+" ring around itself
+        love.graphics.setColor(0.4, 1, 0.4, 0.7)
+        love.graphics.setLineWidth(3)
+        love.graphics.circle("line", self.x, self.y, self.radius + 16)
+        love.graphics.rectangle("fill", self.x - 3, self.y - self.radius - 34, 6, 18)
+        love.graphics.rectangle("fill", self.x - 9, self.y - self.radius - 28, 18, 6)
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(1, 1, 1, 1)
+        return
+    end
+    if a.kind == "magnet" or a.kind == "barrier" then
+        if a.kind == "barrier" then -- the fence where it will stand
+            local World = require("src.world") -- (loaded by now; rowdy.lua is required by it)
+            love.graphics.setColor(c[1], c[2], c[3], 0.7)
+            love.graphics.setLineWidth(World.BARRIER_HALF * 2)
+            love.graphics.line(World.barrierPoints(self))
+        else -- a dashed circle: who is in range gets pulled
+            love.graphics.setColor(c[1], c[2], c[3], 0.6)
+            love.graphics.setLineWidth(2)
+            local r = a.range or Bullet.range
+            for i = 0, 35, 2 do
+                love.graphics.arc("line", "open", self.x, self.y, r, i / 36 * math.pi * 2, (i + 1) / 36 * math.pi * 2)
+            end
+        end
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(1, 1, 1, 1)
+        return
+    end
     if a.kind == "vanish" then -- how close opponents still see the ghost
         love.graphics.setColor(c[1], c[2], c[3], 0.6)
         love.graphics.setLineWidth(2)
@@ -614,12 +712,13 @@ function Rowdy:drawAim(useSuper)
         love.graphics.setColor(1, 1, 1, 1)
         return
     end
-    if a.kind == "leap" or a.kind == "burrow" or a.kind == "blink" then
+    if a.kind == "leap" or a.kind == "burrow" or a.kind == "blink" or a.kind == "spin"
+        or a.kind == "gust" then
         -- leap: a dotted arc to the landing spot; burrow: around the rowdy. And the
         -- circle the slam / pop-out hits
         local lx, ly = self.x, self.y
-        if a.kind == "blink" then -- a dashed line to where it appears
-            lx, ly = self:leapTarget(a)
+        if a.kind == "blink" or a.kind == "gust" then -- a dashed line to where it goes
+            if a.kind == "gust" then lx, ly = self:gustTarget(a) else lx, ly = self:leapTarget(a) end
             love.graphics.setColor(c[1], c[2], c[3], 0.75)
             for j = 1, 10, 2 do
                 love.graphics.line(self.x + (lx - self.x) * j / 11, self.y + (ly - self.y) * j / 11,
@@ -807,6 +906,34 @@ function Rowdy:drawIce(alpha)
     end
 end
 
+-- Handcuffed (src/rowdies.lua: hold): toy cuffs round the feet, a little shake
+function Rowdy:drawCuffs(alpha)
+    local t = love.timer.getTime()
+    local x, y = self.x + math.sin(t * 30) * 1.5, self.y + self.radius * 0.6
+    for _, side in ipairs({ -1, 1 }) do
+        love.graphics.setLineWidth(5)
+        love.graphics.setColor(0.15, 0.15, 0.2, alpha)
+        love.graphics.circle("line", x + side * 9, y, 7)
+        love.graphics.setLineWidth(3)
+        love.graphics.setColor(0.85, 0.87, 0.92, alpha)
+        love.graphics.circle("line", x + side * 9, y, 7)
+    end
+    love.graphics.setLineWidth(1)
+end
+
+-- Sticky goo (src/rowdies.lua: goo): green drips and bubbles on the rowdy
+function Rowdy:drawGoo(alpha)
+    local t = love.timer.getTime()
+    for i = 1, 4 do
+        local a = i * 1.6
+        local k = (t * 0.8 + i * 0.27) % 1
+        local x = self.x + math.cos(a) * self.radius * 0.6
+        local y = self.y + math.sin(a) * self.radius * 0.5 + k * 14
+        love.graphics.setColor(0.45, 0.95, 0.2, (1 - k) * 0.9 * alpha)
+        love.graphics.circle("fill", x, y, 3.5 - k * 1.5)
+    end
+end
+
 -- The beam (src/rowdies.lua: beam / grab): a wobbling glowing line from the muzzle
 function Rowdy:drawBeam()
     local mx, my = self:muzzle()
@@ -931,6 +1058,8 @@ function Rowdy:draw()
         k * sy, k * sx, look.origin[1], look.origin[2])
     if shaded then love.graphics.setShader() end
     if self.frozen > 0 then self:drawIce(alpha) end
+    if (self.rooted or 0) > 0 then self:drawCuffs(alpha) end
+    if self.goo then self:drawGoo(alpha) end
     if self.heldBy then -- grabbed by a beam: purple sparkles around it
         love.graphics.setColor(BEAM_COLOR[1], BEAM_COLOR[2], BEAM_COLOR[3], 0.8 * alpha)
         love.graphics.setLineWidth(2)

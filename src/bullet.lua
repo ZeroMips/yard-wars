@@ -38,8 +38,13 @@ function Bullet.new(x, y, angle, owner, attack, dist)
         pierce = attack.pierce or attack.boomerang,
         boomerang = attack.boomerang, -- turns after `range` (src/world.lua)
         lob = attack.lob,       -- a bomb: over everything, explodes when life runs out
-        blast = attack.lob and attack.blast or nil,
+        -- explosion radius: a bomb's where it lands, any other shot's where it stops
+        -- (hits a rowdy, a wall or a chest, or its range is flown: a firework rocket)
+        blast = attack.blast,
         freeze = attack.freeze, -- seconds a rowdy it hits can't move or attack
+        hold = attack.hold,     -- seconds a rowdy it hits can't walk (handcuffs)
+        goo = attack.goo,       -- extra damage the rowdy it hits takes over GOO_TIME
+        chargeHit = attack.chargeHit, -- super charge per hit (an attack without damage)
         pull = attack.pull,     -- the rowdy it hits flies to the shooter
         projectile = attack.projectile, -- how it is drawn (see Bullet:draw)
         flight = range / speed, -- whole flight time (a bomb's arc is drawn from it)
@@ -218,6 +223,89 @@ function ITEMS.swing(b, x, y, r, spin, dir) -- a shovel swing: a swoosh and the 
     love.graphics.polygon("fill", -7, -7, 6, -6, 9, 0, 6, 6, -7, 7)
     love.graphics.setColor(0.55, 0.35, 0.18)
     love.graphics.rectangle("fill", -22, -2.5, 15, 5, 2, 2)
+    love.graphics.pop()
+end
+
+function ITEMS.apple(b, x, y, r, spin) -- a shiny red apple with a leaf, spinning
+    r = math.max(r, 8)
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(spin * 0.6)
+    love.graphics.setColor(0.3, 0.05, 0.05)
+    love.graphics.circle("fill", 0, 0, r + 2)
+    love.graphics.setColor(0.9, 0.15, 0.15)
+    love.graphics.circle("fill", 0, 0, r)
+    love.graphics.setColor(1, 1, 1, 0.5)
+    love.graphics.circle("fill", -r * 0.35, -r * 0.35, r * 0.25)
+    love.graphics.setColor(0.4, 0.25, 0.1)
+    love.graphics.rectangle("fill", -1, -r - 4, 2.5, 6)
+    love.graphics.setColor(0.3, 0.75, 0.2)
+    love.graphics.ellipse("fill", 4, -r - 2, 4, 2)
+    love.graphics.pop()
+end
+
+function ITEMS.stone(b, x, y, r, spin) -- a grey pebble from a slingshot
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(spin * 0.4)
+    love.graphics.setColor(0.15, 0.15, 0.17)
+    love.graphics.ellipse("fill", 0, 0, r + 2, r * 0.8 + 2)
+    love.graphics.setColor(0.6, 0.6, 0.62)
+    love.graphics.ellipse("fill", 0, 0, r, r * 0.8)
+    love.graphics.setColor(0.8, 0.8, 0.82)
+    love.graphics.circle("fill", -r * 0.3, -r * 0.25, r * 0.3)
+    love.graphics.pop()
+end
+
+function ITEMS.goo(b, x, y, r, spin) -- a wobbly blob of green goo
+    local w = 1 + 0.15 * math.sin(spin * 2 + x * 0.05)
+    love.graphics.setColor(0.15, 0.35, 0.05)
+    love.graphics.ellipse("fill", x, y, (r + 2) * w, (r + 2) / w)
+    love.graphics.setColor(0.5, 0.95, 0.2)
+    love.graphics.ellipse("fill", x, y, r * w, r / w)
+    love.graphics.setColor(0.85, 1, 0.6)
+    love.graphics.circle("fill", x - r * 0.3, y - r * 0.3, r * 0.3)
+end
+
+function ITEMS.rocket(b, x, y, r, spin, dir) -- a striped paper firework rocket, sparks behind
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(dir)
+    love.graphics.setBlendMode("add")
+    local t = love.timer.getTime()
+    for i = 1, 5 do -- sparkling tail
+        love.graphics.setColor(1, 0.7 + 0.06 * i, 0.2, 0.5 - i * 0.08)
+        love.graphics.circle("fill", -16 - i * 6 + math.sin(t * 40 + i) * 2, math.cos(t * 33 + i) * 3, 4 - i * 0.5)
+    end
+    love.graphics.setBlendMode("alpha")
+    love.graphics.setColor(0.1, 0.1, 0.15)
+    love.graphics.rectangle("fill", -16, -6, 24, 12, 2, 2)
+    love.graphics.polygon("fill", 7, -6, 18, 0, 7, 6)
+    love.graphics.setColor(0.2, 0.5, 1)
+    love.graphics.rectangle("fill", -14, -4, 21, 8)
+    love.graphics.setColor(1, 0.9, 0.3) -- stripes
+    love.graphics.rectangle("fill", -10, -4, 4, 8)
+    love.graphics.rectangle("fill", -1, -4, 4, 8)
+    love.graphics.setColor(1, 0.3, 0.35)
+    love.graphics.polygon("fill", 8, -4, 15, 0, 8, 4)
+    love.graphics.pop()
+end
+
+function ITEMS.cuffs(b, x, y, r, spin) -- toy handcuffs: two silver rings, spinning
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(spin * 0.8)
+    for _, side in ipairs({ -1, 1 }) do
+        love.graphics.setLineWidth(5)
+        love.graphics.setColor(0.15, 0.15, 0.2)
+        love.graphics.circle("line", side * 7, 0, 6)
+        love.graphics.setLineWidth(3)
+        love.graphics.setColor(0.85, 0.87, 0.92)
+        love.graphics.circle("line", side * 7, 0, 6)
+    end
+    love.graphics.setColor(0.6, 0.62, 0.7)
+    love.graphics.rectangle("fill", -2, -1.5, 4, 3)
+    love.graphics.setLineWidth(1)
     love.graphics.pop()
 end
 

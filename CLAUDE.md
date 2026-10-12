@@ -177,7 +177,9 @@ existing things that break it.
   (a boolean on the wire); 8 since Ghostman/Wizard: input `hold`, blink/vanish/appear/
   grab/fling/bonk events, FIELDS beam/grabbing/held/vanished; 9 since Yardball: welcome
   `mode.yardball`, snapshot `y` (ball: x, y, carrier or 0, vx, vy, kickoff) +
-  `match.goals`, kick/pickup/ballDrop/goal/bounce events, FIELDS `goals`). Version
+  `match.goals`, kick/pickup/ballDrop/goal/bounce events, FIELDS `goals`; 10 since the
+  mechanics for Gideon's 2026-10-12 sheets: snapshot `w` (barriers: id, team, expires,
+  points), cuff/gust/barrier/magnet events, FIELDS `rooted` + `goo`). Version
   check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
   `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
   refused with a reason ("The host has a newer build (52): restart to update"), different
@@ -273,6 +275,8 @@ existing things that break it.
   lobby (STYLE, key Y) and the picker cards' "Skins" button (also between rounds).
 - `src/loot.lua` — drawing of loot boxes (treasure chest, shake/flash on hit, HP bar), coins
   (fly out, spin, blink), coin icon/counter and padlock for the menus
+- `src/barrier.lua` — drawing of the Officer's barriers (traffic cones + striped tape,
+  a line in the team colour, blinks in its last second)
 - `src/ball.lua` — Yardball drawing: the ball (spins while it rolls, pulses during the
   kick-off), goals (net + posts in the viewer's team colours), kick preview
   (`drawKickAim`), `drawIcon` (scoreboard, mode card icon "ball")
@@ -398,7 +402,19 @@ existing things that break it.
   `World:hitWith` every 0.1 s, ammo = smooth energy), "grab" (`Rowdy.grab`, the victim's
   `heldBy`; fling = a forced push with `impact` -> `crash`, "bonk" event),
   `duration`. `canMove()` (not frozen/pulled/leaping/held), `walks()` (also not
-  dashing), `canAct()` (also not underground or grabbing). Names may contain spaces ("Agent Angel"): profile.txt
+  dashing or handcuffed), `canAct()` (also not underground or grabbing).
+  Since 2026-10-12 (for Gideon's second batch, see "New rowdies 2" below): `hold`
+  (handcuffs: `Rowdy.rooted` s, can't walk, may attack), `goo` (extra damage over
+  `World.GOO_TIME` 2 s in 0.5 s stings, `e.goo`), `chargeHit` (super charge per hit for
+  an attack without damage), `blast` on a shot without `lob` = it bursts where it stops
+  (rocket: first rowdy/wall/chest/range), kinds "heal" (`heal` share; bots use it below
+  55% HP), "spin" (blast around itself; range = bot reach), "gust" (own push to aimDist,
+  stops at the first opponent or wall, blast there; `Rowdy:gustTarget`), "magnet" (pulls
+  the `targets` nearest opponents in sight, `pull = true`), "barrier" (`World:addBarrier`:
+  an arc of 7 points 130 px in front, `world.barriers`, `duration`; opponents are pushed
+  out and their shots/beams stop at it, bombs fly over, own team passes; drawn by
+  src/barrier.lua). An even ring (`spread` >= pi) now starts at the aim (4 stones: one
+  straight ahead; before, 4 pellets went out at +-45/135 degrees). Names may contain spaces ("Agent Angel"): profile.txt
   and pass.txt's skin lines write them with "_" (`Profile.encodeName`), so "_" is not
   allowed in names.
   Bombs: `lob = true` + `blast` (radius) on an attack (normal or super): the bomb flies
@@ -556,6 +572,16 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   Build 86 (2026-10-10: info screen + update log + USB copy; latest.txt + .love
   answer 200 over plain http). Build 93 (2026-10-11, current: Yardball, protocol 9;
   website with the Yardball card uploaded the same day).
+- New rowdies 2 (Gideon's photos of 2026-10-12, ~/Downloads/download (2).zip): Posion
+  (goo spray cone + firework rockets; name as Gideon wants it), Fruit Man (two apples in
+  a V + heals himself), Officer (handcuffs: no damage, hold 1.2 s + a barrier 6 s that
+  also stops shots), Tornalo (spin + wind gust to an opponent), Mecha Robot (4 slingshot
+  stones all around + pulls the two nearest). Mechanics coded + tested headless
+  (2026-10-12, /tmp/yw-new); the planned entries (stats tuned in 1v1 bot fights:
+  knockout shares Posion 46%, Fruit Man 41%, Tornalo 47%, Mecha 39%, existing 38-50%)
+  are in ~/Downloads/yard-wars-art-new/gideon-2026-10-12-entries.lua with a placeholder
+  comic; Gemini prompts <image>-prompts.md there (posion, fruitman, officer, tornalo,
+  mecha). Open: the art; the Officer can't knock anybody out (0% in bot duels).
 - Random-rowdy bots NOT yet tried on a device (feel of the handicap, how often bots
   use supers).
 - New rowdies NOT yet tried on a device (Wizard's held beam on the touch stick, leap /

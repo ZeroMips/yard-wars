@@ -77,6 +77,13 @@ function Enemy:update(dt, world)
         return
     end
 
+    -- a healing super (src/rowdies.lua: kind "heal") is for when it's hurt, not for a target
+    local super = self.super
+    local heals = super and super.kind == "heal"
+    if heals and self:superReady() and self.cooldown <= 0 and self.hp < self.maxHp * 0.55 then
+        self:shootSuper(world.bullets)
+    end
+
     local target = world:botTarget(self)
     local dx, dy, dist = 0, 0, math.huge
     if target then
@@ -126,8 +133,7 @@ function Enemy:update(dt, world)
 
         -- bombs land where the target stands (aimDist is measured from the body centre)
         self.aimDist = dist
-        local super = self.super
-        if super and self:superReady() and self.cooldown <= 0
+        if super and not heals and self:superReady() and self.cooldown <= 0
             and dist <= self:reach(super) * SHOOT_RANGE then
             local exact = self.aim
             self.aim = exact + (math.random() - 0.5) * AIM_SPREAD * 0.5
@@ -204,7 +210,7 @@ function Enemy:update(dt, world)
         mx, my = -my * self.unstickDir, mx * self.unstickDir
     end
 
-    if not self:walks() then return end -- dashing (a punch)
+    if not self:walks() then return end -- dashing (a punch) or handcuffed
     local ox, oy = self.x, self.y
     self:move(mx, my, dt)
 

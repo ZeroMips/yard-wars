@@ -18,7 +18,7 @@ Replica.__index = Replica
 local REMOTE_DELAY = 0.1
 local OWN_DELAY    = 0.05
 local LERPED = { "x", "y", "ammoTimer", "respawnTimer", "walkPhase", "walkBlend", "recoil",
-    "flashTimer", "hitFlash", "spawnAnim", "frozen", "air" }
+    "flashTimer", "hitFlash", "spawnAnim", "frozen", "air", "rooted" }
 
 function Replica.new()
     return setmetatable({
@@ -61,6 +61,14 @@ local function decodeSnap(msg)
                 expires = tonumber(c[7]) or 0 }
         end
     end
+    local walls = {} -- the Officer's barriers
+    for _, w in pairs(type(msg.w) == "table" and msg.w or {}) do
+        if type(w) == "table" and tonumber(w[1]) and tonumber(w[3]) and #w >= 7 then
+            local pts = {}
+            for i = 4, #w do pts[#pts + 1] = tonumber(w[i]) or 0 end
+            walls[#walls + 1] = { id = w[1], team = tonumber(w[2]), expires = tonumber(w[3]), points = pts }
+        end
+    end
     local ball -- (Yardball)
     local y = msg.y
     if type(y) == "table" and tonumber(y[1]) and tonumber(y[2]) then
@@ -72,7 +80,7 @@ local function decodeSnap(msg)
         and { tonumber(m.goals[1]) or 0, tonumber(m.goals[2]) or 0 } or nil
     return { t = tonumber(msg.t) or 0, wave = msg.wave, waveSize = msg.waveSize,
         waveTimer = msg.waveTimer, ents = ents, medpacks = packs, boxes = boxes, coins = coins,
-        ball = ball,
+        ball = ball, barriers = walls,
         match = { over = m.over == true, timeLeft = tonumber(m.timeLeft),
                   winner = tonumber(m.winner), winnerTeam = tonumber(m.winnerTeam),
                   wave = tonumber(m.wave), goals = goals } }
@@ -213,6 +221,8 @@ local function proxyFor(self, s)
     p.vanished = s.vanished == true or nil
     p.skin, p.trail, p.title, p.badge = s.skin, s.trail, s.title, s.badge -- nil = none
     p.goals = tonumber(s.goals) or 0
+    p.rooted = tonumber(s.rooted) or 0
+    p.goo = s.goo == true or nil
     return p
 end
 
@@ -262,6 +272,7 @@ function Replica:update()
         if s.t <= remoteT then at = s end
     end
     world.medpacks, world.boxes, world.coins, world.time = at.medpacks, at.boxes, at.coins, remoteT
+    world.barriers = at.barriers or {}
 
     -- Bullets: straight lines from their spawn record
     world.bullets = {}

@@ -35,6 +35,7 @@ local Seasons  = require("src.seasons")
 local Unlock   = require("src.unlock")
 local Wardrobe = require("src.wardrobe")
 local Ball     = require("src.ball")
+local Barrier  = require("src.barrier")
 
 -- Game modes (round rules: see World.KILL_TARGET / TIME_LIMIT / LIVES).
 --   waves = false: duel - the bots respawn; first to 10 kills or most kills after
@@ -565,6 +566,38 @@ local function playEvents(events)
                 if d < 450 then Camera.shake(6 * (1 - d / 450)) end
             end
             Sound.play(dirt and "pop" or "slam", ev.x, ev.y)
+        elseif ev.kind == "blast" and ev.projectile == "whirl" then -- a tornado spin / gust
+            local r = tonumber(ev.radius) or 90
+            Effects.ring(ev.x, ev.y, r, { 0.85, 0.95, 1 })
+            Effects.ring(ev.x, ev.y, r * 0.6, { 1, 1, 1 })
+            for i = 1, 8 do
+                local a = i / 8 * math.pi * 2
+                Effects.puff(ev.x + math.cos(a) * r * 0.7, ev.y + math.sin(a) * r * 0.7)
+            end
+            Sound.play("whirl", ev.x, ev.y)
+        elseif ev.kind == "blast" and ev.projectile == "rocket" then -- fireworks: confetti
+            local r = tonumber(ev.radius) or 60
+            for i, c in ipairs({ GOLD, { 1, 0.35, 0.45 }, { 0.35, 0.65, 1 }, { 0.5, 1, 0.45 } }) do
+                Effects.sparks(ev.x, ev.y, 7, c, 160 + i * 50)
+            end
+            Effects.ring(ev.x, ev.y, r, { 1, 0.9, 0.5 })
+            Sound.play("firework", ev.x, ev.y)
+        elseif ev.kind == "cuff" then
+            Effects.ring(ev.x, ev.y, 30, { 0.85, 0.87, 0.92 })
+            Sound.play("cuff", ev.x, ev.y)
+        elseif ev.kind == "gust" then
+            for i = 0, 4 do
+                local k = i / 4
+                Effects.puff(ev.x + (ev.toX - ev.x) * k, ev.y + (ev.toY - ev.y) * k)
+            end
+            Sound.play("gust", ev.x, ev.y)
+        elseif ev.kind == "barrier" then
+            Effects.ring(ev.x, ev.y, 140, { 1, 0.85, 0.2 })
+            Sound.play("barrier", ev.x, ev.y)
+        elseif ev.kind == "magnet" then -- a tractor beam: blue rings pulling inwards
+            Effects.ring(ev.x, ev.y, 120, { 0.4, 0.75, 1 })
+            Effects.ring(ev.x, ev.y, 60, { 0.6, 0.9, 1 })
+            if (tonumber(ev.n) or 0) == 0 then Sound.play("magnet", ev.x, ev.y) end
         elseif ev.kind == "blast" and ev.projectile == "boo" then -- a ghost pops up
             Effects.ring(ev.x, ev.y, tonumber(ev.radius) or 60, { 0.8, 0.92, 1 })
             Effects.poof(ev.x, ev.y)
@@ -829,6 +862,14 @@ local function drawMinimap(screenW)
         love.graphics.setColor(c)
         love.graphics.rectangle("fill", x0 + (g.dir < 0 and 0 or mw - 4), y0 + g.y1 * s, 4, (g.y2 - g.y1) * s)
     end
+    love.graphics.setLineWidth(2) -- the Officer's barriers
+    for _, w in ipairs(world.barriers or {}) do
+        local pts = {}
+        for i, v in ipairs(w.points) do pts[i] = (i % 2 == 1 and x0 or y0) + v * s end
+        love.graphics.setColor(1, 0.85, 0.15, 1)
+        love.graphics.line(pts)
+    end
+    love.graphics.setLineWidth(1)
     love.graphics.setColor(1, 0.8, 0.15, 1)
     for _, b in ipairs(world.boxes) do
         love.graphics.rectangle("fill", x0 + b.x * s - 3.5, y0 + b.y * s - 3.5, 7, 7)
@@ -1208,6 +1249,9 @@ local function drawGame()
     for _, m in ipairs(world.medpacks) do Medpack.draw(m, world.time) end
     for _, c in ipairs(world.coins) do Loot.drawGroundCoin(c, world.time) end
     for _, b in ipairs(world.boxes) do Loot.drawBox(b, world.time) end
+    for _, w in ipairs(world.barriers or {}) do
+        Barrier.draw(w, world.time, w.team == player.team and TEAMMATE_COLOR or ENEMY_TEAM_COLOR)
+    end
     Effects.drawBelow()
     if ball and not ball.carrier then Ball.draw(ball, world.kickoff) end -- (rowdies walk over it)
     for _, b in ipairs(world.bullets) do b:draw() end

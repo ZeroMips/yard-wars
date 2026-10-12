@@ -40,7 +40,9 @@
 --                chests to where the player aims (how far the aim stick is pulled /
 --                the mouse distance, at most `range`) and explode there
 --   blast        radius of the explosion (px) of a lob attack: every opponent and chest
---                in it takes `damage` once
+--                in it takes `damage` once; on a shot (no lob): it bursts like that where
+--                it stops - on the first rowdy, wall or chest it hits, or at its range
+--                (firework rockets)
 --   radius       projectile size (default 6); wallRadius: its size against walls and
 --                crates (default radius); pierce: flies through rowdies (hits each once)
 --   boomerang    true: flies `range`, turns and flies back to where it was thrown;
@@ -50,6 +52,13 @@
 --                muzzle and its mirror image (two blasters)
 --   freeze       seconds an opponent hit (or in the blast) can't move or attack
 --   pull         true: the opponent hit flies to the shooter
+--   hold         seconds an opponent hit can't walk (handcuffs; it may still attack)
+--   goo          extra damage an opponent hit takes over the next 2 s (sticky goo,
+--                World.GOO_TIME); hit again, it starts over
+--   chargeHit    super charge per hit instead of the damage (for an attack without
+--                damage: the handcuffs)
+--   heal         share of the max HP a kind "heal" gives back (default 0.5)
+--   targets      how many opponents a kind "magnet" pulls (default 2)
 --   dash         px the rowdy dashes forward before each shot (punches: a short range,
 --                big radius and pierce make the "shot" a melee hit)
 --   kind         what the attack does (default: fires projectiles):
@@ -70,15 +79,26 @@
 --                  "grab"   the beam grabs the first opponent on it: it follows the aim
 --                           for `duration` seconds (default 1.2), then it is flung;
 --                           crashing into a wall, chest or rowdy does `damage`
+--                  "heal"   heals the rowdy by `heal` (bots use it when hurt)
+--                  "spin"   hits everybody within `blast` around the rowdy (range =
+--                           how near a bot must be: set it to about blast)
+--                  "gust"   dashes aimDist far (at most range, at bulletSpeed px/s), stops
+--                           at the first opponent or wall and hits around it (blast)
+--                  "magnet" pulls the `targets` nearest opponents within range (in
+--                           sight) to the rowdy, with `damage` each (pull = true)
+--                  "barrier" a fence in front of the rowdy for `duration` seconds:
+--                           opponents can't walk or shoot through, the own team can
 --   projectile   how it is drawn (src/bullet.lua): "pen", "book", "pan", "waffle",
---                "snowball", "potion", "magnet", "glove", "swing"; for a leap / burrow
---                / blink its blast: "slam", "dirt", "boo"; default a ball in bulletColor (a bomb for
+--                "snowball", "potion", "magnet", "glove", "swing", "apple", "stone",
+--                "goo", "rocket", "cuffs"; for a leap / burrow / blink / spin / gust its
+--                blast: "slam", "dirt", "boo", "whirl"; default a ball in bulletColor (a bomb for
 --                lob)
 --   super        special attack, charged by dealing damage (optional):
 --                  name, description, charge (damage needed to fill the meter), and
 --                  and every attack field above (pellets, spread, damage, range,
 --                  bulletSpeed, radius, pierce, lob, blast, boomerang, burst, ...);
---                  spread >= pi: a ring around the rowdy instead of a cone
+--                  spread >= pi: a ring around the rowdy instead of a cone (pellets
+--                  evenly all around, the first one along the aim)
 local Rowdies = {
     {
         name = "Gunner", role = "All-rounder", price = 150, shot = "shot_gunner",
@@ -268,16 +288,22 @@ local ATTACK = { damage = NUMBER, pellets = NUMBER, spread = NUMBER, range = NUM
                  bulletSpeed = NUMBER, radius = NUMBER, wallRadius = NUMBER, pierce = BOOL,
                  lob = BOOL, blast = NUMBER, boomerang = BOOL, burst = NUMBER,
                  burstDelay = NUMBER, twin = BOOL, freeze = NUMBER, projectile = STRING,
-                 pull = BOOL, dash = NUMBER, kind = STRING, duration = NUMBER }
+                 pull = BOOL, dash = NUMBER, kind = STRING, duration = NUMBER,
+                 hold = NUMBER, goo = NUMBER, chargeHit = NUMBER, heal = NUMBER,
+                 targets = NUMBER }
 local STATS = { speed = NUMBER, hp = NUMBER, reload = NUMBER, maxAmmo = NUMBER,
                 ammoRefill = NUMBER, super = TABLE, barColor = TABLE, bulletColor = TABLE }
 local SUPER = { name = STRING, description = STRING, charge = NUMBER }
 for k, v in pairs(ATTACK) do STATS[k], SUPER[k] = v, v end
 local PROJECTILES = { pen = true, book = true, pan = true, waffle = true, snowball = true,
                       potion = true, magnet = true, glove = true, swing = true, slam = true,
-                      dirt = true, boo = true }
+                      dirt = true, boo = true, apple = true, stone = true, goo = true,
+                      rocket = true, cuffs = true, whirl = true }
 local KINDS = { shot = true, leap = true, burrow = true, blink = true, vanish = true,
-                beam = true, grab = true }
+                beam = true, grab = true, heal = true, spin = true, gust = true,
+                magnet = true, barrier = true }
+-- kinds that hit with a blast around a spot (they need blast = radius)
+local BLASTS = { leap = true, burrow = true, blink = true, spin = true, gust = true }
 
 local function validate(def, label)
     local function fail(msg) error("src/rowdies.lua: " .. label .. ": " .. msg, 0) end
@@ -315,10 +341,10 @@ local function validate(def, label)
     end
     for _, a in ipairs({ { def.stats, "stats." }, { sup, "stats.super." } }) do
         local t = a[1]
-        local action = t and (t.kind == "leap" or t.kind == "burrow" or t.kind == "blink")
-        if t and not action and (t.lob or t.blast) and not (t.lob and t.blast and t.blast > 0) then
-            fail(a[2] .. "lob and " .. a[2] .. "blast belong together (blast = radius > 0)")
+        if t and t.lob and not (t.blast and t.blast > 0) then
+            fail(a[2] .. "lob needs " .. a[2] .. "blast (radius > 0)")
         end
+        if t and t.blast and t.blast <= 0 then fail(a[2] .. "blast must be a radius > 0") end
         if t and t.projectile and not PROJECTILES[t.projectile] then
             fail("unknown " .. a[2] .. "projectile '" .. t.projectile .. "' (see src/bullet.lua)")
         end
@@ -328,14 +354,18 @@ local function validate(def, label)
         if t and t.kind and not KINDS[t.kind] then
             fail("unknown " .. a[2] .. "kind '" .. t.kind .. "'")
         end
-        if t and (t.kind == "leap" or t.kind == "burrow" or t.kind == "blink")
-            and not (t.blast and t.blast > 0) then
+        if t and BLASTS[t.kind] and not (t.blast and t.blast > 0) then
             fail(a[2] .. "kind " .. t.kind .. " needs blast (radius of the hit)")
         end
-        if t and (t.kind == "burrow" or t.kind == "vanish") and not (t.duration and t.duration > 0) then
+        if t and (t.kind == "burrow" or t.kind == "vanish" or t.kind == "barrier")
+            and not (t.duration and t.duration > 0) then
             fail(a[2] .. "kind " .. t.kind .. " needs duration (seconds)")
         end
         if t and t.kind == "beam" and t == sup then fail("a beam can only be the normal attack") end
+        if t and t.kind == "magnet" and not t.pull then fail(a[2] .. "kind magnet needs pull = true") end
+        if t and t.blast and not t.lob and not BLASTS[t.kind] and (t.pierce or t.boomerang) then
+            fail(a[2] .. "a bursting shot (blast without lob) stops at the first hit: no pierce/boomerang")
+        end
         if t and t.boomerang and (t.lob or t.pierce) then
             fail(a[2] .. "boomerang can't be lob (it flies low) and pierces anyway")
         end
