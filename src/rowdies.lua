@@ -265,6 +265,50 @@ local Rowdies = {
                   super = { name = "Telekinesis", description = "Grabs someone, then flings them into things",
                             charge = 170, kind = "grab", duration = 1.2, damage = 50, range = 450 } },
     },
+    {
+        -- Gideon's second batch (photos of 2026-10-12): green goo (CHARTER.md: cartoon
+        -- slime) and paper firework rockets. The name is Gideon's.
+        name = "Posion", role = "Sticky goo, fireworks", price = 400, shot = "shot_goo",
+        comic = { image = "posion", origin = { 52.5, 87 }, muzzle = { 83, 0 } },
+        stats = { speed = 245, hp = 100, damage = 6, pellets = 5, spread = 0.7, range = 300,
+                  bulletSpeed = 650, goo = 20, reload = 0.45, maxAmmo = 3, ammoRefill = 1.5,
+                  projectile = "goo", bulletColor = { 0.5, 0.95, 0.2 },
+                  super = { name = "Firework Volley", description = "Four rockets that pop with confetti",
+                            charge = 170, burst = 4, burstDelay = 0.12, damage = 30, blast = 60,
+                            range = 500, bulletSpeed = 750, radius = 10, projectile = "rocket" } },
+    },
+    {
+        -- Two apples at once (a wide V: two opponents), heals himself with a snack
+        name = "Fruit Man", role = "Two fruits at once, heals", price = 350, shot = "shot_throw",
+        comic = { image = "fruitman", origin = { 57, 63 }, muzzle = { 44, 0 } },
+        stats = { speed = 245, hp = 110, damage = 22, pellets = 2, spread = 0.5, range = 450,
+                  bulletSpeed = 700, radius = 9, reload = 0.4, maxAmmo = 3, ammoRefill = 1.5,
+                  projectile = "apple", bulletColor = { 0.9, 0.15, 0.15 },
+                  super = { name = "Fruit Snack", description = "Heals half his health",
+                            charge = 150, kind = "heal", heal = 0.5 } },
+    },
+    {
+        -- Toy handcuffs hold an opponent in place (12 damage: with none he could never
+        -- knock anybody out); a barrier only his own team gets through
+        name = "Officer", role = "Handcuffs, barriers", price = 400, shot = "shot_cuffs",
+        comic = { image = "officer", origin = { 50.5, 66 }, muzzle = { 56, 3 } },
+        stats = { speed = 250, hp = 130, damage = 12, hold = 1.2, chargeHit = 25, range = 420,
+                  bulletSpeed = 750, radius = 10, reload = 0.4, maxAmmo = 4, ammoRefill = 1.3,
+                  projectile = "cuffs", bulletColor = { 0.85, 0.87, 0.92 },
+                  super = { name = "Barrier", description = "A fence they can't pass or shoot through",
+                            charge = 100, kind = "barrier", duration = 6, range = 350 } },
+    },
+    {
+        -- A toy mech with a kid pilot: slingshot stones all around, a tractor beam
+        name = "Mecha Robot", role = "Slingshots, pulls", price = 500, shot = "shot_sling",
+        comic = { image = "mecha", origin = { 79, 77 }, muzzle = { 52, 0 } },
+        stats = { speed = 215, hp = 150, damage = 30, pellets = 4, spread = 2 * math.pi * 3 / 4,
+                  range = 420, bulletSpeed = 700, radius = 10, reload = 0.5, maxAmmo = 3,
+                  ammoRefill = 1.6, projectile = "stone", bulletColor = { 0.6, 0.6, 0.62 },
+                  super = { name = "Tractor Beam", description = "Pulls the two nearest to him",
+                            charge = 160, kind = "magnet", targets = 2, pull = true, damage = 20,
+                            range = 450 } },
+    },
 }
 
 -- The old enemy bot (not playable). No longer spawned - bots are random rowdies from

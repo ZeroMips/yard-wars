@@ -115,7 +115,7 @@ existing things that break it.
 - `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
   `id`/`team`/`def`/kills/deaths, bullets (sub-stepped, hit other teams), waves, bush
   hiding (`isHiddenFrom`), `nearestOpponent`, bots (since 2026-10-10: `newBot` picks a
-  random rowdy of all 14, locked ones too, `randomBotDef` prefers one nobody in the world
+  random rowdy of all of them (18 since 2026-10-13), locked ones too, `randomBotDef` prefers one nobody in the world
   uses; kept for the round incl. respawns, new ones at `restartMatch`/new wave/team refill;
   handicap `BOT_DAMAGE` 0.75 (applied in `damage()` via `damageScale`), `BOT_SPEED` 0.8,
   `BOT_CHARGE` 0.6 (`chargeScale` in `Rowdy:addCharge`); bosses not handicapped;
@@ -578,12 +578,16 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   so the user chose a little damage 2026-10-12 - hold 1.2 s, quick and 4 ammo bars; + a
   barrier 6 s that also stops shots), Tornalo (spin + wind gust to an opponent), Mecha Robot (4 slingshot
   stones all around + pulls the two nearest). Mechanics coded + tested headless
-  (2026-10-12, /tmp/yw-new); the planned entries (stats tuned in 1v1 bot fights:
-  knockout shares Posion 46%, Fruit Man 41%, Officer 45%, Tornalo 47%, Mecha 39%,
-  existing 38-50%)
-  are in ~/Downloads/yard-wars-art-new/gideon-2026-10-12-entries.lua with a placeholder
-  comic; Gemini prompts <image>-prompts.md there (posion, fruitman, officer, tornalo,
-  mecha). Open: the art.
+  (2026-10-12, /tmp/yw-new); stats tuned in 1v1 bot fights (knockout shares Posion 46%,
+  Fruit Man 41%, Officer 45%, Tornalo 47%, Mecha 39%, existing 38-50%). Gemini prompts
+  <image>-prompts.md in ~/Downloads/yard-wars-art-new/. Art 2026-10-13 (one sheet each,
+  --scale 0.253, origin/muzzle by hand; the top views of Fruit Man and the Officer were
+  drawn facing down: turned 180 degrees; Posion's side view mirrored): Posion, Fruit Man,
+  Officer and Mecha Robot are in src/rowdies.lua (+ website cards). Tested on desktop:
+  mechanics test with the real entries, lobby/picker/game screenshots, LAN host + client
+  (barriers, cuffs, goo, pulls, rockets, heals arrive), boss fights. Tornalo: no art yet
+  (Gemini limit) - its planned entry is in
+  ~/Downloads/yard-wars-art-new/gideon-2026-10-12-entries.lua (comic = a placeholder).
 - Random-rowdy bots NOT yet tried on a device (feel of the handicap, how often bots
   use supers).
 - New rowdies NOT yet tried on a device (Wizard's held beam on the touch stick, leap /
