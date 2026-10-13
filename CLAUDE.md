@@ -570,8 +570,10 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   log). Website with their cards uploaded the same day. Build 81 (2026-10-10:
   bots are random handicapped rowdies with supers and spread out; protocol unchanged).
   Build 86 (2026-10-10: info screen + update log + USB copy; latest.txt + .love
-  answer 200 over plain http). Build 93 (2026-10-11, current: Yardball, protocol 9;
-  website with the Yardball card uploaded the same day).
+  answer 200 over plain http). Build 93 (2026-10-11: Yardball, protocol 9; website
+  with the Yardball card uploaded the same day). Build 97 (2026-10-13, current: Posion,
+  Fruit Man, Officer, Mecha Robot + their mechanics, protocol 10; website cards uploaded
+  the same day).
 - New rowdies 2 (Gideon's photos of 2026-10-12, ~/Downloads/download (2).zip): Posion
   (goo spray cone + firework rockets; name as Gideon wants it), Fruit Man (two apples in
   a V + heals himself), Officer (handcuffs: 12 damage - "no damage" scored 0 knockouts,
