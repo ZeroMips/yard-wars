@@ -309,6 +309,17 @@ local Rowdies = {
                             charge = 160, kind = "magnet", targets = 2, pull = true, damage = 20,
                             range = 450 } },
     },
+    {
+        -- A wind kid (Gideon's second batch, art a day later): spins, rides a gust
+        name = "Tornalo", role = "Spins, rides the wind", price = 450, shot = "whirl",
+        comic = { image = "tornalo", origin = { 59.5, 60 }, muzzle = { 48, 0 } },
+        stats = { speed = 265, hp = 140, kind = "spin", damage = 40, blast = 120, range = 120,
+                  reload = 0.5, maxAmmo = 3, ammoRefill = 1.4, projectile = "whirl",
+                  bulletColor = { 0.85, 0.95, 1 },
+                  super = { name = "Wind Gust", description = "Rides the wind to an opponent",
+                            charge = 120, kind = "gust", damage = 50, blast = 80, range = 450,
+                            bulletSpeed = 1000, projectile = "whirl" } },
+    },
 }
 
 -- The old enemy bot (not playable). No longer spawned - bots are random rowdies from
