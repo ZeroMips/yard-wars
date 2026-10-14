@@ -1,7 +1,8 @@
 # Yard Wars (LÖVE 11.x)
 
 Top-down arena shooter in LÖVE (Lua) with mobile twin-stick controls. Modes: duel, team
-fight, waves, Yardball (a ball game) and boss fights, solo against bots or over LAN, in a
+fight, waves, Yardball (a ball game), King of the Yard (4 teams of 3, last team standing)
+and boss fights, solo against bots or over LAN, in a
 mirrored arena. The characters are "rowdies" (code: `Rowdy`, `Rowdies`).
 Name everything "Yard Wars" / "yard-wars": no references to other games or their
 trademarks anywhere (code, comments, docs, website, file names; renamed 2026-10-04).
@@ -24,7 +25,7 @@ existing things that break it.
 - Test coins: `love . --coins 300` (adds to the saved coins in `profile.txt`).
 - Boss fight: `love . --boss 4` (against rowdy 4, any rowdy, also owned ones; `--boss 4 host`
   hosts it for LAN helpers).
-- LAN test on one machine: `love . --host` (or `--host waves` / `team` / `yardball`) and `love . --join 127.0.0.1`
+- LAN test on one machine: `love . --host` (or `--host waves` / `team` / `yardball` / `king`) and `love . --join 127.0.0.1`
   (or `love . --find` for the join screen with discovery) in a second terminal.
   UDP ports 27015 (game) + 27016 (discovery); if a phone can't connect/find the desktop:
   `sudo ufw allow 27015:27016/udp`.
@@ -96,8 +97,8 @@ existing things that break it.
 
 ## Layout
 - `main.lua` — client: state (menu/pick/join/game/pass/style), roles local/host/client, the modes of
-  the start screen (`Menu.entries`: Duel, Team fight, Waves, Yardball, Host duel = free-for-all, Host
-  team fight, Host waves = co-op, Host Yardball, Join); PLAY starts the chosen mode with the chosen
+  the start screen (`Menu.entries`: Duel, Team fight, Waves, Yardball, King of the Yard, Host duel =
+  free-for-all, Host team fight, Host waves = co-op, Host Yardball, Host King of the Yard, Join); PLAY starts the chosen mode with the chosen
   rowdy (`Menu.rowdy`); a locked rowdy: `openBoss` (panel) → `startBoss(host)` = newGame with
   mode `{ boss = index }` and `Menu.fighter`; matchOver of a won boss fight →
   `Unlock.won` (message = result subtitle); result screen (Play again / Rowdy / Menu; LAN clients:
@@ -110,6 +111,12 @@ existing things that break it.
   Yardball: goals + ball drawn with src/ball.lua, kick preview while carrying, a tap
   kicks at the opponents' goal (passed to `Controls.get` as a `kick` target), banners
   "GOAL!"; `openMenu` sets the arena back to the "yard" layout.
+  King of the Yard: `teamColor`/`teamName` (own team blue "your team", the other three
+  red/green/yellow in team-id order - per viewer), `focus()` = camera + sound listener
+  (out: a living team mate), HUD lines (out with/without heart, in the fog, "stand on your
+  team mate's heart"), scoreboard kind "king", banners (team out, last two teams, fog
+  closing + `fog` sound, "You're back!"), result: own team rowdy by rowdy + one line per
+  other team (Result shows 8 lines at most), title Victory / "2nd place".
   Escape / Android back: game → menu, menu → quit. (F2 used to toggle a Kenney
   character style; those sprites were removed 2026-10-04.)
 - `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
@@ -148,7 +155,29 @@ existing things that break it.
   `World:ballPlan(e)` for the bots (carrier: to the goal / the middle lane, shoots from
   520 px or when an opponent is within 120 px; free ball: the nearest bot of each team;
   opponent carries: the nearest bot goes for it, `botTarget` makes the carrier 700 px
-  "nearer"); boxes never appear on the ball or near a goal; boss fight (`mode.boss` = rowdy index): the players (team
+  "nearer"); boxes never appear on the ball or near a goal; King of the Yard
+  (`mode.king`, also `teams`, checked BEFORE the `teams` branches; 2026-10-14):
+  `World.new` switches to the "kingdom" layout, `KING_TEAMS` 4 teams of `TEAM_SIZE` in the
+  corners (`Arena.teamSpawns`), bots fill them; `addTeamPlayer` -> `addKingPlayer`: humans
+  fill team 1, then 2, ... (LAN: host + first two joiners = team 1), taking a bot's place
+  where it stands (out with its heart if it was out); `removePlayer` the reverse. A
+  knockout (`knockout()`, shared by all modes) makes it `out` + a heart beacon
+  (`world.beacons` {id, team, owner, x, y, born, expires, progress}); a team mate (player
+  or bot, not burrowed) within radius + `BEACON_REACH` 34 for `REVIVE_TIME` 2 s brings it
+  back there with `REVIVE_HP` 50% (progress resets when nobody stands on it); gone after
+  `BEACON_LIFE` 20 s or when its team is out. Fog (`world.zone` {x, y, r0, r1, startAt,
+  endAt, finalAt, finalEnd, r}, `World.zoneRadius(z, t)`, `World:inZone`): clear for
+  `ZONE_WAIT` 30 s, shrinks to `ZONE_MIN` 350 over `ZONE_SHRINK` 150 s around a spot up to
+  250 px from the middle, holds `ZONE_HOLD` 30 s, closes completely over `ZONE_FINAL` 45 s
+  (every round ends by ~4:15); outside: `ZONE_DAMAGE` 12 HP/s in 0.5 s nibbles (`fog`
+  event, a knockout there credits nobody). `checkMatch`: `teamUp(team)`, `match.place`
+  [team] (eliminated in the same step = same place, `teamOut` event), `teamsLeft`; one team
+  left = `winnerTeam`, none = draw. Bots: `botTarget` only sees opponents within
+  `KING_NOTICE` 800 px (and never `out` ones, all modes), `World:kingPlan(e, visible,
+  dist)`: out of the fog (to a point 350 px inside the edge, not the middle) / onto a team
+  mate's heart within 900 px unless an opponent is in sight within 250 px; patrol stays
+  near the bot and inside the clear circle. Bot-only rounds (10 seeds, 2026-10-14): median
+  ~110 s (73-219), 1-5 revives per round; boss fight (`mode.boss` = rowdy index): the players (team
   `TEAM_PLAYERS`) vs one big bot with that rowdy's def (`boss` flag, `BOSS_HP` 3x HP,
   `BOSS_SIZE` 1.4: `World.bossLook`, radius), no time limit, players respawn forever, the
   boss never respawns (`out`) - won (`winnerTeam` = players) when it is out (charter: you
@@ -179,7 +208,11 @@ existing things that break it.
   `mode.yardball`, snapshot `y` (ball: x, y, carrier or 0, vx, vy, kickoff) +
   `match.goals`, kick/pickup/ballDrop/goal/bounce events, FIELDS `goals`; 10 since the
   mechanics for Gideon's 2026-10-12 sheets: snapshot `w` (barriers: id, team, expires,
-  points), cuff/gust/barrier/magnet events, FIELDS `rooted` + `goo`). Version
+  points), cuff/gust/barrier/magnet events, FIELDS `rooted` + `goo`; 11 since King of the
+  Yard: welcome `mode.king`, snapshot `z` (zone: x, y, r0, r1 + the 4 times; the client
+  computes r with `World.zoneRadius`) + `h` (beacons: id, team, owner, x, y, expires,
+  progress) + `match.place`/`teamsLeft`, beacon/revive/beaconGone/fog/teamOut events; a
+  king host doesn't `respawn` a joiner - `addTeamPlayer` placed it). Version
   check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
   `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
   refused with a reason ("The host has a newer build (52): restart to update"), different
@@ -277,6 +310,10 @@ existing things that break it.
   (fly out, spin, blink), coin icon/counter and padlock for the menus
 - `src/barrier.lua` — drawing of the Officer's barriers (traffic cones + striped tape,
   a line in the team colour, blinks in its last second)
+- `src/king.lua` — King of the Yard drawing: heart beacons (team-coloured ring, pulsing
+  heart, green progress ring, blinks its last 4 s), the fog (a grey ring mesh from the
+  clear circle outwards, soft edge, drifting cloud puffs; CHARTER.md: no poison look) and
+  both on the minimap (zone circle clipped with a scissor, small hearts)
 - `src/ball.lua` — Yardball drawing: the ball (spins while it rolls, pulses during the
   kick-off), goals (net + posts in the viewer's team colours), kick preview
   (`drawKickAim`), `drawIcon` (scoreboard, mode card icon "ball")
@@ -324,8 +361,12 @@ existing things that break it.
   (side view on the lobby pedestal, false if none), both with an optional skin id;
   `Assets.beginSkin(look)` sets the hue/tint shader (Rowdy:draw uses it)
 - `src/arena.lua` — 40x24 tiles (64px), left half defined and mirrored to the right;
-  walls (solid, 2x2), crates (solid), bushes (hiding, 2x2); layouts (`Arena.setLayout`:
-  "yard" = the normal arena, "pitch" = Yardball: no centre wall, an open middle lane,
+  walls (solid, 2x2), crates (solid), bushes (hiding, 2x2); layouts (`Arena.setLayout`,
+  which also sets `Arena.cols/rows/width/height/center/spawn/enemySpawn` and rebuilds the
+  grass batch on a size change - nothing may cache them: "yard" = the normal arena,
+  "kingdom" = King of the Yard: 60x40 tiles, objects for the top-left quarter mirrored on
+  both axes (`mirror4`), `Arena.teamSpawns[1..4]` = 3 spots per corner (1 top left, 2
+  bottom right, 3 top right, 4 bottom left), open middle; "pitch" = Yardball: no centre wall, an open middle lane,
   `Arena.goals` [team defending it] = mouths of 4 tiles in the left/right border,
   `Arena.center`, pitch markings in `drawBelow`); `resolveCircle`, `hitsSolid`,
   raycast, `hasLineOfSight`, `randomOpenPoint`, spawns
@@ -449,12 +490,15 @@ existing things that break it.
 - `src/sound.lua` — sound effects synthesized at startup (sfxr-style layers: square/saw/
   sine/triangle/noise with pitch slides + envelopes; no files): per-rowdy shots, hit/hurt,
   impact, poof (knockout), spawn, super, superReady chime, heal, round start, victory/defeat/draw, click,
-  box/boxHit/boxBreak, coin, unlock, tierUp, claim, kick/pickup/bounce/goal.
+  box/boxHit/boxBreak, coin, unlock, tierUp, claim, kick/pickup/bounce/goal,
+  beacon/revive/fog (King of the Yard).
   `Sound.play(name, x, y)`: quieter with distance from the own rowdy, panned; same sound
   not faster than 35 ms; M mutes (touch: speaker button top right on every screen, the
   minimap moves left for it); the setting is saved in `sound.txt`. ~70 ms to build on desktop (~220 ms without JIT).
 - `src/scoreboard.lua` — in-game scoreboard top centre (duel/team: scores with bars to the kill
-  target + timer, red in the last 30 s; Yardball: goals, a ball instead of the timer; waves: wave, lives as hearts, bots left; boss: one
+  target + timer, red in the last 30 s; Yardball: goals, a ball instead of the timer;
+  King of the Yard: 4 team boxes (own first) with the rowdies up, grey when out, + a fog
+  box: countdown, then a pulsing cloud; waves: wave, lives as hearts, bots left; boss: one
   wide health bar; below the minimap on narrow screens) and banners (time marks, new wave,
   lost life, 1 kill to win, boss at half / 20%)
 - `src/effects.lua` — particles: puff, sparks, burst, ring, heal ("+" signs), poof (a
@@ -591,6 +635,16 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   2026-10-14 (top view: origin = the propeller hub, set by hand); appended at the END of
   the list (lobby.txt saves the rowdy by index - inserting would shift the Mecha), +
   website card. Tested: mechanics, boss fight, smoke tests, lobby/picker/game shots.
+- King of the Yard (2026-10-14, plan with the user/Gideon: heart beacon instead of a
+  tombstone, big map + fog, LAN teams in joining order): tested on desktop - headless rules
+  test (layout + spawns + symmetry, yard restored, knockout -> out + heart, revive by a team
+  mate in 2 s with 50% HP and not by an opponent, expiry, elimination + places, LAN order,
+  leaving while out), 10 bot-only rounds (all end, median ~110 s), screenshots (start,
+  out, revive, fog, result; landscape + portrait), LAN host + 2 clients on one machine
+  (same teams/hearts/zone/revive on all, leavers become bots, protocol-10 build refused),
+  smoke tests of all modes. Performance: a step with 12 rowdies ~0.1 ms with JIT, ~0.9 ms
+  without (Android has no JIT); frames 5.3 ms vs 3.5 ms for a team fight (desktop).
+  NOT yet on a device (frame rate with 12 rowdies + the fog mesh, round length with humans).
 - Random-rowdy bots NOT yet tried on a device (feel of the handicap, how often bots
   use supers).
 - New rowdies NOT yet tried on a device (Wizard's held beam on the touch stick, leap /

@@ -16,8 +16,9 @@
 --   host -> client   welcome {id, mode, protocol, content, build}  reliable
 --                    refused {reason}         reliable, then disconnect (other version)
 --                    events {list}            reliable, world events (with world time t)
---                    snap {t, wave, ..., e, y}  unreliable, SNAPSHOT_EVERY steps (y = the
---                                             Yardball ball)
+--                    snap {t, wave, ..., e, y, z, h}  unreliable, SNAPSHOT_EVERY steps
+--                                             (y = the Yardball ball, z = the King of the
+--                                             Yard fog, h = its heart beacons)
 local enet     = require("enet")
 local socket   = require("socket")
 local Codec    = require("src.codec")
@@ -43,7 +44,7 @@ local CH_RELIABLE, CH_FAST = 0, 1
 -- list indexes, the client draws with its own stats). Bump PROTOCOL when messages or
 -- Net.FIELDS change; the content id is a hash of src/rowdies.lua's data, so a new or
 -- changed rowdy needs no manual bump. Builds may differ otherwise (git checkout <-> phone).
-Net.PROTOCOL = 10 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
+Net.PROTOCOL = 11 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
                  -- 4: bombs (input dist, bullet lob, blast event)
                  -- 5: boss fight (welcome mode.boss, FIELDS boss)
                  -- 6: Student/Chef/Agent Angel (bullet + blast projectile, turn and
@@ -56,6 +57,8 @@ Net.PROTOCOL = 10 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin
                  --    kick/pickup/ballDrop/goal/bounce events, FIELDS goals)
                  -- 10: Posion/Fruit Man/Officer/Tornalo/Mecha Robot (snapshot w =
                  --    barriers, cuff/gust/barrier/magnet events, FIELDS rooted + goo)
+                 -- 11: King of the Yard (welcome mode.king, snapshot z + h + match.place,
+                 --    beacon/revive/beaconGone/fog/teamOut events)
 
 local function serialize(v, out)
     if type(v) == "table" then
@@ -207,12 +210,13 @@ local function receive(self, peer, msg)
             local x, y = world:playerSpawn()
             p = world:addPlayer(def, x, y, team, cleanStyle(msg.style))
         end
-        p:respawn() -- pop-in + spawn event
+        -- pop-in + spawn event (King of the Yard: addTeamPlayer put it where the bot was)
+        if not world.mode.king then p:respawn() end
         c.id, c.fireSeen = p.id, 0
         local v = Net.version()
         send(peer, { type = "welcome", id = p.id, mode = { name = world.mode.name,
             waves = world.mode.waves, teams = world.mode.teams, boss = world.mode.boss,
-            yardball = world.mode.yardball },
+            yardball = world.mode.yardball, king = world.mode.king },
             protocol = v.protocol, content = v.content, build = v.build }, true)
     elseif msg.type == "input" and c.id then
         c.input = msg
@@ -273,6 +277,24 @@ local function barriers(world)
     return list
 end
 
+-- King of the Yard: the fog's circle (World.zoneRadius gives its size at any time)
+local function zone(world)
+    local z = world.zone
+    if not z then return nil end
+    return { round(z.x, 10), round(z.y, 10), round(z.r0, 10), round(z.r1, 10), z.startAt,
+        z.endAt, z.finalAt, z.finalEnd }
+end
+
+-- ... and its heart beacons: { id, team, owner, x, y, expires, progress }
+local function beacons(world)
+    local list = {}
+    for _, b in ipairs(world.beacons or {}) do
+        list[#list + 1] = { b.id, b.team, b.owner, round(b.x, 10), round(b.y, 10), b.expires,
+            round(b.progress, 100) }
+    end
+    return list
+end
+
 local function snapshot(world)
     local ents = {}
     for _, e in ipairs(world.entities) do
@@ -309,12 +331,14 @@ local function snapshot(world)
     local m, ball = world.match, world.ball
     return { type = "snap", t = world.time, wave = world.wave, waveSize = world.waveSize,
         waveTimer = world.waveTimer, e = ents, m = packs, b = boxes, c = coins,
-        w = barriers(world),
+        w = barriers(world), z = zone(world), h = world.mode.king and beacons(world) or nil,
         y = ball and { round(ball.x, 10), round(ball.y, 10), ball.carrier or 0,
             round(ball.vx, 10), round(ball.vy, 10), round(world.kickoff or 0, 100) },
         match = { over = m.over, timeLeft = m.timeLeft and round(m.timeLeft, 10),
                   winner = m.winner, winnerTeam = m.winnerTeam, wave = m.wave,
-                  goals = m.goals and { m.goals[1], m.goals[2] } } }
+                  goals = m.goals and { m.goals[1], m.goals[2] },
+                  place = m.place and { m.place[1] or 0, m.place[2] or 0, m.place[3] or 0, m.place[4] or 0 },
+                  teamsLeft = m.teamsLeft } }
 end
 
 -- Call after every world step with the events of that step

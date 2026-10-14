@@ -365,7 +365,7 @@ local function addXp(n, key, label)
     end
 end
 
--- Count towards the challenges. ctx = { rowdy = name, mode = "duel"|"team"|"waves"|"yardball" }
+-- Count towards the challenges. ctx = { rowdy = name, mode = "duel"|"team"|"waves"|"yardball"|"king" }
 local function progress(kind, amount, ctx)
     if amount <= 0 then return end
     Pass.refresh(false)
@@ -389,6 +389,7 @@ end
 
 function Pass.modeId(mode)
     return (mode.boss and "boss") or (mode.waves and "waves") or (mode.yardball and "yardball")
+        or (mode.king and "king")
         or (mode.teams and "team") or "duel"
 end
 

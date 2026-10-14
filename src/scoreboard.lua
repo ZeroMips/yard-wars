@@ -8,6 +8,8 @@
 --           goals = true (Yardball): a ball instead of the timer (no time limit)
 --   waves : { kind = "waves", wave, bots, lives, maxLives }
 --   boss  : { kind = "boss", name, hp, maxHp }  (one wide health bar)
+--   king  : { kind = "king", teams = { { name, color, up = rowdies up }, ... },
+--             fogIn = seconds until the fog starts closing (nil: it is), closed = bool }
 local Ball = require("src.ball")
 
 local Scoreboard = {}
@@ -114,6 +116,36 @@ function Scoreboard.draw(info, fonts, cx, y, time)
         label(formatTime(t), fonts.big, mx, y + 7, midW)
         love.graphics.pop()
         label("first to " .. info.target, fonts.small, mx - 10, y + BOX_H + 3, midW + 20)
+    elseif info.kind == "king" then
+        -- the teams (own first): how many of them are up, grey once out
+        local n = #info.teams
+        local fogW = 84
+        local tw = (W - fogW - 8 - (n - 1) * 4) / n
+        for i, team in ipairs(info.teams) do
+            local tx = x + (i - 1) * (tw + 4)
+            local out = team.up == 0
+            box(tx, y, tw, BOX_H, out and { 0.3, 0.3, 0.32 } or team.color, out and 0.6 or 0.85)
+            local name = team.name -- ("YELLOW" may not fit: "YEL")
+            if fonts.small:getWidth(name) > tw - 4 then name = name:sub(1, 3) end
+            label(name, fonts.small, tx, y + 2, tw)
+            label(out and "-" or tostring(team.up), fonts.big, tx, y + 13, tw)
+        end
+        -- the fog: time until it closes in, then a pulsing cloud
+        local fx = x + W - fogW
+        local closing = not info.fogIn
+        box(fx, y, fogW, BOX_H, closing and { 0.45, 0.47, 0.55 } or { 0.15, 0.15, 0.2 })
+        label("FOG", fonts.small, fx, y + 2, fogW)
+        if closing then
+            local k = 0.5 + 0.5 * math.sin(time * 3)
+            love.graphics.setColor(0.9, 0.92, 0.95, 0.7 + 0.3 * k)
+            for i, c in ipairs({ { -14, 4, 9 }, { 0, -1, 12 }, { 14, 4, 9 }, { 0, 7, 10 } }) do
+                love.graphics.circle("fill", fx + fogW / 2 + c[1], y + 26 + c[2], c[3])
+            end
+        else
+            label(formatTime(info.fogIn), fonts.big, fx, y + 13, fogW)
+        end
+        label(closing and (info.closed and "the fog is everywhere!" or "fog closing in - last team standing")
+            or "last team standing wins", fonts.small, x - 20, y + BOX_H + 3, W + 40)
     else -- waves
         local sideW = 86
         box(x, y, sideW, BOX_H, { 0.15, 0.15, 0.2 })

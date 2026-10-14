@@ -25,7 +25,7 @@ local Unlock   = require("src.unlock")
 local Menu = {}
 
 Menu.entries = {}       -- modes to choose from (set by main.lua): { id, name, description,
-                        --   icon = "duel"|"team"|"waves"|"ball"|"join", lan = bool, ... }
+                        --   icon = "duel"|"team"|"waves"|"ball"|"crown"|"join", lan = bool, ... }
 Menu.mode = 1           -- index into Menu.entries
 Menu.rowdy = 1        -- index into Rowdies
 Menu.modesOpen = false  -- the mode list is shown over the lobby
@@ -52,6 +52,7 @@ local MODE_COLORS = {
     team  = { 0.25, 0.55, 0.95 },
     waves = { 0.65, 0.3, 0.85 },
     ball  = { 0.15, 0.62, 0.6 },
+    crown = { 0.85, 0.6, 0.1 },
     join  = { 0.2, 0.7, 0.45 },
 }
 local PLAY_COLOR     = { 1, 0.78, 0.1 }
@@ -157,8 +158,10 @@ local function modesLayout()
     local twoCols = sw >= 2 * 360 + 100
     local W = twoCols and math.min(420, (sw - 100) / 2) or math.min(460, sw - 48)
     local most = math.max(#groups[1], #groups[2])
-    local GAP = 12
-    local H = twoCols and math.min(84, math.floor((sh - 228) / most) - GAP) or 80
+    local GAP = most > 5 and 8 or 12
+    -- (one column: all cards, two headings and the close button below them)
+    local H = twoCols and math.min(84, math.floor((sh - 228) / most) - GAP)
+        or math.min(80, math.floor((sh - 110 - 2 * (34 + 16) - 100) / (#groups[1] + #groups[2])) - GAP)
     local x1 = twoCols and (sw / 2 - W - 20) or (sw - W) / 2
     local x2 = twoCols and (sw / 2 + 20) or x1
     local y = 110
@@ -319,6 +322,15 @@ local function drawIcon(kind, cx, cy, s)
             love.graphics.line(cx + s * 0.25, cy - s * 0.7 + i * s * 0.47, cx + s * 0.7, cy - s * 0.7 + i * s * 0.47)
         end
         Ball.drawIcon(cx - s * 0.35, cy + s * 0.15, s * 0.45, 0.3)
+    elseif kind == "crown" then -- King of the Yard: a crown with three points
+        local w, h = s * 0.75, s * 0.5
+        local pts = { cx - w, cy + h * 0.6, cx - w, cy - h * 0.6, cx - w * 0.5, cy,
+            cx, cy - h, cx + w * 0.5, cy, cx + w, cy - h * 0.6, cx + w, cy + h * 0.6 }
+        for _, tri in ipairs(love.math.triangulate(pts)) do love.graphics.polygon("fill", tri) end
+        love.graphics.rectangle("fill", cx - w, cy + h * 0.75, w * 2, h * 0.35)
+        for _, px in ipairs({ -w, 0, w }) do
+            love.graphics.circle("fill", cx + px, cy - (px == 0 and h or h * 0.6) - s * 0.08, s * 0.1)
+        end
     else -- join: wifi arcs
         love.graphics.circle("fill", cx, cy + s * 0.5, s * 0.12)
         for i = 1, 3 do

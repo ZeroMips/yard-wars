@@ -36,6 +36,7 @@ local Unlock   = require("src.unlock")
 local Wardrobe = require("src.wardrobe")
 local Ball     = require("src.ball")
 local Barrier  = require("src.barrier")
+local King     = require("src.king")
 
 -- Game modes (round rules: see World.KILL_TARGET / TIME_LIMIT / LIVES).
 --   waves = false: duel - the bots respawn; first to 10 kills or most kills after
@@ -48,11 +49,15 @@ local Barrier  = require("src.barrier")
 --                  not on the mode list) - no time limit, won when the boss is out
 --   yardball     : a team fight with a ball and two goals (src/world.lua) - first team
 --                  to 2 goals, no time limit
+--   king         : King of the Yard - 4 teams of 3 on a big map, a knockout is out
+--                  until a team mate brings it back at its heart; a fog closes in; the
+--                  last team standing wins (LAN: the host's team fills up first)
 local MODES = {
     duel  = { name = "Duel",  waves = false },
     team  = { name = "Team fight", waves = false, teams = true },
     waves = { name = "Waves", waves = true },
     yardball = { name = "Yardball", waves = false, teams = true, yardball = true },
+    king = { name = "King of the Yard", waves = false, teams = true, king = true },
 }
 
 -- Modes on the start screen (src/menu.lua): solo first, then the LAN ones.
@@ -66,6 +71,8 @@ Menu.entries = {
       icon = "waves", mode = MODES.waves },
     { id = "yardball", name = "Yardball", description = "3 vs 3 with a ball - first team to 2 goals",
       icon = "ball", mode = MODES.yardball },
+    { id = "king", name = "King of the Yard", description = "4 teams of 3 - the last team standing wins",
+      icon = "crown", mode = MODES.king },
     { id = "hostDuel", name = "Host duel", description = "Free-for-all - everybody against everybody",
       icon = "duel", mode = MODES.duel, host = true, lan = true },
     { id = "hostTeam", name = "Host team fight", description = "Play together - 3 vs 3 with bots",
@@ -74,6 +81,8 @@ Menu.entries = {
       icon = "waves", mode = MODES.waves, host = true, lan = true },
     { id = "hostYardball", name = "Host Yardball", description = "Yardball together - 3 vs 3 with bots",
       icon = "ball", mode = MODES.yardball, host = true, lan = true },
+    { id = "hostKing", name = "Host King of the Yard", description = "Teams of 3 by joining order",
+      icon = "crown", mode = MODES.king, host = true, lan = true },
     { id = "join", name = "Join", description = "Play in a game hosted in your Wi-Fi",
       icon = "join", join = true, lan = true },
 }
@@ -83,6 +92,9 @@ local MUTE_SIZE = 44 -- touch mute button in the top right corner (HUD units)
 local OPPONENT_COLOR = { 1, 0.5, 0.15 } -- health bar of other players
 local TEAMMATE_COLOR = { 0.3, 0.6, 1 }
 local ENEMY_TEAM_COLOR = { 1, 0.3, 0.25 } -- team fight: enemies (bots and players)
+-- King of the Yard: the own team blue, the other three in this order (by team id)
+local KING_COLORS = { { 1, 0.3, 0.25 }, { 0.3, 0.85, 0.35 }, { 1, 0.85, 0.2 } }
+local KING_NAMES  = { "red", "green", "yellow" }
 
 local state = "menu" -- "menu", "pick" (rowdy choice), "join", "game", "pass" (Yard Pass)
                      -- or "style" (cosmetics)
@@ -444,7 +456,7 @@ function love.load(args)
     love.resize()
     openMenu()
     -- Testing shortcuts: love . [--rowdy N] [--coins N] --host [team|waves] |
-    -- --host yardball |
+    -- --host yardball | --host king |
     -- --boss N [host] (boss fight against rowdy N, fighting with the last used one) |
     -- --join <address> | --find   (--coins adds to the saved coins)
     for i, a in ipairs(args or {}) do
@@ -457,7 +469,7 @@ function love.load(args)
             startBoss(args[i + 2] == "host")
         end
         if a == "--host" then
-            newGame(MODES[args[i + 1]] or MODES.duel, true) -- duel / team / waves / yardball
+            newGame(MODES[args[i + 1]] or MODES.duel, true) -- duel / team / waves / yardball / king
         elseif a == "--join" and args[i + 1] then
             Join.address = args[i + 1]
             joinGame()
@@ -484,6 +496,43 @@ function love.resize()
 end
 
 local function hidden(e) return world:isHiddenFrom(e, player) end
+
+-- Colour and name of a team as this device's player sees it: own team blue ("your
+-- team"); King of the Yard: the others red, green, yellow; else enemies red
+local function teamColor(team)
+    if player and team == player.team then return TEAMMATE_COLOR end
+    if not world.mode.king then return ENEMY_TEAM_COLOR end
+    local n = 0
+    for t = 1, World.KING_TEAMS do
+        if t ~= (player and player.team) then n = n + 1 end
+        if t == team then return KING_COLORS[n] or ENEMY_TEAM_COLOR end
+    end
+    return ENEMY_TEAM_COLOR
+end
+
+local function teamName(team)
+    if player and team == player.team then return "your team" end
+    local n = 0
+    for t = 1, World.KING_TEAMS do
+        if t ~= (player and player.team) then n = n + 1 end
+        if t == team then return "team " .. (KING_NAMES[n] or tostring(team)) end
+    end
+    return "team " .. tostring(team)
+end
+
+-- Where the camera looks: the own rowdy; King of the Yard while out: a team mate who
+-- is up (else anybody up)
+local function focus()
+    if not (player.out and world.mode.king) then return player end
+    local any
+    for _, e in ipairs(world.entities) do
+        if not e.dead then
+            if e.team == player.team then return e end
+            any = any or e
+        end
+    end
+    return any or player
+end
 
 -- How the finished round went for this device's player: "win", "draw", "loss" or
 -- "waves" (no winner in co-op)
@@ -691,6 +740,20 @@ local function playEvents(events)
             Effects.ring(ev.x, ev.y, 90, GOLD)
             Camera.shake(4)
             Sound.play("goal")
+        elseif ev.kind == "beacon" then -- King of the Yard: a heart where it was knocked out
+            Effects.ring(ev.x, ev.y, 40, { 1, 0.45, 0.55 })
+            Sound.play("beacon", ev.x, ev.y, 0.7)
+        elseif ev.kind == "revive" then
+            Effects.heal(ev.x, ev.y)
+            Effects.ring(ev.x, ev.y, 60, { 0.5, 1, 0.5 })
+            Effects.sparks(ev.x, ev.y, 12, { 1, 0.6, 0.7 }, 200)
+            Sound.play("revive", ev.x, ev.y)
+            if ev.id == localId then Scoreboard.flash("You're back!", { 0.5, 1, 0.5 }) end
+        elseif ev.kind == "beaconGone" then
+            Effects.poof(ev.x, ev.y)
+        elseif ev.kind == "fog" then -- the fog nibbles: a small grey puff
+            Effects.puff(ev.x, ev.y)
+            if ev.id == localId then Sound.play("hurt", nil, nil, 0.5) end
         elseif ev.kind == "matchStart" then
             roundCoins, roundReward, roundXp, tierUpSoundAt, roundUnlock = 0, nil, nil, nil, nil
             Pass.roundStart()
@@ -827,8 +890,9 @@ function love.update(dt)
     Scoreboard.update(dt)
     if player and world then watchMatch() end
     if player then
-        Camera.update(dt, player.x, player.y, Arena.width, Arena.height)
-        Sound.setListener(player.x, player.y)
+        local f = focus()
+        Camera.update(dt, f.x, f.y, Arena.width, Arena.height)
+        Sound.setListener(f.x, f.y)
     end
 end
 
@@ -874,9 +938,11 @@ local function drawMinimap(screenW)
     for _, b in ipairs(world.boxes) do
         love.graphics.rectangle("fill", x0 + b.x * s - 3.5, y0 + b.y * s - 3.5, 7, 7)
     end
+    if world.mode.king then King.drawMinimap(world, x0, y0, s, mw, mh, uiScale(), teamColor) end
     for _, e in ipairs(world.entities) do
         if e ~= player and not e.dead and not hidden(e) then
-            if world:isOpponent(e, player) then love.graphics.setColor(0.95, 0.25, 0.25, 1)
+            if world.mode.king then love.graphics.setColor(teamColor(e.team))
+            elseif world:isOpponent(e, player) then love.graphics.setColor(0.95, 0.25, 0.25, 1)
             else love.graphics.setColor(TEAMMATE_COLOR) end
             love.graphics.circle("fill", x0 + e.x * s, y0 + e.y * s, 3.5)
         end
@@ -974,14 +1040,64 @@ local function resultInfo()
                 Cosmetics.get(e.badge, "badge") and e.badge }
         end
         info.lines = lines
-        if not m.winnerTeam then
+        if world.mode.king then -- teams by place: the own one rowdy by rowdy, the others
+            local place = m.place or {}  -- in one line each (12 lines wouldn't fit)
+            local nth = { "1st", "2nd", "3rd", "4th" }
+            local teams = {}
+            for t = 1, World.KING_TEAMS do teams[t] = t end
+            table.sort(teams, function(a, b)
+                local pa, pb = place[a] or 9, place[b] or 9
+                if pa ~= pb then return pa < pb end
+                return a < b
+            end)
+            lines = {}
+            for _, t in ipairs(teams) do
+                local where = nth[place[t]] and (nth[place[t]] .. " place") or "?"
+                if t == player.team then
+                    for _, e in ipairs(list) do
+                        if e.team == t then
+                            lines[#lines + 1] = { string.format("[Your team, %s]  %s (%s)   %s", where,
+                                fullName(e), e.def and e.def.name or "?", score(e)), e.id == localId,
+                                Cosmetics.get(e.badge, "badge") and e.badge }
+                        end
+                    end
+                else
+                    local kills, names = 0, {}
+                    for _, e in ipairs(list) do
+                        if e.team == t then
+                            kills = kills + e.kills
+                            names[#names + 1] = e.isBot and e.def.name or (nameOf(e) .. ": " .. e.def.name)
+                        end
+                    end
+                    local name = teamName(t)
+                    lines[#lines + 1] = { string.format("[%s, %s]  %s   (%s)", name:sub(1, 1):upper() .. name:sub(2),
+                        where, count(kills, "knockout"), table.concat(names, ", ")), false }
+                end
+            end
+            info.lines = lines
+        end
+        if world.mode.king and m.winnerTeam ~= player.team then
+            local own = m.place and m.place[player.team]
+            local nth = { "1st", "2nd", "3rd", "4th" }
+            if not m.winnerTeam then
+                info.title, info.color = "Draw", { 1, 1, 1 }
+            else
+                info.title, info.color = (nth[own] or "?") .. " place", own == 2 and { 0.8, 0.85, 0.95 } or { 1, 0.55, 0.3 }
+            end
+            info.subtitle = "Your team came " .. (nth[own] or "?") .. " of " .. World.KING_TEAMS
+                .. (m.winnerTeam and ("   -   " .. teamName(m.winnerTeam):gsub("^%l", string.upper) .. " is King of the Yard") or "")
+        elseif world.mode.king then
+            info.title, info.color = "Victory!", { 1, 0.82, 0.1 }
+            info.subtitle = "Your team is King of the Yard - the last team standing!"
+        elseif not m.winnerTeam then
             info.title, info.color = "Draw", { 1, 1, 1 }
         elseif m.winnerTeam == player.team then
             info.title, info.color = "Victory!", { 1, 0.82, 0.1 }
         else
             info.title, info.color = "Defeat", { 1, 0.35, 0.3 }
         end
-        if world.mode.yardball then -- (always a winner: no time limit)
+        if world.mode.king then -- (subtitle: above)
+        elseif world.mode.yardball then -- (always a winner: no time limit)
             local g = m.goals or { 0, 0 }
             local own = g[player.team] or 0
             info.subtitle = (m.winnerTeam == player.team and "Your team scored " or "The enemies scored ")
@@ -1074,6 +1190,23 @@ local function scoreboardInfo()
         return { kind = "waves", wave = world.wave, bots = world:countBots(),
                  lives = world:livesLeft(player), maxLives = World.LIVES }
     end
+    if world.mode.king then -- the teams (own first) and the fog
+        local up = {}
+        for _, e in ipairs(world.entities) do
+            if not e.out then up[e.team] = (up[e.team] or 0) + 1 end
+        end
+        local teams = { { name = "YOURS", color = TEAMMATE_COLOR, up = up[player.team] or 0 } }
+        for t = 1, World.KING_TEAMS do
+            if t ~= player.team then
+                teams[#teams + 1] = { name = teamName(t):sub(6):upper(), color = teamColor(t), up = up[t] or 0 }
+            end
+        end
+        local z = world.zone
+        local fogIn = z and z.startAt and world.time < z.startAt and (z.startAt - world.time) or nil
+        if not z then fogIn = World.ZONE_WAIT end
+        return { kind = "king", teams = teams, fogIn = fogIn,
+                 closed = z and z.r and z.r <= 0 }
+    end
     local info = { kind = "versus", timeLeft = m.timeLeft }
     if world.mode.yardball then -- goals, no timer
         local g = m.goals or { 0, 0 }
@@ -1116,6 +1249,32 @@ function watchMatch()
             if watch.share and watch.share > mark[1] and now.share <= mark[1] then
                 Scoreboard.flash(mark[2], { 0.5, 1, 0.5 })
             end
+        end
+    elseif world.mode.king then
+        local info = scoreboardInfo()
+        now.left, now.out = 0, {}
+        for t = 1, World.KING_TEAMS do
+            now.out[t] = not world:teamUp(t)
+            if not now.out[t] then now.left = now.left + 1 end
+        end
+        if watch.out then
+            for t = 1, World.KING_TEAMS do
+                if now.out[t] and not watch.out[t] and now.left >= 1 then
+                    if t == player.team then Scoreboard.flash("Your team is out", { 1, 0.45, 0.45 })
+                    else
+                        local c = teamColor(t)
+                        Scoreboard.flash(teamName(t):gsub("^%l", string.upper) .. " is out", { c[1], c[2], c[3] })
+                    end
+                end
+            end
+            if now.left == 2 and watch.left > 2 and not now.out[player.team] then
+                Scoreboard.flash("Last two teams!", { 1, 0.82, 0.1 })
+            end
+        end
+        now.closing = info.fogIn == nil
+        if now.closing and watch.closing == false then
+            Scoreboard.flash("The fog is closing in!", { 0.85, 0.88, 0.95 })
+            Sound.play("fog")
         end
     elseif world.mode.yardball then
         local info = scoreboardInfo()
@@ -1199,6 +1358,15 @@ local function drawHud()
     local y = top + Scoreboard.HEIGHT + 14
     if world.match.over then
         -- the result screen says it all
+    elseif player.out and world.mode.king then
+        local heart
+        for _, h in ipairs(world.beacons or {}) do
+            if h.owner == localId then heart = h end
+        end
+        love.graphics.printf(heart and string.format("You're out - a team mate can bring you back at your heart (%d)",
+            math.max(0, math.ceil(heart.expires - world.time)))
+            or (world:teamUp(player.team) and "Watching your team" or "Your team is out - watching the others"),
+            0, y, sw, "center")
     elseif player.out then
         love.graphics.printf("Out of lives - watching your team", 0, y, sw, "center")
     elseif player.dead then
@@ -1209,6 +1377,15 @@ local function drawHud()
     elseif player.carrying then
         love.graphics.printf(Controls.touchMode and "You have the ball - the attack stick kicks it"
             or "You have the ball - click to kick it", 0, y, sw, "center")
+    elseif world.mode.king and world.zone and not world:inZone(player.x, player.y) then
+        love.graphics.printf("You're in the fog - get back into the clear circle!", 0, y, sw, "center")
+    elseif world.mode.king and #(world.beacons or {}) > 0 then -- a team mate is out
+        for _, h in ipairs(world.beacons) do
+            if h.team == player.team then
+                love.graphics.printf("Stand on your team mate's heart to bring them back", 0, y, sw, "center")
+                break
+            end
+        end
     elseif world.mode.waves and world:countBots() == 0 then
         love.graphics.printf(string.format("Wave cleared! %d bots incoming in %.1f",
             math.min(world.waveSize + 1, World.MAX_BOTS), math.max(0, world.waveTimer)),
@@ -1231,6 +1408,7 @@ local function drawGame()
         elseif e.boss or e.isBot then e.hudColor = BOT_COLOR -- its rowdy's own bar may be green
         else e.hudColor = OPPONENT_COLOR end
         e.teamColor = world.mode.teams and (ally and TEAMMATE_COLOR or ENEMY_TEAM_COLOR) or nil
+        if world.mode.king and e ~= player then e.hudColor, e.teamColor = teamColor(e.team), teamColor(e.team) end
     end
 
     -- World (moves with the camera)
@@ -1249,9 +1427,8 @@ local function drawGame()
     for _, m in ipairs(world.medpacks) do Medpack.draw(m, world.time) end
     for _, c in ipairs(world.coins) do Loot.drawGroundCoin(c, world.time) end
     for _, b in ipairs(world.boxes) do Loot.drawBox(b, world.time) end
-    for _, w in ipairs(world.barriers or {}) do
-        Barrier.draw(w, world.time, w.team == player.team and TEAMMATE_COLOR or ENEMY_TEAM_COLOR)
-    end
+    for _, w in ipairs(world.barriers or {}) do Barrier.draw(w, world.time, teamColor(w.team)) end
+    for _, h in ipairs(world.beacons or {}) do King.drawBeacon(h, world.time, teamColor(h.team)) end
     Effects.drawBelow()
     if ball and not ball.carrier then Ball.draw(ball, world.kickoff) end -- (rowdies walk over it)
     for _, b in ipairs(world.bullets) do b:draw() end
@@ -1263,6 +1440,7 @@ local function drawGame()
     if ball and ball.carrier then Ball.draw(ball) end -- in the carrier's hands
     Effects.drawAbove()
     Arena.drawBushes(player)
+    if world.zone then King.drawFog(world.zone, love.timer.getTime()) end
     Camera.detach()
 
     -- Virtual sticks + super button (touch only)

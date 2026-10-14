@@ -1,6 +1,7 @@
 -- Arena: grass, walls (solid), crates (solid), bushes (hiding spots).
 -- Layout is given in tile units (1 tile = 64px) for the LEFT half only;
--- it is mirrored to the right half automatically, so the map is fair.
+-- it is mirrored to the right half automatically, so the map is fair. (The big
+-- "kingdom" layout gives the top-left quarter and is mirrored on both axes.)
 -- Walls and bushes are built from 2x2-tile art blocks: w and h must be even.
 local Assets = require("src.assets")
 
@@ -17,7 +18,9 @@ local walls, bushes, crates, solids = {}, {}, {}, {}
 -- Layouts: objects on the left half (mirrored) and in the middle (must be symmetric:
 -- x = (cols - w) / 2). "yard": the normal arena; "pitch": Yardball (src/world.lua) - no
 -- wall in the middle (the ball starts there), nothing in front of the goals, cover on
--- the flanks, an open lane through the middle.
+-- the flanks, an open lane through the middle; "kingdom": King of the Yard - a big map
+-- (cols x rows), objects for the top-left quarter (mirror4: mirrored on both axes, so
+-- the four corners where the teams start are equal), an open middle.
 local LAYOUTS = {
     yard = {
         walls  = { {x=6, y=4, w=2, h=4}, {x=6, y=16, w=2, h=4}, {x=11, y=10, w=2, h=4} },
@@ -37,6 +40,19 @@ local LAYOUTS = {
         centerWalls = {}, centerBushes = {},
         goals = true,
     },
+    kingdom = {
+        cols = 60, rows = 40, mirror4 = true,
+        walls  = { {x=9, y=2, w=2, h=4}, {x=2, y=9, w=4, h=2}, {x=15, y=6, w=2, h=4},
+                   {x=6, y=14, w=4, h=2}, {x=21, y=2, w=4, h=2}, {x=22, y=11, w=2, h=4},
+                   {x=13, y=16, w=4, h=2} },
+        bushes = { {x=12, y=0, w=4, h=2}, {x=0, y=13, w=2, h=4}, {x=10, y=9, w=4, h=4},
+                   {x=18, y=13, w=2, h=4}, {x=26, y=6, w=2, h=4}, {x=25, y=17, w=2, h=2} },
+        crates = { {x=6, y=6}, {x=12, y=6}, {x=18, y=3}, {x=4, y=17}, {x=19, y=9}, {x=26, y=13} },
+        centerWalls = {}, centerBushes = {},
+        -- three spots per team (tile centres in the top-left corner, mirrored to the
+        -- others): team 1 top left, 2 bottom right, 3 top right, 4 bottom left
+        spots = { {3.5, 3.5}, {5.5, 3.5}, {3.5, 5.5} },
+    },
 }
 
 -- Goals (pitch only): a mouth of GOAL_TILES tiles in the middle of the left and right
@@ -48,19 +64,37 @@ Arena.center = { x = Arena.width / 2, y = Arena.height / 2 }
 Arena.goals = nil
 Arena.layout = nil
 
-local function mirrored(list, out)
+local grassBatch -- (the floor; built for the current size, see buildGrass)
+
+-- Left half -> both halves; mirror4: top-left quarter -> all four quarters
+local function mirrored(list, out, mirror4)
     for _, o in ipairs(list) do
+        local w, h = o.w or 1, o.h or 1
+        local mx = Arena.cols - o.x - w
         out[#out + 1] = o
-        out[#out + 1] = { x = Arena.cols - o.x - (o.w or 1), y = o.y, w = o.w, h = o.h }
+        out[#out + 1] = { x = mx, y = o.y, w = o.w, h = o.h }
+        if mirror4 then
+            local my = Arena.rows - o.y - h
+            out[#out + 1] = { x = o.x, y = my, w = o.w, h = o.h }
+            out[#out + 1] = { x = mx, y = my, w = o.w, h = o.h }
+        end
     end
 end
 
--- Switch to another layout ("yard" or "pitch"): walls, bushes, crates, goals
+-- Switch to another layout ("yard", "pitch" or "kingdom"): size, walls, bushes,
+-- crates, goals, spawns
 function Arena.setLayout(name)
     local L = LAYOUTS[name] or LAYOUTS.yard
     Arena.layout = LAYOUTS[name] and name or "yard"
+    local cols, rows = L.cols or 40, L.rows or 24
+    if cols ~= Arena.cols or rows ~= Arena.rows then grassBatch = nil end
+    Arena.cols, Arena.rows = cols, rows
+    Arena.width, Arena.height = cols * TILE, rows * TILE
+    Arena.center = { x = Arena.width / 2, y = Arena.height / 2 }
     walls, bushes, crates, solids = {}, {}, {}, {}
-    mirrored(L.walls, walls);   mirrored(L.bushes, bushes);   mirrored(L.crates, crates)
+    mirrored(L.walls, walls, L.mirror4)
+    mirrored(L.bushes, bushes, L.mirror4)
+    mirrored(L.crates, crates, L.mirror4)
     for _, o in ipairs(L.centerWalls)  do walls[#walls + 1] = o end
     for _, o in ipairs(L.centerBushes) do bushes[#bushes + 1] = o end
     Arena.walls, Arena.bushes = walls, bushes -- exposed for the minimap
@@ -71,6 +105,26 @@ function Arena.setLayout(name)
     end
     for _, c in ipairs(crates) do
         solids[#solids + 1] = { x = c.x * TILE, y = c.y * TILE, w = TILE, h = TILE }
+    end
+
+    -- Spawns: the yard/pitch ones (left and right middle); kingdom: Arena.teamSpawns[team]
+    Arena.spawn      = { x = 2.5 * TILE,  y = rows / 2 * TILE }
+    Arena.enemySpawn = { x = Arena.width - 2.5 * TILE, y = rows / 2 * TILE }
+    Arena.teamSpawns = nil
+    if L.spots then
+        Arena.teamSpawns = {}
+        local flips = { { false, false }, { true, true }, { true, false }, { false, true } }
+        for team, f in ipairs(flips) do
+            local list = {}
+            for _, s in ipairs(L.spots) do
+                local x, y = s[1] * TILE, s[2] * TILE
+                if f[1] then x = Arena.width - x end
+                if f[2] then y = Arena.height - y end
+                list[#list + 1] = { x, y }
+            end
+            Arena.teamSpawns[team] = list
+        end
+        Arena.spawn = { x = Arena.teamSpawns[1][1][1], y = Arena.teamSpawns[1][1][2] }
     end
 
     Arena.goals = nil
@@ -197,8 +251,7 @@ function Arena.randomOpenPoint(cx, cy, radius)
     return Arena.spawn.x, Arena.spawn.y
 end
 
--- One SpriteBatch holds the whole grass floor (built once, drawn in one call)
-local grassBatch
+-- One SpriteBatch holds the whole grass floor (built once per size, drawn in one call)
 local function buildGrass()
     grassBatch = love.graphics.newSpriteBatch(Assets.tiles, Arena.cols * Arena.rows)
     for gx = 0, Arena.cols - 1 do

@@ -24,7 +24,7 @@
 -- done one is replaced by a new one when the next round starts. Entry: { id (unique,
 -- kept in pass.txt - never change it once published), kind, n,
 -- rowdy = name (only counts with that rowdy; only offered once it is unlocked),
--- mode = "duel" | "team" | "waves" | "yardball" (only counts there; LAN games count too) }.
+-- mode = "duel" | "team" | "waves" | "yardball" | "king" (only counts there; LAN games count too) }.
 -- Kinds: kills (= knockouts, bots count), wins, rounds, coins (picked up), chests
 -- (broken), supers (fired), medpacks (picked up), waves (cleared).
 local Seasons = {}
@@ -88,7 +88,7 @@ Seasons.big = {
     { id = "w.rounds30", kind = "rounds", n = 30 },
 }
 
-local MODE_NAMES = { duel = "Duel", team = "Team fight", waves = "Waves", yardball = "Yardball" }
+local MODE_NAMES = { duel = "Duel", team = "Team fight", waves = "Waves", yardball = "Yardball", king = "King of the Yard" }
 
 -- "Knock out 10 opponents as the Sniper" etc.
 function Seasons.describe(c)
@@ -163,7 +163,7 @@ do
 
     local KINDS = { kills = true, wins = true, rounds = true, coins = true, chests = true,
                     supers = true, medpacks = true, waves = true }
-    local MODES = { duel = true, team = true, waves = true, yardball = true }
+    local MODES = { duel = true, team = true, waves = true, yardball = true, king = true }
     for _, pool in ipairs({ "challenges", "big" }) do
         for i, c in ipairs(Seasons[pool]) do
             local where = pool .. " challenge " .. i .. " (" .. tostring(c.id) .. ")"

@@ -224,6 +224,13 @@ local DEFS = {
                              curve = 1 },
                            { wave = "noise", f1 = 1, f2 = 1, dur = 1.0, vol = 0.18, lowpass = 0.7, attack = 0.1,
                              delay = 0.15, curve = 1.2 } }),
+    -- King of the Yard: a heart beacon appears (a soft chime), a rowdy is brought back
+    -- (a rising jingle), the fog starts closing in (a low whoosh)
+    beacon       = notes({ { E5, 0.1 }, { C5, 0.2 } }, "sine", 0.25),
+    revive       = notes({ { C5, 0.06 }, { E5, 0.06 }, { G5, 0.06 }, { C6, 0.06 }, { E5 * 2, 0.2 } }, "triangle", 0.28,
+                         { { wave = "sine", f1 = 400, f2 = 1200, dur = 0.35, vol = 0.12, attack = 0.05 } }),
+    fog          = { { wave = "noise", f1 = 1, f2 = 1, dur = 1.4, vol = 0.4, lowpass = 0.08, attack = 0.4, curve = 1 },
+                     { wave = "sine", f1 = 110, f2 = 80, dur = 1.2, vol = 0.25, attack = 0.3, curve = 1 } },
     -- rounds and UI
     roundStart   = notes({ { G5, 0.09 }, { C6, 0.16 } }, "square", 0.18),
     victory      = notes({ { C5, 0.11 }, { E5, 0.11 }, { G5, 0.11 }, { C6, 0.35 } }, "square", 0.2,

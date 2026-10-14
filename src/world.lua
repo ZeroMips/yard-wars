@@ -1,5 +1,6 @@
 -- The simulation: all rowdies (players + bots) with ids and teams, bullets, hits,
--- scores and the game mode (duel / team fight / waves / boss fight / Yardball). It runs in fixed steps of World.TICK.
+-- scores and the game mode (duel / team fight / waves / boss fight / Yardball / King of
+-- the Yard). It runs in fixed steps of World.TICK.
 --
 -- No input devices, rendering, camera or particles in here: players are driven by
 -- input tables (src/controls.lua format), and everything worth showing is pushed as
@@ -83,6 +84,30 @@ local CARRIER_BONUS  = 700 -- px: bots go after the ball carrier as if it were t
 local BOT_SHOT_RANGE = 520 -- px: a bot with the ball shoots at the goal from this close
 local BOT_THREAT     = 120 -- px: ...or from farther when an opponent is this close
 
+-- King of the Yard (mode.king, also `teams`; on the big "kingdom" layout, see
+-- src/arena.lua): KING_TEAMS teams of TEAM_SIZE start in the corners (bots fill them).
+-- Nobody pops back in by themselves: a knocked-out rowdy is `out` and leaves a heart
+-- beacon; a team mate standing on it for REVIVE_TIME brings it back there (with
+-- REVIVE_HP of its HP) - within BEACON_LIFE seconds, after that it stays out. A team is
+-- eliminated when none of it is up; the last team with somebody up wins. A fog (harmless
+-- grey cloud, CHARTER.md) closes in to keep the rounds short: the whole map is clear for
+-- ZONE_WAIT s, then the clear circle shrinks to ZONE_MIN over ZONE_SHRINK s, stays
+-- ZONE_HOLD s and then closes completely over ZONE_FINAL s (so every round ends).
+-- Outside it a rowdy loses ZONE_DAMAGE HP per second (a knockout there counts for nobody).
+World.KING_TEAMS   = 4
+World.REVIVE_TIME  = 2
+World.REVIVE_HP    = 0.5
+World.BEACON_LIFE  = 20
+World.BEACON_REACH = 34  -- px: a team mate within its radius + this stands on the heart
+World.ZONE_WAIT    = 30
+World.ZONE_SHRINK  = 150
+World.ZONE_MIN     = 350
+World.ZONE_HOLD    = 30
+World.ZONE_FINAL   = 45
+World.ZONE_DAMAGE  = 12
+local ZONE_TICK    = 0.5 -- s between two fog nibbles
+local ZONE_SHIFT   = 250 -- px: the circle's final centre is up to this far from the middle
+
 World.PULL_SPEED = 900 -- px/s: a rowdy hit by a pull attack flies to the puller
 World.GOO_TIME   = 2   -- s: sticky goo (attack.goo) does its extra damage over this long
 local GOO_TICK   = 0.5 -- s between two goo stings
@@ -103,6 +128,7 @@ World.BOT_SPEED  = 0.8  -- share of its rowdy's walking speed
 World.BOT_CHARGE = 0.6  -- its super meter fills this much slower
 local TARGET_CROWD = 250 -- px: a bot prefers an opponent fewer other bots are after
 local TARGET_KEEP  = 60  -- px: ...and keeps its current one unless another is clearly better
+local KING_NOTICE  = 800  -- px: King of the Yard - a bot only goes after opponents this close
 
 local WAVE_DELAY     = 2   -- seconds between clearing a wave and the next one
 local SPAWN_MIN_DIST = 600 -- bots never spawn closer than this to a player
@@ -110,7 +136,7 @@ local IDLE = { dx = 0, dy = 0 } -- input of a player that sent nothing
 
 -- mode: entry of MODES in main.lua ({ waves = bool, ... })
 function World.new(mode)
-    Arena.setLayout(mode.yardball and "pitch" or "yard")
+    Arena.setLayout(mode.king and "kingdom" or mode.yardball and "pitch" or "yard")
     return setmetatable({
         mode = mode,
         entities = {}, -- every rowdy, in insertion order (players and bots)
@@ -133,14 +159,18 @@ function World.new(mode)
         match = World.newMatch(mode),
         ball = nil,    -- Yardball: { x, y, vx, vy, carrier = id, lastKick = id, noPick }
         kickoff = 0,   -- Yardball: seconds until the ball can be taken
+        beacons = {},  -- King of the Yard: { id, team, owner, x, y, born, expires, progress }
+        zone = nil,    -- King of the Yard: the fog's clear circle, see newZone
     }, World)
 end
 
 -- Round state: { over = bool, timeLeft (duel), winner = entity id or nil (draw),
--- wave = wave reached (waves), goals = { [team] = n } (Yardball) }
+-- wave = wave reached (waves), goals = { [team] = n } (Yardball), place = { [team] =
+-- 1..KING_TEAMS } (King of the Yard: the winner 1, the first team out last) }
 function World.newMatch(mode)
     return { over = false, goals = mode.yardball and { 0, 0 } or nil,
-        timeLeft = not (mode.waves or mode.boss or mode.yardball) and World.TIME_LIMIT or nil }
+        place = mode.king and {} or nil,
+        timeLeft = not (mode.waves or mode.boss or mode.yardball or mode.king) and World.TIME_LIMIT or nil }
 end
 
 -- The boss's look: the rowdy's own, BOSS_SIZE bigger (also used by src/replica.lua)
@@ -180,6 +210,9 @@ end
 --   gust {id, toX, toY} (dashes there on a gust of wind)  barrier {id, barrier}
 --   Yardball: pickup {id}  kick {id}  ballDrop {id}  goal {team (that scored), by}
 --         bounce (the ball hit a wall)
+--   King of the Yard: beacon {id (the one out), team, beacon}  revive {id, by}
+--         beaconGone {id, beacon} (nobody came in time)  fog {id} (the fog nibbled it)
+--         teamOut {team}
 function World:emit(kind, data)
     data.kind = kind
     data.t = self.time
@@ -307,9 +340,10 @@ function World:botTarget(e)
         end
     end
     local best, bestScore, bestAlive
+    local notice = self.mode.king and KING_NOTICE or math.huge -- (the big map: roams first)
     for _, o in ipairs(self.entities) do
-        if self:isOpponent(e, o) then
-            local d = math.sqrt((o.x - e.x) ^ 2 + (o.y - e.y) ^ 2)
+        local d = math.sqrt((o.x - e.x) ^ 2 + (o.y - e.y) ^ 2)
+        if self:isOpponent(e, o) and d <= notice and not o.out then
             local score = d + TARGET_CROWD * (crowd[o.id] or 0)
             if o.id == e.targetId then score = score - TARGET_KEEP end
             if o.carrying then score = score - CARRIER_BONUS end -- (Yardball)
@@ -345,8 +379,10 @@ local function botSpawnPoint(self, i)
     return sx, sy
 end
 
--- Team fight: the three spawn spots of a team (blue = left, red = mirrored right)
+-- Team fight: the three spawn spots of a team (blue = left, red = mirrored right);
+-- King of the Yard: the team's corner
 local function teamSpots(team)
+    if Arena.teamSpawns then return Arena.teamSpawns[team] or Arena.teamSpawns[1] end
     local x, y = Arena.spawn.x, Arena.spawn.y
     if team == World.TEAM_RED then x = Arena.width - x end
     return { { x, y }, { x, y - 128 }, { x, y + 128 } }
@@ -396,9 +432,43 @@ function World:playersPerTeam()
     return n
 end
 
+-- King of the Yard: a player takes the place of a bot of the first team that has one
+-- (host + first two joiners = team 1, the next three = team 2, ...) - where the bot is
+-- right now, or out (with its heart) if it was out
+local function addKingPlayer(self, def, style)
+    local n = self:playersPerTeam()
+    local team = World.KING_TEAMS
+    for t = 1, World.KING_TEAMS do
+        if (n[t] or 0) < World.TEAM_SIZE then team = t break end
+    end
+    local bot
+    for _, e in ipairs(self.entities) do
+        if e.isBot and e.team == team and (not bot or (bot.out and not e.out)) then bot = e end
+    end
+    if not bot then
+        local x, y = freeSpot(self, team)
+        return self:addPlayer(def, x, y, team, style)
+    end
+    self:remove(bot)
+    local p = self:addPlayer(def, bot.spawnX, bot.spawnY, team, style)
+    p.kills, p.deaths = bot.kills, bot.deaths
+    if bot.out then
+        p.dead, p.out, p.hp = true, true, 0
+        for _, b in ipairs(self.beacons) do
+            if b.owner == bot.id then b.owner = p.id end
+        end
+    else
+        p.x, p.y = bot.x, bot.y
+        p.spawnAnim = 0.35
+        self:emit("spawn", { x = p.x, y = p.y, id = p.id })
+    end
+    return p
+end
+
 -- Team fight: the humans play together against the bots - a player joins blue and
 -- takes a bot's place (red only once blue has no bots left)
 function World:addTeamPlayer(def, style)
+    if self.mode.king then return addKingPlayer(self, def, style) end
     local n = self:playersPerTeam()
     local team = ((n[World.TEAM_BLUE] or 0) < World.TEAM_SIZE) and World.TEAM_BLUE
         or World.TEAM_RED
@@ -414,10 +484,22 @@ function World:addTeamPlayer(def, style)
     return self:addPlayer(def, x, y, team, style)
 end
 
--- A player leaves; in a team fight a bot takes over the empty place
+-- A player leaves; in a team fight a bot takes over the empty place (King of the Yard:
+-- where the player was, or out with its heart)
 function World:removePlayer(p)
     self:remove(p)
-    if self.mode.teams then newBot(self, p.team, p.spawnX, p.spawnY) end
+    if not self.mode.teams then return end
+    local bot = newBot(self, p.team, p.spawnX, p.spawnY)
+    if not self.mode.king then return end
+    bot.kills, bot.deaths = p.kills, p.deaths
+    if p.out then
+        bot.dead, bot.out, bot.hp = true, true, 0
+        for _, b in ipairs(self.beacons) do
+            if b.owner == p.id then b.owner = bot.id end
+        end
+    else
+        bot.x, bot.y = p.x, p.y
+    end
 end
 
 -- Kills per team
@@ -456,14 +538,56 @@ local function kickoff(self)
     self.kickoff = World.KICKOFF_DELAY
 end
 
+-- King of the Yard: the fog's clear circle. It starts around the whole map and ends
+-- around a spot near the middle; World.zoneRadius gives its size at a time.
+local function newZone(self)
+    local a, d = math.random() * math.pi * 2, math.random() * ZONE_SHIFT
+    local x = Arena.width / 2 + math.cos(a) * d
+    local y = Arena.height / 2 + math.sin(a) * d
+    local far = 0 -- (the farthest corner: everything is clear at first)
+    for _, c in ipairs({ { 0, 0 }, { Arena.width, 0 }, { 0, Arena.height }, { Arena.width, Arena.height } }) do
+        far = math.max(far, math.sqrt((c[1] - x) ^ 2 + (c[2] - y) ^ 2))
+    end
+    local t = self.time + World.ZONE_WAIT
+    self.zone = { x = x, y = y, r0 = far + 64, r1 = World.ZONE_MIN,
+        startAt = t, endAt = t + World.ZONE_SHRINK,
+        finalAt = t + World.ZONE_SHRINK + World.ZONE_HOLD,
+        finalEnd = t + World.ZONE_SHRINK + World.ZONE_HOLD + World.ZONE_FINAL }
+    self.zone.r = self.zone.r0
+    self.zoneTimer = ZONE_TICK
+end
+
+-- Radius of the clear circle at world time t (also used by src/replica.lua)
+function World.zoneRadius(z, t)
+    if t <= z.startAt then return z.r0 end
+    if t <= z.endAt then return z.r0 + (z.r1 - z.r0) * (t - z.startAt) / (z.endAt - z.startAt) end
+    if t <= z.finalAt then return z.r1 end
+    if t <= z.finalEnd then return z.r1 * (1 - (t - z.finalAt) / (z.finalEnd - z.finalAt)) end
+    return 0
+end
+
+-- Is x, y inside the clear circle? (margin: this far inside it)
+function World:inZone(x, y, margin)
+    local z = self.zone
+    if not z then return true end
+    local r = z.r - (margin or 0)
+    return r > 0 and (x - z.x) ^ 2 + (y - z.y) ^ 2 <= r * r
+end
+
 -- Call after the players were added.
 function World:start()
     if self.mode.yardball then
         for _, e in ipairs(self.entities) do e.carrying = nil end
         kickoff(self)
     end
-    if self.mode.teams then -- fill both teams with bots
-        for _, team in ipairs({ World.TEAM_BLUE, World.TEAM_RED }) do
+    if self.mode.king then
+        self.beacons = {}
+        newZone(self)
+    end
+    if self.mode.teams then -- fill the teams with bots
+        local teams = { World.TEAM_BLUE, World.TEAM_RED }
+        if self.mode.king then teams = { 1, 2, 3, 4 } end
+        for _, team in ipairs(teams) do
             local members = 0
             for _, e in ipairs(self.entities) do
                 if e.team == team then members = members + 1 end
@@ -484,6 +608,33 @@ local function bulletHits(b, victim)
     local dx, dy = victim.x - b.x, victim.y - b.y
     local r = victim.radius + b.radius
     return dx * dx + dy * dy < r * r
+end
+
+-- A heart beacon where `e` was knocked out (King of the Yard)
+local function addBeacon(self, e)
+    local b = { id = self.nextLootId, team = e.team, owner = e.id, x = e.x, y = e.y,
+        born = self.time, expires = self.time + World.BEACON_LIFE, progress = 0 }
+    b.x, b.y = Arena.nearestOpen(b.x, b.y, 12) -- (a vanished one may be in a wall)
+    self.nextLootId = self.nextLootId + 1
+    self.beacons[#self.beacons + 1] = b
+    self:emit("beacon", { id = e.id, team = e.team, beacon = b.id, x = b.x, y = b.y })
+end
+
+-- `victim` was just knocked out (by `shooter`, or nil: the fog): scores, medpack, lives
+local function knockout(self, victim, shooter)
+    victim.goo, victim.rooted = nil, 0
+    victim.deaths = victim.deaths + 1
+    if shooter and shooter ~= victim then shooter.kills = shooter.kills + 1 end
+    if shooter and not shooter.isBot then self:dropMedpack(victim.x, victim.y) end
+    -- Waves: out of lives = no more respawns
+    if self.mode.waves and not victim.isBot and victim.deaths >= World.LIVES then
+        victim.out = true
+    end
+    if victim.boss then victim.out = true end -- the boss fight is won
+    if self.mode.king then -- out until a team mate brings it back
+        victim.out = true
+        addBeacon(self, victim)
+    end
 end
 
 -- Bullet (or bomb) b hits a rowdy at x, y: damage, super charge, kills, medpack, lives
@@ -521,17 +672,7 @@ local function damage(self, b, victim, x, y)
             self:emit("pull", { id = victim.id, by = puller.id, x = victim.x, y = victim.y })
         end
     end
-    if knockedOut then
-        victim.goo, victim.rooted = nil, 0
-        victim.deaths = victim.deaths + 1
-        if shooter then shooter.kills = shooter.kills + 1 end
-        if shooter and not shooter.isBot then self:dropMedpack(victim.x, victim.y) end
-        -- Waves: out of lives = no more respawns
-        if self.mode.waves and not victim.isBot and victim.deaths >= World.LIVES then
-            victim.out = true
-        end
-        if victim.boss then victim.out = true end -- the boss fight is won
-    end
+    if knockedOut then knockout(self, victim, shooter) end
 end
 
 -- A bomb lands: every opponent and loot box within the blast radius takes its damage
@@ -983,6 +1124,95 @@ local function endMatch(self, winner, winnerTeam)
         wave = self.wave })
 end
 
+---------------------------------------------------------------------------- King of the Yard
+
+-- Is anybody of `team` up (not out)?
+function World:teamUp(team)
+    for _, e in ipairs(self.entities) do
+        if e.team == team and not e.out then return true end
+    end
+    return false
+end
+
+local function removeBeacon(self, i, gone)
+    local b = table.remove(self.beacons, i)
+    if gone then self:emit("beaconGone", { id = b.owner, beacon = b.id, x = b.x, y = b.y }) end
+end
+
+-- Team mates standing on a heart fill it up; full = the one out is back (at the
+-- heart, with REVIVE_HP of its HP). Old hearts and those of eliminated teams go.
+local function updateBeacons(self, dt)
+    local list = self.beacons
+    for i = #list, 1, -1 do
+        local b = list[i]
+        local owner = self.byId[b.owner]
+        if not owner or not owner.out or owner.team ~= b.team then
+            removeBeacon(self, i, false)
+        elseif self.time >= b.expires or not self:teamUp(b.team) then
+            removeBeacon(self, i, true)
+        else
+            local helper
+            for _, e in ipairs(self.entities) do
+                local r = e.radius + World.BEACON_REACH
+                if e.team == b.team and not e.dead and not e.out and not e.burrowed
+                    and (e.x - b.x) ^ 2 + (e.y - b.y) ^ 2 < r * r then
+                    helper = e
+                    break
+                end
+            end
+            b.progress = helper and b.progress + dt or 0
+            if helper and b.progress >= World.REVIVE_TIME then
+                table.remove(list, i)
+                local sx, sy = owner.spawnX, owner.spawnY
+                owner.spawnX, owner.spawnY = b.x, b.y
+                owner.out = false
+                owner:respawn()
+                owner.spawnX, owner.spawnY = sx, sy
+                owner.hp = math.ceil(owner.maxHp * World.REVIVE_HP)
+                self:emit("revive", { id = owner.id, by = helper.id, x = b.x, y = b.y })
+            end
+        end
+    end
+end
+
+-- The fog closes in; it nibbles everybody outside the clear circle now and then
+local function updateZone(self, dt)
+    local z = self.zone
+    z.r = World.zoneRadius(z, self.time)
+    self.zoneTimer = self.zoneTimer - dt
+    if self.zoneTimer > 0 then return end
+    self.zoneTimer = self.zoneTimer + ZONE_TICK
+    for _, e in ipairs(self.entities) do
+        if not e.dead and not self:inZone(e.x, e.y) then
+            self:emit("fog", { id = e.id, x = e.x, y = e.y })
+            if e:takeDamage(World.ZONE_DAMAGE * ZONE_TICK) then knockout(self, e, nil) end
+        end
+    end
+end
+
+-- What bot `e` does in King of the Yard (src/enemy.lua), or nil = fight as usual:
+-- { x, y } = walk there. Out of the fog first (always), then a team mate's heart close
+-- by (unless an opponent is close and in sight: visible = its target is).
+function World:kingPlan(e, visible, dist)
+    local z = self.zone
+    if not z or self.match.over then return nil end
+    local dz = math.sqrt((e.x - z.x) ^ 2 + (e.y - z.y) ^ 2)
+    if dz > z.r - 40 or (not visible and dz > z.r - 200) then -- (a bit inside is enough:
+        local k = math.max(0, z.r - 350) / math.max(dz, 1)      -- no crowd in the middle)
+        return { x = z.x + (e.x - z.x) * k, y = z.y + (e.y - z.y) * k, fog = true }
+    end
+    if visible and dist and dist < 250 then return nil end
+    local best, bestD2
+    for _, b in ipairs(self.beacons) do
+        local d2 = (b.x - e.x) ^ 2 + (b.y - e.y) ^ 2
+        if b.team == e.team and d2 < 900 * 900 and self:inZone(b.x, b.y, 20)
+            and (not bestD2 or d2 < bestD2) then
+            best, bestD2 = b, d2
+        end
+    end
+    if best then return { x = best.x, y = best.y, beacon = true } end
+end
+
 ---------------------------------------------------------------------------- Yardball
 
 local BR = World.BALL_RADIUS
@@ -1194,6 +1424,28 @@ end
 local function checkMatch(self, dt)
     local m = self.match
     if self.mode.yardball then return end -- (goals: scoreGoal; no time limit)
+    if self.mode.king then -- the last team with somebody up wins
+        local up, left = {}, 0
+        for team = 1, World.KING_TEAMS do
+            up[team] = self:teamUp(team)
+            if up[team] then left = left + 1 end
+        end
+        for team = 1, World.KING_TEAMS do
+            if not up[team] and not m.place[team] then -- just went out: shares the place
+                m.place[team] = left + 1                 -- with any team out in the same step
+                self:emit("teamOut", { team = team })
+            end
+        end
+        m.teamsLeft = left
+        if left <= 1 then
+            local winner
+            for team = 1, World.KING_TEAMS do
+                if up[team] then winner = team; m.place[team] = 1 end
+            end
+            endMatch(self, nil, winner) -- (nobody left: everybody out in the same step = draw)
+        end
+        return
+    end
     if self.mode.waves then
         local players, out = 0, 0
         for _, e in ipairs(self.entities) do
@@ -1243,6 +1495,7 @@ function World:restartMatch()
         if e.isBot then self:remove(e) end
     end
     self.bullets, self.medpacks, self.boxes, self.coins, self.barriers = {}, {}, {}, {}, {}
+    self.beacons = {}
     self.boxTimer = World.BOX_FIRST
     self.wave, self.waveSize, self.waveTimer = 0, 0, 0
     for _, e in ipairs(self.entities) do
@@ -1284,6 +1537,10 @@ function World:update(dt, inputs)
     updateMedpacks(self)
     updateLoot(self, dt)
     if self.mode.waves then updateWaves(self, dt) end
+    if self.mode.king then
+        updateBeacons(self, dt)
+        updateZone(self, dt)
+    end
     checkMatch(self, dt)
     self.time = self.time + dt
 end

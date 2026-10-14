@@ -176,6 +176,7 @@ section.wrap { padding-top: 72px; } /* section.wrap: .wrap alone resets padding 
 .team  { background: var(--blue); }
 .waves { background: var(--purple); }
 .yardball { background: #269e99; }
+.king { background: #d99a1a; grid-column: 1 / -1; }
 .wide { margin-top: 18px; }
 
 footer {

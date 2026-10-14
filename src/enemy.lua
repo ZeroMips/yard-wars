@@ -164,8 +164,14 @@ function Enemy:update(dt, world)
         local wx, wy = self.wx - self.x, self.wy - self.y
         local wd = math.sqrt(wx * wx + wy * wy)
         if wd < 30 or self.wanderTimer <= 0 then
+            local z = world.zone -- (King of the Yard: inside the clear circle)
             if target and math.random() < PATROL_TOWARDS then -- roam towards the action
                 self.wx, self.wy = Arena.randomOpenPoint(target.x, target.y, PATROL_AREA)
+            elseif z then -- around here, but not out in the fog
+                self.wx, self.wy = Arena.randomOpenPoint(self.x, self.y, PATROL_AREA)
+                if not world:inZone(self.wx, self.wy, 150) then
+                    self.wx, self.wy = Arena.randomOpenPoint(z.x, z.y, math.max(100, z.r * 0.5))
+                end
             else
                 self.wx, self.wy = Arena.randomOpenPoint()
             end
@@ -176,15 +182,17 @@ function Enemy:update(dt, world)
     end
 
     -- Yardball (World:ballPlan): carry the ball to the goal and shoot, go for a free ball
-    -- or the carrier - shooting at the target goes on as above
+    -- or the carrier; King of the Yard (World:kingPlan): out of the fog, onto a team
+    -- mate's heart - shooting at the target goes on as above
     local plan = world.ballPlan and world:ballPlan(self)
+    if not plan and world.zone and world.kingPlan then plan = world:kingPlan(self, visible, dist) end
     if plan and plan.kick then
         world:kick(self, plan.angle, plan.dist)
     elseif plan then
         local px, py = plan.x - self.x, plan.y - self.y
         local pd = math.sqrt(px * px + py * py)
         if pd > 4 then mx, my = px / pd, py / pd else mx, my = 0, 0 end
-        self.state = "ball"
+        self.state = plan.fog and "fog" or plan.beacon and "revive" or "ball"
         if self.carrying and (mx ~= 0 or my ~= 0) then self.aim = math.atan2(my, mx) end
     end
 

@@ -75,15 +75,41 @@ local function decodeSnap(msg)
         ball = { x = y[1], y = y[2], carrier = tonumber(y[3]) ~= 0 and tonumber(y[3]) or nil,
             vx = tonumber(y[4]) or 0, vy = tonumber(y[5]) or 0, kickoff = tonumber(y[6]) or 0 }
     end
+    local zone -- (King of the Yard: the fog's circle; its radius follows from the time)
+    local z = msg.z
+    if type(z) == "table" and #z >= 8 then
+        local ok = true
+        for i = 1, 8 do ok = ok and tonumber(z[i]) ~= nil end
+        if ok then
+            zone = { x = z[1], y = z[2], r0 = z[3], r1 = z[4], startAt = z[5], endAt = z[6],
+                finalAt = z[7], finalEnd = z[8] }
+        end
+    end
+    local hearts = {}
+    for _, h in pairs(type(msg.h) == "table" and msg.h or {}) do
+        if type(h) == "table" and tonumber(h[4]) and tonumber(h[5]) then
+            hearts[#hearts + 1] = { id = h[1], team = tonumber(h[2]), owner = tonumber(h[3]),
+                x = h[4], y = h[5], expires = tonumber(h[6]) or 0, progress = tonumber(h[7]) or 0 }
+        end
+    end
     local m = type(msg.match) == "table" and msg.match or {}
+    local place
+    if type(m.place) == "table" then
+        place = {}
+        for i = 1, World.KING_TEAMS do
+            local v = tonumber(m.place[i])
+            place[i] = v and v > 0 and v or nil
+        end
+    end
     local goals = type(m.goals) == "table"
         and { tonumber(m.goals[1]) or 0, tonumber(m.goals[2]) or 0 } or nil
     return { t = tonumber(msg.t) or 0, wave = msg.wave, waveSize = msg.waveSize,
         waveTimer = msg.waveTimer, ents = ents, medpacks = packs, boxes = boxes, coins = coins,
-        ball = ball, barriers = walls,
+        ball = ball, barriers = walls, zone = zone, beacons = hearts,
         match = { over = m.over == true, timeLeft = tonumber(m.timeLeft),
                   winner = tonumber(m.winner), winnerTeam = tonumber(m.winnerTeam),
-                  wave = tonumber(m.wave), goals = goals } }
+                  wave = tonumber(m.wave), goals = goals, place = place,
+                  teamsLeft = tonumber(m.teamsLeft) } }
 end
 
 -- Feed the messages from Client:takeInbox()
@@ -273,6 +299,9 @@ function Replica:update()
     end
     world.medpacks, world.boxes, world.coins, world.time = at.medpacks, at.boxes, at.coins, remoteT
     world.barriers = at.barriers or {}
+    world.beacons = at.beacons or {}
+    world.zone = newest.zone
+    if world.zone then world.zone.r = World.zoneRadius(world.zone, remoteT) end
 
     -- Bullets: straight lines from their spawn record
     world.bullets = {}
