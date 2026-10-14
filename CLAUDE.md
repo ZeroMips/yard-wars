@@ -601,7 +601,14 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   touch stick, tap-to-goal). Charter: no time limit, so a round only ends with 2 goals -
   watch the round length; a time limit would be one line in `World.newMatch`.
 - Tablet (TB330FU): build 68 (the published .love, unzipped) installed by hand 2026-10-07;
-  before it had a build from 2026-10-03 without build.txt (never updated itself).
+  before it had a build from 2026-10-03 without build.txt (never updated itself). It
+  updated itself up to 97; 2026-10-14 the user reported a crash on 97: the info file
+  (read over USB) showed no Lua error, the 13:27 start of 97 never reached the update
+  check result nor the 3-s confirm (earlier starts of 97 ran fine) - a native crash, a
+  freeze or the app closed/killed within ~3 s; cause unknown. 68's boot marks a build
+  bad after one such start, so build 97 (unzipped, all 80 files checked by sha256,
+  conf.lua kept) was installed by hand the same day: now it has the retry rule and the
+  crash/boot log from the first line.
 - Android: no instant restart after a download (moto g67, 2026-10-08); the update is
   used at the next start.
 
