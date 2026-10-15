@@ -167,17 +167,19 @@ existing things that break it.
   back there with `REVIVE_HP` 50% (progress resets when nobody stands on it); gone after
   `BEACON_LIFE` 20 s or when its team is out. Fog (`world.zone` {x, y, r0, r1, startAt,
   endAt, finalAt, finalEnd, r}, `World.zoneRadius(z, t)`, `World:inZone`): clear for
-  `ZONE_WAIT` 30 s, shrinks to `ZONE_MIN` 350 over `ZONE_SHRINK` 150 s around a spot up to
-  250 px from the middle, holds `ZONE_HOLD` 30 s, closes completely over `ZONE_FINAL` 45 s
-  (every round ends by ~4:15); outside: `ZONE_DAMAGE` 12 HP/s in 0.5 s nibbles (`fog`
+  `ZONE_WAIT` 15 s, shrinks to `ZONE_MIN` 350 over `ZONE_SHRINK` 90 s around a spot up to
+  250 px from the middle, holds `ZONE_HOLD` 20 s, closes completely over `ZONE_FINAL` 30 s
+  (every round ends by ~2:35; until 2026-10-15 30/150/30/45 s = ~4:15 - the user's first
+  rounds ended in under 3 min and hardly noticed the fog); outside: `ZONE_DAMAGE` 12 HP/s in 0.5 s nibbles (`fog`
   event, a knockout there credits nobody). `checkMatch`: `teamUp(team)`, `match.place`
   [team] (eliminated in the same step = same place, `teamOut` event), `teamsLeft`; one team
   left = `winnerTeam`, none = draw. Bots: `botTarget` only sees opponents within
   `KING_NOTICE` 800 px (and never `out` ones, all modes), `World:kingPlan(e, visible,
   dist)`: out of the fog (to a point 350 px inside the edge, not the middle) / onto a team
   mate's heart within 900 px unless an opponent is in sight within 250 px; patrol stays
-  near the bot and inside the clear circle. Bot-only rounds (10 seeds, 2026-10-14): median
-  ~110 s (73-219), 1-5 revives per round; boss fight (`mode.boss` = rowdy index): the players (team
+  near the bot and inside the clear circle. Bot-only rounds (10 seeds): median ~110 s
+  (73-219) with the first fog times, ~74 s (56-99) with the faster fog (2026-10-15; bots
+  keep out of it, no fog knockouts), 0-6 revives per round; boss fight (`mode.boss` = rowdy index): the players (team
   `TEAM_PLAYERS`) vs one big bot with that rowdy's def (`boss` flag, `BOSS_HP` 3x HP,
   `BOSS_SIZE` 1.4: `World.bossLook`, radius), no time limit, players respawn forever, the
   boss never respawns (`out`) - won (`winnerTeam` = players) when it is out (charter: you
