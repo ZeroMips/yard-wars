@@ -619,8 +619,9 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   answer 200 over plain http). Build 93 (2026-10-11: Yardball, protocol 9; website
   with the Yardball card uploaded the same day). Build 97 (2026-10-13: Posion,
   Fruit Man, Officer, Mecha Robot + their mechanics, protocol 10; website cards uploaded
-  the same day). Build 101 (2026-10-14, current: Tornalo + King of the Yard, protocol 11;
-  website with the King of the Yard card uploaded the same day).
+  the same day). Build 101 (2026-10-14: Tornalo + King of the Yard, protocol 11;
+  website with the King of the Yard card uploaded the same day). Build 103 (2026-10-15,
+  current: King of the Yard's faster fog, protocol unchanged).
 - New rowdies 2 (Gideon's photos of 2026-10-12, ~/Downloads/download (2).zip): Posion
   (goo spray cone + firework rockets; name as Gideon wants it), Fruit Man (two apples in
   a V + heals himself), Officer (handcuffs: 12 damage - "no damage" scored 0 knockouts,
