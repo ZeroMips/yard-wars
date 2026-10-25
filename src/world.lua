@@ -1,6 +1,6 @@
 -- The simulation: all rowdies (players + bots) with ids and teams, bullets, hits,
 -- scores and the game mode (duel / team fight / waves / boss fight / Yardball / King of
--- the Yard). It runs in fixed steps of World.TICK.
+-- the Yard / Hide and seek). It runs in fixed steps of World.TICK.
 --
 -- No input devices, rendering, camera or particles in here: players are driven by
 -- input tables (src/controls.lua format), and everything worth showing is pushed as
@@ -108,6 +108,50 @@ World.ZONE_DAMAGE  = 12
 local ZONE_TICK    = 0.5 -- s between two fog nibbles
 local ZONE_SHIFT   = 250 -- px: the circle's final centre is up to this far from the middle
 
+-- Hide and seek (mode.hideseek, also `teams`; on the "hideout" layout, see
+-- src/arena.lua): HIDE_PLAYERS rowdies (bots fill the free places); one of them, picked
+-- at random every round, seeks (team TEAM_SEEKER), the others hide (TEAM_HIDERS). The
+-- rowdies' stats don't matter: everybody walks at HIDER_SPEED / SEEKER_SPEED, nobody
+-- attacks or uses a super. The hiders get HIDE_TIME s while the seeker stands in the
+-- middle with its screen covered, then it has SEEK_TIME s to find them all: its attack
+-- button swings TAG (like a shovel swing, every TAG_COOLDOWN s); one hit = found (a
+-- "poof", out for the rest of the round - CHARTER.md: a cartoon tag game). A hider that
+-- stands still for DISGUISE_TIME turns into a bush (drawn as one for the seeker; moving
+-- ends it). From HINT_AFTER s of seeking on, all hiders shimmer for HINT_LENGTH s every
+-- HINT_EVERY s, so rounds don't drag. The picture puzzle: the pieces lie on the map
+-- (Arena.pieceSpots); a hider that walks over one while the seeker seeks carries it
+-- (no disguise then, and a bush doesn't hide it) to the frame in the middle: PIECE_TIME s
+-- off the clock, PICTURE_BONUS s more when all are placed. Found while carrying = the
+-- piece drops there. All found = the seeker wins; the clock runs out = the hiders win.
+World.TEAM_SEEKER, World.TEAM_HIDERS = 1, 2
+World.HIDE_PLAYERS  = 6
+World.HIDE_TIME     = 15
+World.SEEK_TIME     = 180
+World.HINT_AFTER    = 120
+World.HINT_EVERY    = 20
+World.HINT_LENGTH   = 1
+World.DISGUISE_TIME = 2
+World.HIDER_SPEED   = 240
+World.SEEKER_SPEED  = 255
+World.PIECE_TIME    = 20
+World.PICTURE_BONUS = 20
+World.PIECE_REACH   = 24  -- px: a hider within its radius + this picks a piece up
+World.FRAME_REACH   = 30  -- px: ...and places it this close to the frame
+World.TAG_COOLDOWN  = 0.6
+World.TAG = { damage = 0, range = 70, radius = 30, wallRadius = 8, pierce = true,
+    bulletSpeed = 750, projectile = "swing" }
+local HIDE_SPAWN_R  = 260  -- px: the hiders start on a circle this big around the frame
+-- Hide and seek bots (World:hidePlan)
+local FLEE_DIST     = 400  -- px: a hider runs from a seeker in sight this close...
+local BOLT_DIST     = 130  -- px: ...a disguised one only when it comes this close
+local FETCH_SAFE    = 900  -- px: a hider fetches a piece only when the seeker is farther (or out of sight)
+local FETCH_SHARE   = 0.5  -- share of the hider bots that fetch pieces at all
+local SEEK_SIGHT    = 650  -- px: the seeker bot sees an undisguised hider this far
+local NOTICE_DIST   = 230  -- px: ...notices a "bush" that is a hider this close
+local NOTICE_RATE   = 1.2  -- ...with this chance per second
+local TAG_REACH     = 95   -- px: the seeker bot swings at a hider this close
+local GIVE_UP       = 4    -- s: a bot that got no closer to where it walks picks another goal
+
 World.PULL_SPEED = 900 -- px/s: a rowdy hit by a pull attack flies to the puller
 World.GOO_TIME   = 2   -- s: sticky goo (attack.goo) does its extra damage over this long
 local GOO_TICK   = 0.5 -- s between two goo stings
@@ -136,7 +180,8 @@ local IDLE = { dx = 0, dy = 0 } -- input of a player that sent nothing
 
 -- mode: entry of MODES in main.lua ({ waves = bool, ... })
 function World.new(mode)
-    Arena.setLayout(mode.king and "kingdom" or mode.yardball and "pitch" or "yard")
+    Arena.setLayout(mode.king and "kingdom" or mode.yardball and "pitch"
+        or mode.hideseek and "hideout" or "yard")
     return setmetatable({
         mode = mode,
         entities = {}, -- every rowdy, in insertion order (players and bots)
@@ -161,6 +206,7 @@ function World.new(mode)
         kickoff = 0,   -- Yardball: seconds until the ball can be taken
         beacons = {},  -- King of the Yard: { id, team, owner, x, y, born, expires, progress }
         zone = nil,    -- King of the Yard: the fog's clear circle, see newZone
+        hide = nil,    -- Hide and seek: the round's state, see startHideSeek
     }, World)
 end
 
@@ -170,7 +216,8 @@ end
 function World.newMatch(mode)
     return { over = false, goals = mode.yardball and { 0, 0 } or nil,
         place = mode.king and {} or nil,
-        timeLeft = not (mode.waves or mode.boss or mode.yardball or mode.king) and World.TIME_LIMIT or nil }
+        timeLeft = not (mode.waves or mode.boss or mode.yardball or mode.king or mode.hideseek)
+            and World.TIME_LIMIT or nil } -- (Hide and seek: set from world.hide every step)
 end
 
 -- The boss's look: the rowdy's own, BOSS_SIZE bigger (also used by src/replica.lua)
@@ -213,6 +260,10 @@ end
 --   King of the Yard: beacon {id (the one out), team, beacon}  revive {id, by}
 --         beaconGone {id, beacon} (nobody came in time)  fog {id} (the fog nibbled it)
 --         teamOut {team}
+--   Hide and seek: seek {id (the seeker)} (the hide phase is over)  tag {id} (a swing)
+--         found {id, by} (after its death event)  disguise {id} (turned into a bush)
+--         pieceUp {id, piece}  pieceDrop {id, piece}  piece {id, piece, n (placed now)}
+--         picture (all pieces placed)  hint (the hiders shimmer)
 function World:emit(kind, data)
     data.kind = kind
     data.t = self.time
@@ -305,7 +356,7 @@ end
 -- underground - its dirt mound is drawn anyway)
 function World:isHiddenFrom(e, viewer)
     if e.dead or not self:isOpponent(e, viewer) then return false end
-    if e.carrying then return false end -- the ball gives it away
+    if e.carrying or e.carryingPiece then return false end -- the ball / a picture piece gives it away
     if e.burrowed then return true end
     if not Arena.inBush(e.x, e.y) and not e.vanished then return false end
     local dx, dy = e.x - viewer.x, e.y - viewer.y
@@ -317,7 +368,7 @@ end
 function World:nearestOpponent(e, visibleOnly)
     local best, bestD2, bestAlive
     for _, o in ipairs(self.entities) do
-        if self:isOpponent(e, o) and not (visibleOnly and (o.dead or self:isHiddenFrom(o, e))) then
+        if self:isOpponent(e, o) and not (visibleOnly and (o.dead or o.disguised or self:isHiddenFrom(o, e))) then
             local dx, dy = o.x - e.x, o.y - e.y
             local d2 = dx * dx + dy * dy
             local alive = not o.dead
@@ -465,10 +516,73 @@ local function addKingPlayer(self, def, style)
     return p
 end
 
+-- Hide and seek: everybody walks at the same speed and can't attack (the seeker swings
+-- its tag instead, World:tag)
+local function prepareHide(e)
+    e.noAttacks = true
+    e.speed = e.team == World.TEAM_SEEKER and World.SEEKER_SPEED or World.HIDER_SPEED
+    e.disguised, e.stillTime, e.carryingPiece, e.tagCooldown, e.tagBuffer = nil, 0, nil, 0, nil
+    e.hs = nil -- (a bot's plans, see World:hidePlan)
+end
+
+-- Hide and seek: where hider i (1..) starts - on a circle around the frame
+local function hideSpawn(i)
+    local a = (i - 1) / (World.HIDE_PLAYERS - 1) * math.pi * 2 + 0.3
+    return Arena.nearestOpen(Arena.center.x + math.cos(a) * HIDE_SPAWN_R,
+        Arena.center.y + math.sin(a) * HIDE_SPAWN_R, 24)
+end
+
+-- Hide and seek: `to` (a player that joined, or the bot of one that left) takes over
+-- from `from` as it is - its side, where it is, found or not, the piece it carries
+local function takeOver(self, from, to)
+    to.team = from.team
+    to.kills, to.deaths, to.placed, to.foundAt = from.kills, from.deaths, from.placed, from.foundAt
+    prepareHide(to)
+    if from.out then
+        to.dead, to.out, to.hp = true, true, 0
+    else
+        to.x, to.y = from.x, from.y
+        to.spawnAnim = 0.35
+        self:emit("spawn", { x = to.x, y = to.y, id = to.id })
+    end
+    local h = self.hide
+    if not h then return end
+    if h.seekerId == from.id then h.seekerId = to.id end
+    for _, piece in ipairs(h.pieces) do
+        if piece.carrier == from.id then piece.carrier, to.carryingPiece = to.id, piece.id end
+    end
+end
+
+-- Hide and seek: a player takes the place of a bot (a hider that isn't found yet if
+-- there is one, else any hider, else the seeker bot); with no bot left a new hider
+local function addHidePlayer(self, def, style)
+    local bot
+    local function better(e)
+        if not bot then return true end
+        local hider, bHider = e.team == World.TEAM_HIDERS, bot.team == World.TEAM_HIDERS
+        if hider ~= bHider then return hider end
+        return bot.out and not e.out
+    end
+    for _, e in ipairs(self.entities) do
+        if e.isBot and better(e) then bot = e end
+    end
+    if not bot then
+        local x, y = hideSpawn(#self.entities)
+        local p = self:addPlayer(def, x, y, World.TEAM_HIDERS, style)
+        prepareHide(p)
+        return p
+    end
+    self:remove(bot)
+    local p = self:addPlayer(def, bot.spawnX, bot.spawnY, bot.team, style)
+    takeOver(self, bot, p)
+    return p
+end
+
 -- Team fight: the humans play together against the bots - a player joins blue and
 -- takes a bot's place (red only once blue has no bots left)
 function World:addTeamPlayer(def, style)
     if self.mode.king then return addKingPlayer(self, def, style) end
+    if self.mode.hideseek then return addHidePlayer(self, def, style) end
     local n = self:playersPerTeam()
     local team = ((n[World.TEAM_BLUE] or 0) < World.TEAM_SIZE) and World.TEAM_BLUE
         or World.TEAM_RED
@@ -490,6 +604,7 @@ function World:removePlayer(p)
     self:remove(p)
     if not self.mode.teams then return end
     local bot = newBot(self, p.team, p.spawnX, p.spawnY)
+    if self.mode.hideseek then takeOver(self, p, bot) return end
     if not self.mode.king then return end
     bot.kills, bot.deaths = p.kills, p.deaths
     if p.out then
@@ -574,8 +689,43 @@ function World:inZone(x, y, margin)
     return r > 0 and (x - z.x) ^ 2 + (y - z.y) ^ 2 <= r * r
 end
 
+-- Hide and seek: a new round - a random seeker in the middle, the hiders around it, the
+-- pieces at their spots, the hide phase starts
+local function startHideSeek(self)
+    local seeker = self.entities[math.random(#self.entities)]
+    local i = 0
+    for _, e in ipairs(self.entities) do
+        e.team = (e == seeker) and World.TEAM_SEEKER or World.TEAM_HIDERS
+        prepareHide(e)
+        if e == seeker then
+            e.spawnX, e.spawnY = Arena.center.x, Arena.center.y
+        else
+            i = i + 1
+            e.spawnX, e.spawnY = hideSpawn(i)
+        end
+        e.out, e.foundAt, e.placed = false, nil, 0
+        e:respawn()
+        e.aim = math.atan2(e.y - Arena.center.y, e.x - Arena.center.x)
+        e.lastX, e.lastY = e.x, e.y
+    end
+    local h = { seekerId = seeker.id, phase = "hide", hideUntil = self.time + World.HIDE_TIME,
+        pieces = {}, placed = 0, hintUntil = 0 }
+    h.endAt = h.hideUntil + World.SEEK_TIME
+    h.nextHint = h.hideUntil + World.HINT_AFTER
+    for k, spot in ipairs(Arena.pieceSpots) do h.pieces[k] = { id = k, x = spot[1], y = spot[2] } end
+    self.hide = h
+    self.match.timeLeft = h.endAt - self.time
+end
+
 -- Call after the players were added.
 function World:start()
+    if self.mode.hideseek then -- bots fill the free places, then a random seeker
+        for _ = #self.entities + 1, World.HIDE_PLAYERS do
+            newBot(self, World.TEAM_HIDERS, Arena.center.x, Arena.center.y)
+        end
+        startHideSeek(self)
+        return
+    end
     if self.mode.yardball then
         for _, e in ipairs(self.entities) do e.carrying = nil end
         kickoff(self)
@@ -637,8 +787,30 @@ local function knockout(self, victim, shooter)
     end
 end
 
+-- Hide and seek: the seeker's tag hit a hider - found: a poof, out for the round; a
+-- piece it carried stays where it was
+local function findHider(self, victim, seeker)
+    local h = self.hide
+    if not h or victim.team ~= World.TEAM_HIDERS or victim.out or victim.dead then return end
+    victim.disguised = nil
+    victim.deaths = victim.deaths + 1
+    if seeker then seeker.kills = seeker.kills + 1 end
+    victim.foundAt = self.time
+    for _, piece in ipairs(h.pieces) do
+        if piece.carrier == victim.id then
+            piece.carrier = nil
+            self:emit("pieceDrop", { id = victim.id, piece = piece.id, x = piece.x, y = piece.y })
+        end
+    end
+    victim.carryingPiece = nil
+    victim:takeDamage(victim.hp + 1, seeker and seeker.id) -- (the death event: the poof)
+    victim.out = true
+    self:emit("found", { id = victim.id, by = seeker and seeker.id, x = victim.x, y = victim.y })
+end
+
 -- Bullet (or bomb) b hits a rowdy at x, y: damage, super charge, kills, medpack, lives
 local function damage(self, b, victim, x, y)
+    if b.tag then return findHider(self, victim, b.owner) end
     self:emit("hit", { x = x, y = y, victim = victim.id,
         bullet = b.id, owner = b.owner.id, pierce = b.pierce or b.lob })
     local shooter = self.byId[b.owner.id]
@@ -1060,7 +1232,7 @@ local function updateLoot(self, dt)
     if self.boxTimer <= 0 then
         self.boxTimer = World.BOX_EVERY
         local x, y
-        if #self.boxes < MAX_BOXES then x, y = boxSpot(self) end
+        if #self.boxes < MAX_BOXES and not self.mode.hideseek then x, y = boxSpot(self) end
         if x then
             self.boxes[#self.boxes + 1] = { id = self.nextLootId, x = x, y = y,
                 hp = World.BOX_HP, born = self.time }
@@ -1211,6 +1383,286 @@ function World:kingPlan(e, visible, dist)
         end
     end
     if best then return { x = best.x, y = best.y, beacon = true } end
+end
+
+---------------------------------------------------------------------------- Hide and seek
+
+-- The seeker swings its tag (its attack button; bots call it too): a short wide swing
+-- in front of it that finds every hider it touches (src/bullet.lua draws the swing).
+-- Not while the hiders hide, not faster than TAG_COOLDOWN. Returns true if it swung.
+function World:tag(e)
+    local h = self.hide
+    if not h or h.phase ~= "seek" or e.id ~= h.seekerId or e.dead or (e.tagCooldown or 0) > 0 then
+        return false
+    end
+    e.tagCooldown = World.TAG_COOLDOWN
+    local b = Bullet.new(e.x, e.y, e.aim, e, World.TAG)
+    b.tag = true -- (a hit finds the hider, see damage)
+    self.bullets[#self.bullets + 1] = b
+    e.recoil = 1
+    self:emit("tag", { id = e.id, x = e.x, y = e.y })
+    return true
+end
+
+-- Where piece k sits in the frame once placed (k = the quarter of the picture:
+-- 1 top left, 2 top right, 3 bottom left, 4 bottom right; also used for drawing)
+function World.pieceSlot(k)
+    local f = Arena.frame
+    return f.x + f.w * (((k - 1) % 2) + 0.5) / 2, f.y + f.h * (math.floor((k - 1) / 2) + 0.5) / 2
+end
+
+local function placePiece(self, piece, e)
+    local h = self.hide
+    piece.carrier, piece.placed, e.carryingPiece = nil, true, nil
+    piece.x, piece.y = World.pieceSlot(piece.id)
+    h.placed = h.placed + 1
+    e.placed = (e.placed or 0) + 1
+    h.endAt = h.endAt - World.PIECE_TIME
+    self:emit("piece", { id = e.id, piece = piece.id, n = h.placed, x = piece.x, y = piece.y })
+    if h.placed == #h.pieces then -- the picture is complete
+        h.endAt = h.endAt - World.PICTURE_BONUS
+        self:emit("picture", { x = Arena.center.x, y = Arena.center.y })
+    end
+end
+
+-- Every step: the seeking starts after the hide phase, hiders standing still turn into
+-- bushes, pieces are picked up, carried and placed, the hints come
+local function updateHide(self, dt)
+    local h = self.hide
+    if h.phase == "hide" and self.time >= h.hideUntil then
+        h.phase = "seek"
+        self:emit("seek", { id = h.seekerId })
+    end
+    for _, e in ipairs(self.entities) do
+        if e.team == World.TEAM_HIDERS and not e.dead then
+            local moved = (e.x - (e.lastX or e.x)) ^ 2 + (e.y - (e.lastY or e.y)) ^ 2 > 0.25
+            if moved or e.carryingPiece then
+                e.stillTime, e.disguised = 0, nil
+            else
+                e.stillTime = (e.stillTime or 0) + dt
+                if not e.disguised and e.stillTime >= World.DISGUISE_TIME then
+                    e.disguised = true
+                    self:emit("disguise", { id = e.id, x = e.x, y = e.y })
+                end
+            end
+        end
+        e.lastX, e.lastY = e.x, e.y
+    end
+    local f = Arena.frame
+    for _, piece in ipairs(h.pieces) do
+        local c = piece.carrier and self.byId[piece.carrier]
+        if piece.placed then -- (stays in the frame)
+        elseif c and not c.dead then
+            piece.x, piece.y = c.x, c.y
+            local r = World.FRAME_REACH
+            if c.x > f.x - r and c.x < f.x + f.w + r and c.y > f.y - r and c.y < f.y + f.h + r then
+                placePiece(self, piece, c)
+            end
+        else
+            piece.carrier = nil
+            if h.phase == "seek" then
+                for _, e in ipairs(self.entities) do
+                    local reach = e.radius + World.PIECE_REACH
+                    if e.team == World.TEAM_HIDERS and not e.dead and not e.carryingPiece
+                        and (e.x - piece.x) ^ 2 + (e.y - piece.y) ^ 2 < reach * reach then
+                        piece.carrier, e.carryingPiece = e.id, piece.id
+                        e.disguised, e.stillTime = nil, 0
+                        self:emit("pieceUp", { id = e.id, piece = piece.id, x = piece.x, y = piece.y })
+                        break
+                    end
+                end
+            end
+        end
+    end
+    if h.phase == "seek" and self.time >= h.nextHint then
+        h.nextHint = h.nextHint + World.HINT_EVERY
+        h.hintUntil = self.time + World.HINT_LENGTH
+        self:emit("hint", {})
+    end
+    self.match.timeLeft = math.max(0, h.endAt - self.time)
+end
+
+-- Places worth hiding in (and so worth checking for the seeker bot): the middle of
+-- every bush and the open spots next to the corners of walls and crates, not near the
+-- frame. Made once per world.
+local function hideSpots(self)
+    if self.hideSpots then return self.hideSpots end
+    local list, T = {}, 64
+    local function add(x, y)
+        if Arena.hitsSolid(x, y, 26) then return end
+        if (x - Arena.center.x) ^ 2 + (y - Arena.center.y) ^ 2 < 450 * 450 then return end
+        list[#list + 1] = { x = x, y = y, bush = Arena.inBush(x, y) }
+    end
+    for _, b in ipairs(Arena.bushes) do
+        for bx = 0, b.w / 2 - 1 do -- (a long hedge: one spot per block)
+            for by = 0, b.h / 2 - 1 do add((b.x + bx * 2 + 1) * T, (b.y + by * 2 + 1) * T) end
+        end
+    end
+    for _, w in ipairs(Arena.walls) do
+        for _, c in ipairs({ { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 } }) do
+            local x = (c[1] < 0) and (w.x * T - 34) or ((w.x + w.w) * T + 34)
+            local y = (c[2] < 0) and (w.y * T - 34) or ((w.y + w.h) * T + 34)
+            if not Arena.inBush(x, y) then add(x, y) end
+        end
+    end
+    self.hideSpots = list
+    return list
+end
+
+local function dist(a, b) return math.sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2) end
+
+-- Does `e` see `o`? (in range, nothing solid between, not hidden in a bush)
+local function sees(self, e, o, range)
+    return not o.dead and dist(e, o) <= range and not self:isHiddenFrom(o, e)
+        and Arena.hasLineOfSight(e.x, e.y, o.x, o.y)
+end
+
+-- A bot walking to a goal: true once it got no closer for GIVE_UP s (then it picks another)
+local function stuckOn(mem, goal, d)
+    if mem.goal ~= goal then mem.goal, mem.goalBest, mem.goalTime = goal, d, 0 end
+    if d < mem.goalBest - 40 then mem.goalBest, mem.goalTime = d, 0 end
+    mem.goalTime = mem.goalTime + World.TICK
+    return mem.goalTime > GIVE_UP
+end
+
+-- A hiding place for hider bot `e`: far from the seeker (or the middle), not where
+-- another hider bot hides, not too far to walk; `away`: only spots farther from the
+-- seeker than from `e` (running away)
+local function pickHideSpot(self, e, seeker, away)
+    local from = seeker or Arena.center
+    local best, bestScore
+    for _, s in ipairs(hideSpots(self)) do
+        local ds, de = dist(s, from), dist(s, e)
+        if not away or ds > de + 100 then
+            local score = math.min(ds, 1400) * (0.6 + 0.4 * math.random()) - de * 0.3
+            for _, o in ipairs(self.entities) do
+                local spot = o ~= e and o.hs and o.hs.spot
+                if spot and dist(spot, s) < 250 then score = score - 700 end
+            end
+            if s == (e.hs and e.hs.badSpot) then score = score - 2000 end
+            if not bestScore or score > bestScore then best, bestScore = s, score end
+        end
+    end
+    return best or { x = e.x, y = e.y }
+end
+
+-- What the seeker bot does: after a hider it sees (a disguised one only once it noticed
+-- the odd bush close by), to where it saw one last or where the hint showed one, else
+-- from one hiding place to the nearest one it hasn't checked yet.
+local function seekPlan(self, e, mem)
+    local h = self.hide
+    mem.noticed = mem.noticed or {}
+    local hint = h.hintUntil > self.time and mem.hintSeen ~= h.hintUntil
+    if hint then mem.hintSeen = h.hintUntil end
+    local best, bestD, nearest, nearestD
+    for _, o in ipairs(self.entities) do
+        if o.team == World.TEAM_HIDERS and not o.dead then
+            local d = dist(e, o)
+            if not nearestD or d < nearestD then nearest, nearestD = o, d end
+            if not o.disguised then mem.noticed[o.id] = nil end
+            local seen = sees(self, e, o, SEEK_SIGHT)
+            if seen and o.disguised and not mem.noticed[o.id] then
+                seen = d < NOTICE_DIST and math.random() < NOTICE_RATE * World.TICK
+                if seen then mem.noticed[o.id] = true end
+            end
+            if seen and (not bestD or d < bestD) then best, bestD = o, d end
+        end
+    end
+    if hint and nearest then mem.lastX, mem.lastY = nearest.x, nearest.y end
+    if best then
+        mem.lastX, mem.lastY = best.x, best.y
+        local plan = { x = best.x, y = best.y, state = "chase" }
+        if bestD < TAG_REACH then plan.tag = math.atan2(best.y - e.y, best.x - e.x) end
+        return plan
+    end
+    if mem.lastX then -- where one was seen (or the hint showed one)
+        local d = math.sqrt((mem.lastX - e.x) ^ 2 + (mem.lastY - e.y) ^ 2)
+        if d > 40 and not stuckOn(mem, "last", d) then
+            return { x = mem.lastX, y = mem.lastY, state = "search" }
+        end
+        mem.lastX, mem.lastY = nil, nil
+    end
+    -- check the hiding places, the nearest unchecked one first
+    local spots = hideSpots(self)
+    mem.visited = mem.visited or {}
+    local target, targetD
+    for i, s in ipairs(spots) do
+        if not mem.visited[i] then
+            local d = dist(s, e)
+            if d < 90 then
+                mem.visited[i] = true
+                if s.bush and (e.tagCooldown or 0) <= 0 then -- a swing into the bush
+                    return { x = s.x, y = s.y, tag = math.random() * math.pi * 2, state = "check" }
+                end
+            elseif not targetD or d < targetD then
+                target, targetD = i, d
+            end
+        end
+    end
+    if not target then mem.visited = {} return nil end -- all checked: once more
+    if stuckOn(mem, target, targetD) then mem.visited[target] = true end
+    return { x = spots[target].x, y = spots[target].y, state = "check" }
+end
+
+-- What Hide and seek bot `e` does (src/enemy.lua), or nil = stand still:
+-- { x, y, state } = walk there; tag = an angle: swing the tag that way.
+-- Hiders: to a hiding place far from the seeker and stand still (= a bush); away from
+-- the seeker when it comes close in sight (a bush only when it is very close); some of
+-- them fetch the pieces while the seeker is far or out of sight.
+function World:hidePlan(e)
+    local h = self.hide
+    if not h or self.match.over then return nil end
+    local mem = e.hs
+    if not mem then
+        mem = { fetcher = math.random() < FETCH_SHARE,
+                fetchAt = h.hideUntil + 5 + math.random() * 50 }
+        e.hs = mem
+    end
+    if e.team == World.TEAM_SEEKER then
+        if h.phase ~= "seek" then return nil end
+        return seekPlan(self, e, mem)
+    end
+    local seeker = self.byId[h.seekerId]
+    local seen = h.phase == "seek" and seeker and sees(self, e, seeker, SEEK_SIGHT)
+    local sd = seeker and dist(e, seeker) or math.huge
+    if seen and (sd < BOLT_DIST or (sd < FLEE_DIST and not e.disguised)) then -- run!
+        if not mem.fleeUntil or self.time >= mem.fleeUntil or not mem.spot then
+            mem.spot = pickHideSpot(self, e, seeker, true)
+            mem.fleeUntil = self.time + 1
+        end
+        return { x = mem.spot.x, y = mem.spot.y, state = "flee" }
+    end
+    if e.carryingPiece then -- to the frame
+        return { x = Arena.center.x, y = Arena.center.y, state = "piece" }
+    end
+    local safe = not seen or sd > FETCH_SAFE
+    if mem.fetcher and h.phase == "seek" and self.time >= mem.fetchAt and safe then
+        local best, bestD
+        for _, piece in ipairs(h.pieces) do
+            if not piece.placed and not piece.carrier then
+                local d = dist(piece, e)
+                local taken = false -- (another fetcher goes for it already)
+                for _, o in ipairs(self.entities) do
+                    if o ~= e and o.hs and o.hs.piece == piece.id and not o.dead then taken = true end
+                end
+                if not taken and (not bestD or d < bestD) then best, bestD = piece, d end
+            end
+        end
+        mem.piece = best and best.id
+        if best then return { x = best.x, y = best.y, state = "fetch" } end
+    end
+    mem.piece = nil
+    if not mem.spot then mem.spot = pickHideSpot(self, e, seeker and h.phase == "seek" and seeker or nil) end
+    local d = dist(mem.spot, e)
+    if d > 10 then
+        if stuckOn(mem, mem.spot, d) then
+            mem.badSpot, mem.spot = mem.spot, nil
+            return nil
+        end
+        return { x = mem.spot.x, y = mem.spot.y, state = "hide" }
+    end
+    mem.goal = nil
+    return nil -- there: stand still (a bush in 2 s)
 end
 
 ---------------------------------------------------------------------------- Yardball
@@ -1423,6 +1875,17 @@ end
 -- Has the round been decided?
 local function checkMatch(self, dt)
     local m = self.match
+    if self.mode.hideseek then -- all found: the seeker wins; the time is up: the hiders
+        local h = self.hide
+        if not h or h.phase ~= "seek" then return end
+        if not self:teamUp(World.TEAM_HIDERS) then
+            endMatch(self, nil, World.TEAM_SEEKER)
+        elseif self.time >= h.endAt then
+            m.timeLeft = 0
+            endMatch(self, nil, World.TEAM_HIDERS)
+        end
+        return
+    end
     if self.mode.yardball then return end -- (goals: scoreGoal; no time limit)
     if self.mode.king then -- the last team with somebody up wins
         local up, left = {}, 0
@@ -1495,7 +1958,7 @@ function World:restartMatch()
         if e.isBot then self:remove(e) end
     end
     self.bullets, self.medpacks, self.boxes, self.coins, self.barriers = {}, {}, {}, {}, {}
-    self.beacons = {}
+    self.beacons, self.hide = {}, nil
     self.boxTimer = World.BOX_FIRST
     self.wave, self.waveSize, self.waveTimer = 0, 0, 0
     for _, e in ipairs(self.entities) do
@@ -1515,11 +1978,23 @@ function World:update(dt, inputs)
         self.time = self.time + dt
         return
     end
+    local hide = self.hide
     for _, e in ipairs(self.entities) do
-        if e.isBot then
+        if hide then e.tagCooldown = math.max(0, (e.tagCooldown or 0) - dt) end
+        if hide and hide.phase == "hide" and e.id == hide.seekerId then
+            e:tick(dt) -- counting with its eyes closed
+        elseif e.isBot then
             e:update(dt, self)
         else
             local input = inputs[e.id] or IDLE
+            if hide and e.id == hide.seekerId then -- fire = the tag (kept for a moment)
+                if input.fire then e.tagBuffer = 0.25 end
+                if input.aim then e.aim = input.aim end
+                if e.tagBuffer then
+                    e.tagBuffer = e.tagBuffer - dt
+                    if self:tag(e) or e.tagBuffer <= 0 then e.tagBuffer = nil end
+                end
+            end
             if input.fire and self.ball and self.ball.carrier == e.id then -- fire = kick
                 self:kick(e, input.aim, input.aimDist)
                 e.fireBuffer = nil
@@ -1541,6 +2016,7 @@ function World:update(dt, inputs)
         updateBeacons(self, dt)
         updateZone(self, dt)
     end
+    if self.hide then updateHide(self, dt) end
     checkMatch(self, dt)
     self.time = self.time + dt
 end

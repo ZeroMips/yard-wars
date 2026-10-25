@@ -77,6 +77,7 @@ function Rowdy:init(x, y, look, stats)
     self.beamHold = 0   -- seconds the beam stays on (input / bot keeps it up)
     -- push (forced or own movement { vx, vy, t, own }), leap, burrowed: see Rowdy:act
     -- carrying: has the ball (Yardball, set by src/world.lua): no attacks, only the super
+    -- noAttacks: Hide and seek (src/world.lua) - no attacks and no super at all
     -- animation state
     self.walkPhase, self.walkBlend, self.stepTimer = 0, 0, 0
     self.dirX, self.dirY = 1, 0
@@ -613,7 +614,7 @@ end
 -- One attack: uses one ammo bar and fires `pellets` projectiles in a cone.
 -- Returns true if the attack happened. (Not while carrying the ball: the attack kicks it.)
 function Rowdy:shoot(bullets, hold)
-    if self.carrying then return false end
+    if self.carrying or self.noAttacks then return false end
     if self.attack.kind == "beam" then -- keeps the beam on (a tap: a bit longer)
         if not self:canAct() or self.ammo <= 0.05 then return false end
         self.beamHold = math.max(self.beamHold, hold and 0.12 or 0.35)
@@ -643,7 +644,7 @@ end
 
 -- The super attack: needs a full meter, no ammo. Returns true if it happened.
 function Rowdy:shootSuper(bullets)
-    if not self:superReady() or not self:canAct() or self.cooldown > 0 then return false end
+    if not self:superReady() or not self:canAct() or self.cooldown > 0 or self.noAttacks then return false end
     self.bursting = nil
     fire(self, bullets, self.super)
     -- (a burst super keeps its follow-up shots: fire set self.bursting again)
@@ -839,6 +840,7 @@ function Rowdy:drawAmmoBar(x, y, w)
 end
 
 function Rowdy:drawHealthBar()
+    if self.noBars then return end -- (Hide and seek: no HP to show, set by the renderer)
     local w, h = 48, 7
     local x, y = self.x - w / 2, self.y - self.radius - 22
     love.graphics.setColor(0, 0, 0, 0.8)

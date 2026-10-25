@@ -365,7 +365,7 @@ local function addXp(n, key, label)
     end
 end
 
--- Count towards the challenges. ctx = { rowdy = name, mode = "duel"|"team"|"waves"|"yardball"|"king" }
+-- Count towards the challenges. ctx = { rowdy = name, mode = "duel"|"team"|"waves"|"yardball"|"king"|"hide" }
 local function progress(kind, amount, ctx)
     if amount <= 0 then return end
     Pass.refresh(false)
@@ -389,7 +389,7 @@ end
 
 function Pass.modeId(mode)
     return (mode.boss and "boss") or (mode.waves and "waves") or (mode.yardball and "yardball")
-        or (mode.king and "king")
+        or (mode.king and "king") or (mode.hideseek and "hide")
         or (mode.teams and "team") or "duel"
 end
 
@@ -413,6 +413,9 @@ function Pass.onEvent(ev, localId, world)
         if ev.killer ~= localId or ev.id == localId then return end
         addXp(XP.kill, "kills", "Knockouts")
         progress("kills", 1, context(localId, world))
+    elseif kind == "piece" then -- Hide and seek: a picture piece placed (XP like a chest)
+        if ev.id ~= localId then return end
+        addXp(XP.chest, "pieces", "Picture pieces")
     elseif kind == "boxBreak" then
         if ev.by ~= localId then return end
         addXp(XP.chest, "chests", "Chests")

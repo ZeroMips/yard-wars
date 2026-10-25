@@ -37,6 +37,7 @@ local Wardrobe = require("src.wardrobe")
 local Ball     = require("src.ball")
 local Barrier  = require("src.barrier")
 local King     = require("src.king")
+local HideSeek = require("src.hideseek")
 
 -- Game modes (round rules: see World.KILL_TARGET / TIME_LIMIT / LIVES).
 --   waves = false: duel - the bots respawn; first to 10 kills or most kills after
@@ -52,12 +53,15 @@ local King     = require("src.king")
 --   king         : King of the Yard - 4 teams of 3 on a big map, a knockout is out
 --                  until a team mate brings it back at its heart; a fog closes in; the
 --                  last team standing wins (LAN: the host's team fills up first)
+--   hideseek     : Hide and seek - 1 seeker (random each round) and 5 hiders on a big
+--                  map; hiders turn into bushes and fix the picture, the seeker tags them
 local MODES = {
     duel  = { name = "Duel",  waves = false },
     team  = { name = "Team fight", waves = false, teams = true },
     waves = { name = "Waves", waves = true },
     yardball = { name = "Yardball", waves = false, teams = true, yardball = true },
     king = { name = "King of the Yard", waves = false, teams = true, king = true },
+    hide = { name = "Hide and seek", waves = false, teams = true, hideseek = true },
 }
 
 -- Modes on the start screen (src/menu.lua): solo first, then the LAN ones.
@@ -73,6 +77,8 @@ Menu.entries = {
       icon = "ball", mode = MODES.yardball },
     { id = "king", name = "King of the Yard", description = "4 teams of 3 - the last team standing wins",
       icon = "crown", mode = MODES.king },
+    { id = "hide", name = "Hide and seek", description = "1 seeker, 5 hiders - turn into a bush or find them all",
+      icon = "hide", mode = MODES.hide },
     { id = "hostDuel", name = "Host duel", description = "Free-for-all - everybody against everybody",
       icon = "duel", mode = MODES.duel, host = true, lan = true },
     { id = "hostTeam", name = "Host team fight", description = "Play together - 3 vs 3 with bots",
@@ -83,6 +89,8 @@ Menu.entries = {
       icon = "ball", mode = MODES.yardball, host = true, lan = true },
     { id = "hostKing", name = "Host King of the Yard", description = "Teams of 3 by joining order",
       icon = "crown", mode = MODES.king, host = true, lan = true },
+    { id = "hostHide", name = "Host hide and seek", description = "Hide and seek together - up to 6 players",
+      icon = "hide", mode = MODES.hide, host = true, lan = true },
     { id = "join", name = "Join", description = "Play in a game hosted in your Wi-Fi",
       icon = "join", join = true, lan = true },
 }
@@ -456,7 +464,7 @@ function love.load(args)
     love.resize()
     openMenu()
     -- Testing shortcuts: love . [--rowdy N] [--coins N] --host [team|waves] |
-    -- --host yardball | --host king |
+    -- --host yardball | --host king | --host hide |
     -- --boss N [host] (boss fight against rowdy N, fighting with the last used one) |
     -- --join <address> | --find   (--coins adds to the saved coins)
     for i, a in ipairs(args or {}) do
@@ -469,7 +477,7 @@ function love.load(args)
             startBoss(args[i + 2] == "host")
         end
         if a == "--host" then
-            newGame(MODES[args[i + 1]] or MODES.duel, true) -- duel / team / waves / yardball / king
+            newGame(MODES[args[i + 1]] or MODES.duel, true) -- duel / team / waves / yardball / king / hide
         elseif a == "--join" and args[i + 1] then
             Join.address = args[i + 1]
             joinGame()
@@ -520,10 +528,10 @@ local function teamName(team)
     return "team " .. tostring(team)
 end
 
--- Where the camera looks: the own rowdy; King of the Yard while out: a team mate who
--- is up (else anybody up)
+-- Where the camera looks: the own rowdy; King of the Yard / Hide and seek while out: a
+-- team mate who is up (else anybody up)
 local function focus()
-    if not (player.out and world.mode.king) then return player end
+    if not (player.out and (world.mode.king or world.mode.hideseek)) then return player end
     local any
     for _, e in ipairs(world.entities) do
         if not e.dead then
@@ -754,6 +762,60 @@ local function playEvents(events)
         elseif ev.kind == "fog" then -- the fog nibbles: a small grey puff
             Effects.puff(ev.x, ev.y)
             if ev.id == localId then Sound.play("hurt", nil, nil, 0.5) end
+        elseif ev.kind == "seek" then -- Hide and seek: "ready or not, here I come!"
+            Sound.play("ready")
+            Scoreboard.flash(ev.id == localId and "Go! Find them all!" or "Ready or not - here I come!",
+                { 1, 0.82, 0.2 })
+        elseif ev.kind == "tag" then
+            Sound.play("shot_shovel", ev.x, ev.y)
+        elseif ev.kind == "found" then
+            Effects.sparks(ev.x, ev.y, 12, { 1, 0.95, 0.6 }, 220)
+            local left = 0
+            for _, e in ipairs(world.entities) do
+                if e.team == World.TEAM_HIDERS and not e.out and e.id ~= ev.id then left = left + 1 end
+            end
+            if ev.id == localId then
+                Scoreboard.flash("Found! Now watch the others", { 1, 0.6, 0.4 })
+            elseif ev.by == localId then
+                Scoreboard.flash(left == 0 and "Found them all!" or ("Found one! " .. left .. " left"), { 0.5, 1, 0.5 })
+            elseif left == 1 and player and player.team == World.TEAM_HIDERS and not player.out then
+                Scoreboard.flash("You're the last hider!", { 1, 0.82, 0.2 })
+            end
+        elseif ev.kind == "disguise" then -- (only the own team sees the leaves fly)
+            local e = world:get(ev.id)
+            if e and player and e.team == player.team then
+                Effects.burst(ev.x, ev.y, { 0.3, 0.7, 0.3 }, 6)
+                if ev.id == localId then Sound.play("rustle") end
+            end
+        elseif ev.kind == "pieceUp" then
+            Effects.ring(ev.x, ev.y, 40, GOLD)
+            Sound.play("pickup", ev.x, ev.y, ev.id == localId and 1 or 0.6)
+        elseif ev.kind == "pieceDrop" then
+            Effects.puff(ev.x, ev.y)
+        elseif ev.kind == "piece" then
+            Effects.sparks(ev.x, ev.y, 14, GOLD, 220)
+            Effects.ring(ev.x, ev.y, 70, GOLD)
+            Sound.play("piece")
+            local n = tonumber(ev.n) or 0
+            if n < 4 then
+                Scoreboard.flash((ev.id == localId and "You placed a piece!" or "A picture piece is placed!")
+                    .. " -" .. World.PIECE_TIME .. " s", { 1, 0.82, 0.2 })
+            end
+        elseif ev.kind == "picture" then -- confetti over the frame
+            for i, c in ipairs({ GOLD, { 1, 1, 1 }, { 0.4, 0.8, 1 }, { 1, 0.45, 0.6 } }) do
+                Effects.sparks(ev.x, ev.y, 12, c, 240 + i * 40)
+            end
+            Effects.ring(ev.x, ev.y, 160, GOLD)
+            Sound.play("picture")
+            Scoreboard.flash("The picture is complete! -" .. (World.PIECE_TIME + World.PICTURE_BONUS) .. " s",
+                { 1, 0.82, 0.2 })
+        elseif ev.kind == "hint" then
+            Sound.play("hint")
+            if player and player.team == World.TEAM_SEEKER then
+                Scoreboard.flash("The hiders shimmer!", { 1, 0.95, 0.6 })
+            elseif player and not player.out then
+                Scoreboard.flash("You shimmer - the seeker can see you!", { 1, 0.95, 0.6 })
+            end
         elseif ev.kind == "matchStart" then
             roundCoins, roundReward, roundXp, tierUpSoundAt, roundUnlock = 0, nil, nil, nil, nil
             Pass.roundStart()
@@ -791,7 +853,7 @@ local function readInput()
         input = { dx = 0, dy = 0 }
         return
     end
-    Controls.hasSuper = player.super ~= nil
+    Controls.hasSuper = player.super ~= nil and not world.mode.hideseek -- (no supers there)
     Controls.superCharge = player.charge or 0
     local target = world:nearestOpponent(player, true)
     -- Yardball: carrying, the attack kicks (a tap: at the middle of the opponents' goal)
@@ -939,8 +1001,17 @@ local function drawMinimap(screenW)
         love.graphics.rectangle("fill", x0 + b.x * s - 3.5, y0 + b.y * s - 3.5, 7, 7)
     end
     if world.mode.king then King.drawMinimap(world, x0, y0, s, mw, mh, uiScale(), teamColor) end
+    if world.hide then HideSeek.drawMinimap(world.hide, x0, y0, s) end
+    -- (Hide and seek: the seeker's minimap never shows the hiders, except a shimmering hint)
+    local hiders = world.hide and player.team ~= World.TEAM_HIDERS
+    local hint = hiders and world.hide.hintUntil and world.hide.hintUntil > world.time
     for _, e in ipairs(world.entities) do
-        if e ~= player and not e.dead and not hidden(e) then
+        if hiders and e.team == World.TEAM_HIDERS then
+            if hint and not e.dead then
+                love.graphics.setColor(1, 0.95, 0.6, 0.6 + 0.4 * math.sin(love.timer.getTime() * 20))
+                love.graphics.circle("fill", x0 + e.x * s, y0 + e.y * s, 4.5)
+            end
+        elseif e ~= player and not e.dead and not hidden(e) then
             if world.mode.king then love.graphics.setColor(teamColor(e.team))
             elseif world:isOpponent(e, player) then love.graphics.setColor(0.95, 0.25, 0.25, 1)
             else love.graphics.setColor(TEAMMATE_COLOR) end
@@ -1023,7 +1094,47 @@ local function resultInfo()
     end
 
     local info = { lines = lines }
-    if world.mode.teams then
+    if world.mode.hideseek then -- the seeker first, then the hiders: not found, then
+        local h = world.hide or { placed = 0, pieces = {} } -- found last to found first
+        local order, hiders = {}, {}
+        for _, e in ipairs(world.entities) do
+            if e.team == World.TEAM_HIDERS then
+                hiders[#hiders + 1] = e
+                if e.foundAt then order[#order + 1] = e end
+            end
+        end
+        table.sort(order, function(a, b) return a.foundAt < b.foundAt end)
+        local nth = {}
+        for i, e in ipairs(order) do nth[e.id] = i end
+        table.sort(hiders, function(a, b)
+            local fa, fb = nth[a.id] or 99, nth[b.id] or 99
+            if fa ~= fb then return fa > fb end
+            return a.id < b.id
+        end)
+        local ord = { "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th" }
+        lines = {}
+        local seeker = world:get(h.seekerId)
+        if seeker then
+            lines[#lines + 1] = { string.format("[Seeker]  %s (%s)   found %d of %d", fullName(seeker),
+                seeker.def and seeker.def.name or "?", #order, #hiders), seeker.id == localId,
+                Cosmetics.get(seeker.badge, "badge") and seeker.badge }
+        end
+        local left = 0
+        for _, e in ipairs(hiders) do
+            if not nth[e.id] then left = left + 1 end
+            local placed = (e.placed or 0) > 0 and ("   " .. count(e.placed, "piece") .. " placed") or ""
+            lines[#lines + 1] = { string.format("[Hider]  %s (%s)   %s%s", fullName(e), e.def and e.def.name or "?",
+                nth[e.id] and ("found " .. ord[nth[e.id]]) or "never found!", placed), e.id == localId,
+                Cosmetics.get(e.badge, "badge") and e.badge }
+        end
+        info.lines = lines
+        local seekerWon = m.winnerTeam == World.TEAM_SEEKER
+        info.title = seekerWon and "Seeker wins!" or "Hiders win!"
+        info.color = (m.winnerTeam == player.team) and { 1, 0.82, 0.1 } or { 1, 0.55, 0.3 }
+        info.subtitle = (seekerWon and "All hiders found" or ("Time is up - " .. count(left, "hider")
+            .. " stayed hidden")) .. "   -   picture pieces placed: "
+            .. (h.placed or 0) .. " of " .. #h.pieces
+    elseif world.mode.teams then
         -- scoreboard: own team first
         table.sort(list, function(a, b)
             local ma, mb = a.team == player.team, b.team == player.team
@@ -1190,6 +1301,20 @@ local function scoreboardInfo()
         return { kind = "waves", wave = world.wave, bots = world:countBots(),
                  lives = world:livesLeft(player), maxLives = World.LIVES }
     end
+    if world.hide then -- Hide and seek: hiders left, the clock, the picture
+        local h = world.hide
+        local left, all = 0, 0
+        for _, e in ipairs(world.entities) do
+            if e.team == World.TEAM_HIDERS then
+                all = all + 1
+                if not e.out then left = left + 1 end
+            end
+        end
+        local hiding = h.phase == "hide" and math.max(0, h.hideUntil - world.time) or nil
+        return { kind = "hide", hiding = hiding, timeLeft = math.max(0, h.endAt - world.time),
+                 left = left, hiders = all, placed = h.placed or 0, pieces = #h.pieces,
+                 seeker = h.seekerId == localId }
+    end
     if world.mode.king then -- the teams (own first) and the fog
         local up = {}
         for _, e in ipairs(world.entities) do
@@ -1248,6 +1373,16 @@ function watchMatch()
         for _, mark in ipairs({ { 0.5, "Halfway there!" }, { 0.2, "Almost done - keep going!" } }) do
             if watch.share and watch.share > mark[1] and now.share <= mark[1] then
                 Scoreboard.flash(mark[2], { 0.5, 1, 0.5 })
+            end
+        end
+    elseif world.hide then -- Hide and seek: the countdown ticks, time marks
+        local info = scoreboardInfo()
+        now.count = info.hiding and math.ceil(info.hiding)
+        if now.count and now.count ~= watch.count and now.count <= 5 and now.count > 0 then Sound.play("tick") end
+        now.time = not info.hiding and info.timeLeft or nil
+        for _, mark in ipairs({ { 60, "1 minute left" }, { 30, "30 seconds left!" }, { 10, "10 seconds!" } }) do
+            if watch.time and now.time and watch.time > mark[1] and now.time <= mark[1] then
+                Scoreboard.flash(mark[2], mark[1] <= 30 and { 1, 0.45, 0.45 } or nil)
             end
         end
     elseif world.mode.king then
@@ -1320,7 +1455,7 @@ local function drawHud()
     love.graphics.setFont(hudFont)
     love.graphics.setColor(1, 1, 1)
     local superInfo = ""
-    if player.super and not Controls.touchMode then
+    if player.super and not Controls.touchMode and not world.mode.hideseek then
         superInfo = "   [RMB/E] " .. player.super.name .. ": " ..
             (player.charge >= 1 and "READY" or (math.floor(player.charge * 100) .. "%"))
     end
@@ -1356,8 +1491,28 @@ local function drawHud()
     love.graphics.setFont(hudFont)
     love.graphics.setColor(1, 1, 1)
     local y = top + Scoreboard.HEIGHT + 14
+    local hide = world.hide
     if world.match.over then
         -- the result screen says it all
+    elseif hide then -- Hide and seek
+        local text
+        local seeker = hide.seekerId == localId
+        if player.out then
+            text = "Found! Watching the others"
+        elseif hide.phase == "hide" then
+            text = not seeker and string.format("Hide! The seeker comes in %d - stand still to turn into a bush",
+                math.max(0, math.ceil(hide.hideUntil - world.time))) or nil
+        elseif seeker then
+            text = (Controls.touchMode and "You seek! Use the attack stick to tag the hiders"
+                or "You seek! Click to tag the hiders") .. " - look for bushes where none belong"
+        elseif player.carryingPiece then
+            text = "Bring the piece to the picture frame in the middle!"
+        elseif player.disguised then
+            text = "You're a bush - don't move!"
+        else
+            text = "Stand still to turn into a bush - or bring a picture piece to the frame"
+        end
+        if text then love.graphics.printf(text, 0, y, sw, "center") end
     elseif player.out and world.mode.king then
         local heart
         for _, h in ipairs(world.beacons or {}) do
@@ -1409,17 +1564,24 @@ local function drawGame()
         else e.hudColor = OPPONENT_COLOR end
         e.teamColor = world.mode.teams and (ally and TEAMMATE_COLOR or ENEMY_TEAM_COLOR) or nil
         if world.mode.king and e ~= player then e.hudColor, e.teamColor = teamColor(e.team), teamColor(e.team) end
+        e.noBars = world.mode.hideseek or nil -- (no HP, ammo or super there)
     end
+    local hide = world.hide -- (Hide and seek)
 
     -- World (moves with the camera)
     Camera.attach()
     Arena.drawBelow()
+    if hide then HideSeek.drawFrame(hide, world.time, World.pieceSlot) end
     local ball = world.ball -- (Yardball)
     if ball then
         Ball.drawGoals({ [player.team] = TEAMMATE_COLOR,
             [player.team == World.TEAM_BLUE and World.TEAM_RED or World.TEAM_BLUE] = ENEMY_TEAM_COLOR })
     end
-    if input and not player.dead then
+    if hide then -- only the seeker aims: its tag swing
+        if input and input.aiming and not player.dead and hide.seekerId == localId and hide.phase == "seek" then
+            HideSeek.drawTagAim(player, World.TAG)
+        end
+    elseif input and not player.dead then
         if input.aimingSuper and player.super then player:drawAim(true)
         elseif input.aiming and player.carrying then Ball.drawKickAim(player, input.aimDist)
         elseif input.aiming then player:drawAim() end
@@ -1429,23 +1591,55 @@ local function drawGame()
     for _, b in ipairs(world.boxes) do Loot.drawBox(b, world.time) end
     for _, w in ipairs(world.barriers or {}) do Barrier.draw(w, world.time, teamColor(w.team)) end
     for _, h in ipairs(world.beacons or {}) do King.drawBeacon(h, world.time, teamColor(h.team)) end
+    for _, p in ipairs(hide and hide.pieces or {}) do
+        if not p.placed and not p.carrier then HideSeek.drawGroundPiece(p, world.time) end
+    end
     Effects.drawBelow()
     if ball and not ball.carrier then Ball.draw(ball, world.kickoff) end -- (rowdies walk over it)
     for _, b in ipairs(world.bullets) do b:draw() end
     for _, e in ipairs(world.entities) do
-        -- (underground opponents are hidden, but their dirt mound shows)
-        if e ~= player and (not hidden(e) or e.burrowed) then e:draw() end
+        -- (underground opponents are hidden, but their dirt mound shows; a disguised
+        -- hider is a bush for the seeker, its team mates see it with a leaf)
+        if e ~= player and (not hidden(e) or e.burrowed) then
+            if e.disguised and world:isOpponent(e, player) then HideSeek.drawDisguise(e, 1)
+            else
+                e:draw()
+                if e.disguised then HideSeek.drawLeaf(e) end
+            end
+        end
     end
     player:draw() -- own rowdy on top
+    if player.disguised and not player.dead then HideSeek.drawDisguise(player, 0.6) end
     if ball and ball.carrier then Ball.draw(ball) end -- in the carrier's hands
+    for _, p in ipairs(hide and hide.pieces or {}) do -- held up over the carrier's head
+        local c = p.carrier and world:get(p.carrier)
+        if c and not c.dead then HideSeek.drawCarriedPiece(p, c) end
+    end
     Effects.drawAbove()
     Arena.drawBushes(player)
+    if hide and hide.hintUntil and hide.hintUntil > world.time then -- the hint: through bushes too
+        for _, e in ipairs(world.entities) do
+            if e.team == World.TEAM_HIDERS and not e.dead then HideSeek.drawShimmer(e, love.timer.getTime()) end
+        end
+    end
+    local seeker = hide and world:get(hide.seekerId)
+    if seeker and hide.phase == "hide" and not seeker.dead then
+        HideSeek.drawCounting(seeker, math.max(0, math.ceil(hide.hideUntil - world.time)), boardFonts.big)
+    end
     if world.zone then King.drawFog(world.zone, love.timer.getTime()) end
     Camera.detach()
 
     -- Virtual sticks + super button (touch only)
     if playing() then Controls.draw() end
     if not world.match.over then drawHud() end -- the result screen shows the scores
+    if seeker and seeker.id == localId and hide.phase == "hide" and not world.match.over then
+        local ui = uiScale() -- the seeker's eyes are closed while the hiders hide
+        love.graphics.push()
+        love.graphics.scale(ui)
+        HideSeek.drawCover(menuFonts, love.graphics.getWidth() / ui, love.graphics.getHeight() / ui,
+            hide.hideUntil - world.time, love.timer.getTime())
+        love.graphics.pop()
+    end
 end
 
 -- Mute button (touch only): top right corner, HUD units

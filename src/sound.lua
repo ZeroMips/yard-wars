@@ -231,6 +231,20 @@ local DEFS = {
                          { { wave = "sine", f1 = 400, f2 = 1200, dur = 0.35, vol = 0.12, attack = 0.05 } }),
     fog          = { { wave = "noise", f1 = 1, f2 = 1, dur = 1.4, vol = 0.4, lowpass = 0.08, attack = 0.4, curve = 1 },
                      { wave = "sine", f1 = 110, f2 = 80, dur = 1.2, vol = 0.25, attack = 0.3, curve = 1 } },
+    -- Hide and seek: the seeker's countdown (the last seconds), "ready or not, here I
+    -- come!", a hider turns into a bush (a rustle, only the own team hears it), a picture
+    -- piece placed, the picture complete, the hint shimmer
+    tick         = { { wave = "triangle", f1 = 1400, f2 = 1300, dur = 0.05, vol = 0.25 } },
+    ready        = notes({ { G5, 0.1 }, { G5, 0.1 }, { C6, 0.1 }, { E5 * 2, 0.3 } }, "square", 0.17,
+                         { { wave = "sine", f1 = 300, f2 = 900, dur = 0.35, vol = 0.12, delay = 0.3 } }),
+    rustle       = { { wave = "noise", f1 = 1, f2 = 1, dur = 0.35, vol = 0.3, lowpass = 0.45, attack = 0.05, curve = 1 } },
+    piece        = notes({ { C5, 0.07 }, { G5, 0.07 }, { C6, 0.18 } }, "triangle", 0.3,
+                         { { wave = "sine", f1 = 180, f2 = 120, dur = 0.12, vol = 0.4 } }),
+    picture      = notes({ { C5, 0.08 }, { E5, 0.08 }, { G5, 0.08 }, { C6, 0.08 }, { E5 * 2, 0.08 }, { G5 * 2, 0.4 } },
+                         "triangle", 0.28,
+                         { { wave = "noise", f1 = 1, f2 = 1, dur = 0.8, vol = 0.15, lowpass = 0.7, attack = 0.1, delay = 0.3 } }),
+    hint         = { { wave = "sine", f1 = 1800, f2 = 2600, dur = 0.5, vol = 0.12, vibrato = { 0.04, 16 } },
+                     { wave = "triangle", f1 = 2400, f2 = 3200, dur = 0.4, vol = 0.08, delay = 0.12 } },
     -- rounds and UI
     roundStart   = notes({ { G5, 0.09 }, { C6, 0.16 } }, "square", 0.18),
     victory      = notes({ { C5, 0.11 }, { E5, 0.11 }, { G5, 0.11 }, { C6, 0.35 } }, "square", 0.2,

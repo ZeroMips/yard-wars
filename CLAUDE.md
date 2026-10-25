@@ -1,8 +1,8 @@
 # Yard Wars (LÖVE 11.x)
 
 Top-down arena shooter in LÖVE (Lua) with mobile twin-stick controls. Modes: duel, team
-fight, waves, Yardball (a ball game), King of the Yard (4 teams of 3, last team standing)
-and boss fights, solo against bots or over LAN, in a
+fight, waves, Yardball (a ball game), King of the Yard (4 teams of 3, last team standing),
+Hide and seek (1 seeker, 5 hiders) and boss fights, solo against bots or over LAN, in a
 mirrored arena. The characters are "rowdies" (code: `Rowdy`, `Rowdies`).
 Name everything "Yard Wars" / "yard-wars": no references to other games or their
 trademarks anywhere (code, comments, docs, website, file names; renamed 2026-10-04).
@@ -25,7 +25,7 @@ existing things that break it.
 - Test coins: `love . --coins 300` (adds to the saved coins in `profile.txt`).
 - Boss fight: `love . --boss 4` (against rowdy 4, any rowdy, also owned ones; `--boss 4 host`
   hosts it for LAN helpers).
-- LAN test on one machine: `love . --host` (or `--host waves` / `team` / `yardball` / `king`) and `love . --join 127.0.0.1`
+- LAN test on one machine: `love . --host` (or `--host waves` / `team` / `yardball` / `king` / `hide`) and `love . --join 127.0.0.1`
   (or `love . --find` for the join screen with discovery) in a second terminal.
   UDP ports 27015 (game) + 27016 (discovery); if a phone can't connect/find the desktop:
   `sudo ufw allow 27015:27016/udp`.
@@ -97,8 +97,9 @@ existing things that break it.
 
 ## Layout
 - `main.lua` — client: state (menu/pick/join/game/pass/style), roles local/host/client, the modes of
-  the start screen (`Menu.entries`: Duel, Team fight, Waves, Yardball, King of the Yard, Host duel =
-  free-for-all, Host team fight, Host waves = co-op, Host Yardball, Host King of the Yard, Join); PLAY starts the chosen mode with the chosen
+  the start screen (`Menu.entries`: Duel, Team fight, Waves, Yardball, King of the Yard, Hide and seek, Host duel =
+  free-for-all, Host team fight, Host waves = co-op, Host Yardball, Host King of the Yard, Host hide and
+  seek, Join); PLAY starts the chosen mode with the chosen
   rowdy (`Menu.rowdy`); a locked rowdy: `openBoss` (panel) → `startBoss(host)` = newGame with
   mode `{ boss = index }` and `Menu.fighter`; matchOver of a won boss fight →
   `Unlock.won` (message = result subtitle); result screen (Play again / Rowdy / Menu; LAN clients:
@@ -117,6 +118,18 @@ existing things that break it.
   team mate's heart"), scoreboard kind "king", banners (team out, last two teams, fog
   closing + `fog` sound, "You're back!"), result: own team rowdy by rowdy + one line per
   other team (Result shows 8 lines at most), title Victory / "2nd place".
+  Hide and seek (`MODES.hide`, `hideseek = true`): seeker cover during the hide phase
+  (`HideSeek.drawCover`, only the seeker's screen; the hiders see it counting in a bubble),
+  disguised opponents drawn as a bush (team mates normal + a leaf, the own one with a
+  see-through bush), pieces on the ground / above the carrier, the hint shimmer above the
+  bushes, the frame below everything; the seeker's minimap never shows hiders (except
+  during a hint); auto-aim skips disguised ones (`nearestOpponent`); no super button
+  (`Controls.hasSuper`), the seeker's aim preview = the tag's reach (`HideSeek.drawTagAim`),
+  hiders have none; `noBars` hides health/ammo bars; `focus()` follows a hider team mate
+  once found; HUD lines, banners (seek, found, last hider, piece/picture, hint, time
+  marks, countdown `tick`s), scoreboard kind "hide", result: "Seeker wins!" / "Hiders
+  win!", the seeker first, then the hiders by how long they stayed hidden ("found 1st"
+  ... "never found!", pieces placed).
   Escape / Android back: game → menu, menu → quit. (F2 used to toggle a Kenney
   character style; those sprites were removed 2026-10-04.)
 - `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
@@ -179,7 +192,37 @@ existing things that break it.
   mate's heart within 900 px unless an opponent is in sight within 250 px; patrol stays
   near the bot and inside the clear circle. Bot-only rounds (10 seeds): median ~110 s
   (73-219) with the first fog times, ~74 s (56-99) with the faster fog (2026-10-15; bots
-  keep out of it, no fog knockouts), 0-6 revives per round; boss fight (`mode.boss` = rowdy index): the players (team
+  keep out of it, no fog knockouts), 0-6 revives per round; Hide and seek (`mode.hideseek`,
+  also `teams`, checked BEFORE the `teams` branches; 2026-10-25, Gideon's idea): `World.new`
+  switches to the "hideout" layout; `start()` fills up to `HIDE_PLAYERS` 6 with bots and
+  `startHideSeek` picks the seeker at random (`math.random`, the host) every round: team
+  `TEAM_SEEKER` 1 at the frame, the others `TEAM_HIDERS` 2 on a circle around it
+  (`hideSpawn`); `prepareHide`: fixed speeds `HIDER_SPEED` 240 / `SEEKER_SPEED` 255 (bots
+  too), `noAttacks` (Rowdy:shoot/shootSuper refuse); `world.hide` {seekerId, phase
+  "hide"|"seek", hideUntil, endAt, nextHint, hintUntil, placed, pieces = {id, x, y,
+  carrier, placed}}; the seeker only ticks during `HIDE_TIME` 15 s; then `SEEK_TIME` 180
+  s; its fire = `World:tag` (a `TAG` bullet: range 70, radius 30, pierce, projectile
+  "swing", every `TAG_COOLDOWN` 0.6 s; a hit = `findHider`: death event (poof, killer =
+  seeker), `out`, `foundAt`, `found` event, a carried piece drops there); `updateHide`:
+  a hider standing still `DISGUISE_TIME` 2 s = `disguised` (moving or carrying ends it;
+  only drawing - `isHiddenFrom` is unchanged, a carrier is never hidden), pieces picked
+  up only while seeking (no piece runs in the hide phase), placed within `FRAME_REACH` of
+  `Arena.frame` (`World.pieceSlot(k)`): `PIECE_TIME` 20 s off `endAt`, all 4 =
+  `PICTURE_BONUS` 20 more; hints from `HINT_AFTER` 120 s of seeking every `HINT_EVERY` 20 s
+  for `HINT_LENGTH` 1 s; `match.timeLeft` = endAt - time; `checkMatch`: no hider up =
+  seeker wins, time up = hiders win. Joining (`addHidePlayer`) takes a bot's place as it
+  is (a hider not found yet first, the seeker bot last; `takeOver`), leaving the reverse.
+  No loot boxes in this mode. Bots (`World:hidePlan`, `Enemy:updateHide`): hiders walk to
+  a hiding place (`hideSpots`: bush blocks + open spots at wall corners, not near the
+  frame; far from the seeker, apart from each other) and stand still; run from a seeker
+  in sight within `FLEE_DIST` 400 (a disguised one only within `BOLT_DIST` 130); half of
+  them (`FETCH_SHARE`) fetch pieces from 5-55 s into the seeking while the seeker is out
+  of sight or beyond `FETCH_SAFE` 900; the seeker chases hiders it sees (`SEEK_SIGHT` 650,
+  a disguised one only within `NOTICE_DIST` 230 at `NOTICE_RATE` 1.2/s), swings within
+  `TAG_REACH` 95, goes to the last seen / hinted spot, else checks the nearest unchecked
+  hiding place (a swing into bushes); `GIVE_UP` 4 s without getting closer = another goal.
+  Bot-only rounds (20 seeds, 2026-10-25): seeker wins 9/20, median 95 s, every round ends,
+  2.5 pieces placed on average (BOLT_DIST was 190: seeker 12/20); boss fight (`mode.boss` = rowdy index): the players (team
   `TEAM_PLAYERS`) vs one big bot with that rowdy's def (`boss` flag, `BOSS_HP` 3x HP,
   `BOSS_SIZE` 1.4: `World.bossLook`, radius), no time limit, players respawn forever, the
   boss never respawns (`out`) - won (`winnerTeam` = players) when it is out (charter: you
@@ -214,7 +257,12 @@ existing things that break it.
   Yard: welcome `mode.king`, snapshot `z` (zone: x, y, r0, r1 + the 4 times; the client
   computes r with `World.zoneRadius`) + `h` (beacons: id, team, owner, x, y, expires,
   progress) + `match.place`/`teamsLeft`, beacon/revive/beaconGone/fog/teamOut events; a
-  king host doesn't `respawn` a joiner - `addTeamPlayer` placed it). Version
+  king host doesn't `respawn` a joiner - `addTeamPlayer` placed it); 12 since Hide and
+  seek: welcome `mode.hideseek`, snapshot `k` (seekerId, phase 1/2, hideUntil, endAt,
+  hintUntil, placed, pieces {id, x, y, carrier or 0, placed 0/1}), FIELDS `disguised`,
+  `placed`, `foundAt`, seek/tag/found/disguise/pieceUp/pieceDrop/piece/picture/hint
+  events (no respawn of a joiner either; the replica puts a carried piece on its
+  carrier's proxy and sets `carryingPiece`). Version
   check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
   `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
   refused with a reason ("The host has a newer build (52): restart to update"), different
@@ -312,6 +360,11 @@ existing things that break it.
   (fly out, spin, blink), coin icon/counter and padlock for the menus
 - `src/barrier.lua` — drawing of the Officer's barriers (traffic cones + striped tape,
   a line in the team colour, blinks in its last second)
+- `src/hideseek.lua` — Hide and seek drawing: the frame (wooden, 4 slots, gold glow when
+  complete), the picture pieces (`drawPart`: sun / cloud + bird / house / tree, made of
+  shapes), ground + carried pieces, the disguise bush (the arena's bush quad at 76 px -
+  smaller than the 128 px arena bushes, so it can be spotted), leaf, shimmer, counting
+  bubble, the seeker's cover, minimap marks, the mode icon "hide" (used by src/menu.lua)
 - `src/king.lua` — King of the Yard drawing: heart beacons (team-coloured ring, pulsing
   heart, green progress ring, blinks its last 4 s), the fog (a grey ring mesh from the
   clear circle outwards, soft edge, drifting cloud puffs; CHARTER.md: no poison look) and
@@ -368,7 +421,10 @@ existing things that break it.
   grass batch on a size change - nothing may cache them: "yard" = the normal arena,
   "kingdom" = King of the Yard: 60x40 tiles, objects for the top-left quarter mirrored on
   both axes (`mirror4`), `Arena.teamSpawns[1..4]` = 3 spots per corner (1 top left, 2
-  bottom right, 3 top right, 4 bottom left), open middle; "pitch" = Yardball: no centre wall, an open middle lane,
+  bottom right, 3 top right, 4 bottom left), open middle; "hideout" = Hide and seek: 60x40
+  like "kingdom" (`mirror4`), 14 bush clusters/hedges, 7 sheds and 7 crates per quarter,
+  open middle with `Arena.frame` (4x3 tiles, drawn, not solid), `Arena.pieceSpots` (one per
+  quarter, tile 6.5/9.5 mirrored); "pitch" = Yardball: no centre wall, an open middle lane,
   `Arena.goals` [team defending it] = mouths of 4 tiles in the left/right border,
   `Arena.center`, pitch markings in `drawBelow`); `resolveCircle`, `hitsSolid`,
   raycast, `hasLineOfSight`, `randomOpenPoint`, spawns
@@ -493,14 +549,16 @@ existing things that break it.
   sine/triangle/noise with pitch slides + envelopes; no files): per-rowdy shots, hit/hurt,
   impact, poof (knockout), spawn, super, superReady chime, heal, round start, victory/defeat/draw, click,
   box/boxHit/boxBreak, coin, unlock, tierUp, claim, kick/pickup/bounce/goal,
-  beacon/revive/fog (King of the Yard).
+  beacon/revive/fog (King of the Yard), tick/ready/rustle/piece/picture/hint (Hide and seek;
+  the swing plays shot_shovel, a found hider the poof).
   `Sound.play(name, x, y)`: quieter with distance from the own rowdy, panned; same sound
   not faster than 35 ms; M mutes (touch: speaker button top right on every screen, the
   minimap moves left for it); the setting is saved in `sound.txt`. ~70 ms to build on desktop (~220 ms without JIT).
 - `src/scoreboard.lua` — in-game scoreboard top centre (duel/team: scores with bars to the kill
   target + timer, red in the last 30 s; Yardball: goals, a ball instead of the timer;
   King of the Yard: 4 team boxes (own first) with the rowdies up, grey when out, + a fog
-  box: countdown, then a pulsing cloud; waves: wave, lives as hearts, bots left; boss: one
+  box: countdown, then a pulsing cloud; Hide and seek ("hide"): hiders as heads (grey
+  once found), the hide countdown / clock, the picture pieces as squares; waves: wave, lives as hearts, bots left; boss: one
   wide health bar; below the minimap on narrow screens) and banners (time marks, new wave,
   lost life, 1 kill to win, boss at half / 20%)
 - `src/effects.lua` — particles: puff, sparks, burst, ring, heal ("+" signs), poof (a
@@ -654,6 +712,17 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
 - New rowdies NOT yet tried on a device (Wizard's held beam on the touch stick, leap /
   blink distances, burrow and vanish, the feel of each).
 - Boss fights NOT yet tried on a device (touch on the panel, fight feel on a phone).
+- Hide and seek (2026-10-25, plan with the user/Gideon: random seeker, a tag swing for
+  any rowdy, found = out and watching, bush disguise, 15 s hiding / 3 min seeking, hints
+  after 2 min, the picture puzzle takes time off): tested on desktop - headless rules test
+  (layout + symmetry, yard restored, 6 rowdies, random seeker, seeker frozen + no tag in
+  the hide phase, no attacks, speeds, disguise after 2 s / ends when moving, one swing
+  finds, carry / drop when found / place 4 = 100 s off, first hint at 2:00, end by time
+  (15 + 180 s) and by all found, join/leave), 20 bot-only rounds, screenshots (hide phase,
+  cover, disguised bushes, carrying, frame, hint, found spectator, result; landscape +
+  portrait), LAN host + 2 clients on one machine. Frame on desktop: update 0.5 ms (host),
+  draw 1.4 ms. NOT yet on a device (touch tag, readability of the disguise on a phone,
+  round length with humans).
 - Yardball (2026-10-11, published as build 93): tested on desktop (headless rules test, bot-only
   rounds, autopilot solo round + screenshots landscape/portrait, LAN host + client on one
   machine: same goals and carriers on both sides). NOT yet on a device (kick with the

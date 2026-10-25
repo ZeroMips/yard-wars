@@ -92,6 +92,19 @@ local function decodeSnap(msg)
                 x = h[4], y = h[5], expires = tonumber(h[6]) or 0, progress = tonumber(h[7]) or 0 }
         end
     end
+    local hide -- (Hide and seek)
+    local k = msg.k
+    if type(k) == "table" and tonumber(k[1]) and tonumber(k[3]) and tonumber(k[4]) then
+        hide = { seekerId = tonumber(k[1]), phase = tonumber(k[2]) == 2 and "seek" or "hide",
+            hideUntil = tonumber(k[3]), endAt = tonumber(k[4]), hintUntil = tonumber(k[5]) or 0,
+            placed = tonumber(k[6]) or 0, pieces = {} }
+        for _, p in pairs(type(k[7]) == "table" and k[7] or {}) do
+            if type(p) == "table" and tonumber(p[1]) and tonumber(p[2]) and tonumber(p[3]) then
+                hide.pieces[#hide.pieces + 1] = { id = tonumber(p[1]), x = p[2], y = p[3],
+                    carrier = tonumber(p[4]) ~= 0 and tonumber(p[4]) or nil, placed = tonumber(p[5]) == 1 }
+            end
+        end
+    end
     local m = type(msg.match) == "table" and msg.match or {}
     local place
     if type(m.place) == "table" then
@@ -105,7 +118,7 @@ local function decodeSnap(msg)
         and { tonumber(m.goals[1]) or 0, tonumber(m.goals[2]) or 0 } or nil
     return { t = tonumber(msg.t) or 0, wave = msg.wave, waveSize = msg.waveSize,
         waveTimer = msg.waveTimer, ents = ents, medpacks = packs, boxes = boxes, coins = coins,
-        ball = ball, barriers = walls, zone = zone, beacons = hearts,
+        ball = ball, barriers = walls, zone = zone, beacons = hearts, hide = hide,
         match = { over = m.over == true, timeLeft = tonumber(m.timeLeft),
                   winner = tonumber(m.winner), winnerTeam = tonumber(m.winnerTeam),
                   wave = tonumber(m.wave), goals = goals, place = place,
@@ -249,6 +262,9 @@ local function proxyFor(self, s)
     p.goals = tonumber(s.goals) or 0
     p.rooted = tonumber(s.rooted) or 0
     p.goo = s.goo == true or nil
+    p.disguised = s.disguised == true or nil
+    p.placed = tonumber(s.placed) or 0
+    p.foundAt = tonumber(s.foundAt)
     return p
 end
 
@@ -302,6 +318,13 @@ function Replica:update()
     world.beacons = at.beacons or {}
     world.zone = newest.zone
     if world.zone then world.zone.r = World.zoneRadius(world.zone, remoteT) end
+    -- Hide and seek: as of the remote time; a carried piece sits on its carrier's proxy
+    world.hide = at.hide or newest.hide
+    for _, p in ipairs(world.entities) do p.carryingPiece = nil end
+    for _, piece in ipairs(world.hide and world.hide.pieces or {}) do
+        local c = piece.carrier and world.byId[piece.carrier]
+        if c then piece.x, piece.y, c.carryingPiece = c.x, c.y, piece.id end
+    end
 
     -- Bullets: straight lines from their spawn record
     world.bullets = {}

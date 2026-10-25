@@ -20,7 +20,10 @@ local walls, bushes, crates, solids = {}, {}, {}, {}
 -- wall in the middle (the ball starts there), nothing in front of the goals, cover on
 -- the flanks, an open lane through the middle; "kingdom": King of the Yard - a big map
 -- (cols x rows), objects for the top-left quarter (mirror4: mirrored on both axes, so
--- the four corners where the teams start are equal), an open middle.
+-- the four corners where the teams start are equal), an open middle; "hideout": Hide and
+-- seek - as big as "kingdom" and mirrored the same way, full of bushes, hedge rows
+-- (long bushes), sheds (walls) and crates that break up the long sight lines, the
+-- picture frame in the open middle and one picture piece per quarter.
 local LAYOUTS = {
     yard = {
         walls  = { {x=6, y=4, w=2, h=4}, {x=6, y=16, w=2, h=4}, {x=11, y=10, w=2, h=4} },
@@ -53,6 +56,24 @@ local LAYOUTS = {
         -- others): team 1 top left, 2 bottom right, 3 top right, 4 bottom left
         spots = { {3.5, 3.5}, {5.5, 3.5}, {3.5, 5.5} },
     },
+    hideout = {
+        cols = 60, rows = 40, mirror4 = true,
+        walls  = { {x=6, y=4, w=4, h=2}, {x=4, y=12, w=2, h=4}, {x=13, y=8, w=4, h=4},
+                   {x=20, y=3, w=2, h=4}, {x=22, y=12, w=4, h=2}, {x=10, y=16, w=2, h=2},
+                   {x=26, y=7, w=2, h=2} },
+        bushes = { {x=1, y=1, w=4, h=2}, {x=9, y=1, w=2, h=2}, {x=15, y=2, w=4, h=2},
+                   {x=24, y=1, w=2, h=4}, {x=1, y=7, w=2, h=4}, {x=8, y=8, w=2, h=4},
+                   {x=17, y=13, w=4, h=2}, {x=1, y=16, w=4, h=2}, {x=7, y=13, w=2, h=2},
+                   {x=13, y=17, w=6, h=2}, {x=26, y=10, w=2, h=2}, {x=20, y=8, w=2, h=2},
+                   {x=24, y=16, w=2, h=2}, {x=10, y=11, w=2, h=2} },
+        crates = { {x=11, y=5}, {x=19, y=10}, {x=3, y=5}, {x=16, y=15}, {x=23, y=6},
+                   {x=6, y=17}, {x=27, y=14} },
+        centerWalls = {}, centerBushes = {},
+        -- the picture frame in the middle (w x h tiles, drawn on the ground, not solid)
+        -- and the picture pieces (a tile centre in the top-left quarter, mirrored)
+        frame = { w = 4, h = 3 },
+        piece = { 6.5, 9.5 },
+    },
 }
 
 -- Goals (pitch only): a mouth of GOAL_TILES tiles in the middle of the left and right
@@ -81,8 +102,8 @@ local function mirrored(list, out, mirror4)
     end
 end
 
--- Switch to another layout ("yard", "pitch" or "kingdom"): size, walls, bushes,
--- crates, goals, spawns
+-- Switch to another layout ("yard", "pitch", "kingdom" or "hideout"): size, walls,
+-- bushes, crates, goals, spawns, the Hide and seek frame and pieces
 function Arena.setLayout(name)
     local L = LAYOUTS[name] or LAYOUTS.yard
     Arena.layout = LAYOUTS[name] and name or "yard"
@@ -125,6 +146,16 @@ function Arena.setLayout(name)
             Arena.teamSpawns[team] = list
         end
         Arena.spawn = { x = Arena.teamSpawns[1][1][1], y = Arena.teamSpawns[1][1][2] }
+    end
+
+    -- Hide and seek: Arena.frame = { x, y, w, h } (px), Arena.pieceSpots = 4 x { x, y }
+    Arena.frame, Arena.pieceSpots = nil, nil
+    if L.frame then
+        local fw, fh = L.frame.w * TILE, L.frame.h * TILE
+        Arena.frame = { x = (Arena.width - fw) / 2, y = (Arena.height - fh) / 2, w = fw, h = fh }
+        local px, py = L.piece[1] * TILE, L.piece[2] * TILE
+        Arena.pieceSpots = { { px, py }, { Arena.width - px, py }, { px, Arena.height - py },
+                             { Arena.width - px, Arena.height - py } }
     end
 
     Arena.goals = nil

@@ -68,8 +68,37 @@ local function separation(self, world)
     return sx, sy
 end
 
+local walk -- (below: moves the bot, slides along walls it is stuck on)
+
+-- Hide and seek (World:hidePlan): hide, run, fetch pieces - or seek and swing the tag
+function Enemy:updateHide(dt, world)
+    self:tick(dt)
+    if self.dead then return end
+    if not self:canMove() then
+        if not self.push then self:move(0, 0, dt) end
+        return
+    end
+    local plan = world:hidePlan(self)
+    local mx, my = 0, 0
+    if plan then
+        local px, py = plan.x - self.x, plan.y - self.y
+        local pd = math.sqrt(px * px + py * py)
+        if pd > 6 then mx, my = px / pd, py / pd end
+        self.state = plan.state or "hide"
+        if mx ~= 0 or my ~= 0 then self.aim = math.atan2(my, mx) end
+        if plan.tag then
+            self.aim = plan.tag
+            world:tag(self)
+        end
+    else
+        self.state = "still"
+    end
+    walk(self, mx, my, dt)
+end
+
 -- world: see src/world.lua. The bot goes after an opponent (World:botTarget).
 function Enemy:update(dt, world)
+    if world.hide then return self:updateHide(dt, world) end
     self:tick(dt)
     if self.dead then return end
     if not self:canMove() then -- frozen, pulled or leaping (src/rowdies.lua)
@@ -212,7 +241,12 @@ function Enemy:update(dt, world)
         self.aim = math.atan2(my, mx)
     end
 
-    -- Stuck on a wall? Slide sideways for a moment.
+    walk(self, mx, my, dt)
+end
+
+-- Walk in direction mx, my (unit vector or 0, 0). Stuck on a wall? Slide sideways for
+-- a moment.
+function walk(self, mx, my, dt)
     if self.unstickTimer > 0 then
         self.unstickTimer = self.unstickTimer - dt
         mx, my = -my * self.unstickDir, mx * self.unstickDir

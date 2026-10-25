@@ -16,9 +16,10 @@
 --   host -> client   welcome {id, mode, protocol, content, build}  reliable
 --                    refused {reason}         reliable, then disconnect (other version)
 --                    events {list}            reliable, world events (with world time t)
---                    snap {t, wave, ..., e, y, z, h}  unreliable, SNAPSHOT_EVERY steps
+--                    snap {t, wave, ..., e, y, z, h, k}  unreliable, SNAPSHOT_EVERY steps
 --                                             (y = the Yardball ball, z = the King of the
---                                             Yard fog, h = its heart beacons)
+--                                             Yard fog, h = its heart beacons, k = Hide and
+--                                             seek: seeker, clock, picture pieces)
 local enet     = require("enet")
 local socket   = require("socket")
 local Codec    = require("src.codec")
@@ -44,7 +45,7 @@ local CH_RELIABLE, CH_FAST = 0, 1
 -- list indexes, the client draws with its own stats). Bump PROTOCOL when messages or
 -- Net.FIELDS change; the content id is a hash of src/rowdies.lua's data, so a new or
 -- changed rowdy needs no manual bump. Builds may differ otherwise (git checkout <-> phone).
-Net.PROTOCOL = 11 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
+Net.PROTOCOL = 12 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
                  -- 4: bombs (input dist, bullet lob, blast event)
                  -- 5: boss fight (welcome mode.boss, FIELDS boss)
                  -- 6: Student/Chef/Agent Angel (bullet + blast projectile, turn and
@@ -59,6 +60,9 @@ Net.PROTOCOL = 11 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin
                  --    barriers, cuff/gust/barrier/magnet events, FIELDS rooted + goo)
                  -- 11: King of the Yard (welcome mode.king, snapshot z + h + match.place,
                  --    beacon/revive/beaconGone/fog/teamOut events)
+                 -- 12: Hide and seek (welcome mode.hideseek, snapshot k, FIELDS disguised,
+                 --    placed, foundAt; seek/tag/found/disguise/pieceUp/pieceDrop/piece/
+                 --    picture/hint events)
 
 local function serialize(v, out)
     if type(v) == "table" then
@@ -106,7 +110,7 @@ Net.FIELDS = { "id", "team", "key", "x", "y", "aim", "hp", "ammo", "ammoTimer", 
     "respawnTimer", "walkPhase", "walkBlend", "recoil", "flashTimer", "flashSize",
     "hitFlash", "spawnAnim", "kills", "deaths", "isBot", "charge", "out",
     "skin", "trail", "title", "badge", "boss", "frozen", "air", "burrowed", "beam", "grabbing",
-    "held", "vanished", "goals", "rooted", "goo" }
+    "held", "vanished", "goals", "rooted", "goo", "disguised", "placed", "foundAt" }
 
 local function send(peer, msg, reliable)
     peer:send(Codec.encode(msg), reliable and CH_RELIABLE or CH_FAST,
@@ -210,13 +214,14 @@ local function receive(self, peer, msg)
             local x, y = world:playerSpawn()
             p = world:addPlayer(def, x, y, team, cleanStyle(msg.style))
         end
-        -- pop-in + spawn event (King of the Yard: addTeamPlayer put it where the bot was)
-        if not world.mode.king then p:respawn() end
+        -- pop-in + spawn event (King of the Yard, Hide and seek: addTeamPlayer put it
+        -- where the bot was)
+        if not (world.mode.king or world.mode.hideseek) then p:respawn() end
         c.id, c.fireSeen = p.id, 0
         local v = Net.version()
         send(peer, { type = "welcome", id = p.id, mode = { name = world.mode.name,
             waves = world.mode.waves, teams = world.mode.teams, boss = world.mode.boss,
-            yardball = world.mode.yardball, king = world.mode.king },
+            yardball = world.mode.yardball, king = world.mode.king, hideseek = world.mode.hideseek },
             protocol = v.protocol, content = v.content, build = v.build }, true)
     elseif msg.type == "input" and c.id then
         c.input = msg
@@ -295,6 +300,18 @@ local function beacons(world)
     return list
 end
 
+-- Hide and seek: { seekerId, phase (1 hide, 2 seek), hideUntil, endAt, hintUntil, placed,
+-- pieces = { { id, x, y, carrier or 0, placed and 1 or 0 }, ... } }
+local function hide(world)
+    local h = world.hide
+    if not h then return nil end
+    local pieces = {}
+    for _, p in ipairs(h.pieces) do
+        pieces[#pieces + 1] = { p.id, round(p.x, 10), round(p.y, 10), p.carrier or 0, p.placed and 1 or 0 }
+    end
+    return { h.seekerId, h.phase == "seek" and 2 or 1, h.hideUntil, h.endAt, h.hintUntil, h.placed, pieces }
+end
+
 local function snapshot(world)
     local ents = {}
     for _, e in ipairs(world.entities) do
@@ -314,6 +331,7 @@ local function snapshot(world)
         s[35] = e.vanished ~= nil
         s[37] = round(e.rooted or 0, 100)
         s[38] = e.goo ~= nil
+        s[39] = e.disguised or false
         ents[#ents + 1] = s
     end
     local packs = {}
@@ -332,6 +350,7 @@ local function snapshot(world)
     return { type = "snap", t = world.time, wave = world.wave, waveSize = world.waveSize,
         waveTimer = world.waveTimer, e = ents, m = packs, b = boxes, c = coins,
         w = barriers(world), z = zone(world), h = world.mode.king and beacons(world) or nil,
+        k = hide(world),
         y = ball and { round(ball.x, 10), round(ball.y, 10), ball.carrier or 0,
             round(ball.vx, 10), round(ball.vy, 10), round(world.kickoff or 0, 100) },
         match = { over = m.over, timeLeft = m.timeLeft and round(m.timeLeft, 10),

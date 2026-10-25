@@ -10,6 +10,9 @@
 --   boss  : { kind = "boss", name, hp, maxHp }  (one wide health bar)
 --   king  : { kind = "king", teams = { { name, color, up = rowdies up }, ... },
 --             fogIn = seconds until the fog starts closing (nil: it is), closed = bool }
+--   hide  : { kind = "hide", hiding = seconds of the hide phase left (nil: seeking),
+--             timeLeft, left = hiders not found, hiders = all hiders, placed, pieces,
+--             seeker = bool (this player seeks) }
 local Ball = require("src.ball")
 
 local Scoreboard = {}
@@ -146,6 +149,41 @@ function Scoreboard.draw(info, fonts, cx, y, time)
         end
         label(closing and (info.closed and "the fog is everywhere!" or "fog closing in - last team standing")
             or "last team standing wins", fonts.small, x - 20, y + BOX_H + 3, W + 40)
+    elseif info.kind == "hide" then
+        -- hiders (a head each, grey once found) | the clock | the picture pieces
+        local sideW = 92
+        local mx, midW = x + sideW + 8, W - 2 * sideW - 16
+        box(x, y, sideW, BOX_H, { 0.25, 0.55, 0.25 })
+        label("HIDERS", fonts.small, x, y + 2, sideW)
+        local n = math.max(1, info.hiders)
+        local gap = math.min(16, (sideW - 12) / n)
+        for i = 1, n do
+            local hx = x + sideW / 2 + (i - (n + 1) / 2) * gap
+            love.graphics.setColor(i <= info.left and { 1, 1, 1, 1 } or { 0.2, 0.2, 0.2, 0.6 })
+            love.graphics.circle("fill", hx, y + 25, 5)
+            love.graphics.arc("fill", hx, y + 39, 7, math.pi, math.pi * 2)
+        end
+        local t = info.hiding or info.timeLeft or 0
+        local urgent = not info.hiding and t <= 30
+        box(mx, y, midW, BOX_H, info.hiding and { 0.55, 0.42, 0.1 } or urgent and { 0.75, 0.12, 0.12 }
+            or { 0.15, 0.15, 0.2 })
+        label(info.hiding and "HIDE!" or "TIME", fonts.small, mx, y + 2, midW)
+        label(info.hiding and tostring(math.max(0, math.ceil(t))) or formatTime(t), fonts.big, mx, y + 13, midW)
+        local px = x + W - sideW
+        box(px, y, sideW, BOX_H, { 0.55, 0.33, 0.15 })
+        label("PICTURE", fonts.small, px, y + 2, sideW)
+        for i = 1, info.pieces do -- a little square per piece, gold once placed
+            local sx = px + sideW / 2 + (i - (info.pieces + 1) / 2) * 18 - 7
+            love.graphics.setColor(0, 0, 0, 0.5)
+            love.graphics.rectangle("fill", sx - 1, y + 21, 16, 14, 3, 3)
+            love.graphics.setColor(i <= info.placed and { 1, 0.82, 0.2, 1 } or { 1, 1, 1, 0.2 })
+            love.graphics.rectangle("fill", sx, y + 22, 14, 12, 2, 2)
+        end
+        local text
+        if info.hiding then text = info.seeker and "you seek - counting" or "hide! the seeker counts"
+        elseif info.seeker then text = "find them all before the time is up"
+        else text = "stay hidden - pieces take time off" end
+        label(text, fonts.small, x - 20, y + BOX_H + 3, W + 40)
     else -- waves
         local sideW = 86
         box(x, y, sideW, BOX_H, { 0.15, 0.15, 0.2 })

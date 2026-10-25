@@ -11,12 +11,17 @@ unlock new rowdies.
 
 ## Features
 
-- Fourteen rowdies, each with its own attack and a super attack: Shotgunner, Gunner,
+- Nineteen rowdies, each with its own attack and a super attack: Shotgunner, Gunner,
   Sniper, Robot, Gardener, Pirate, Student, Chef, Agent Angel, Doctor Fizzle, Wrestler,
-  Digger, Ghostman and Wizard (the last eight designed by Gideon)
-- Modes: Duel, Team fight (3 vs 3) and Waves, against bots
-- Play together in the same Wi-Fi: free-for-all, team fight and co-op waves, the host is
-  found automatically
+  Digger, Ghostman, Wizard, Posion, Fruit Man, Officer, Mecha Robot and Tornalo (the
+  last thirteen designed by Gideon)
+- Hide and seek: one seeker, five hiders who turn into bushes when they stand still, and
+  a picture puzzle that makes the round shorter
+- A free Yard Pass with seasons, challenges that never expire and cosmetics to win
+- Modes: Duel, Team fight (3 vs 3), Waves, Yardball, King of the Yard and Hide and seek,
+  against bots
+- Play together in the same Wi-Fi: free-for-all, team fight, co-op waves, Yardball, King
+  of the Yard and Hide and seek, the host is found automatically
 - Touch controls (move stick, aim and release to fire) and keyboard + mouse
 - New rowdies: save up coins (treasure chests, round rewards) and beat the rowdy in a
   boss fight - you can't lose, you pop back in until it's out (alone or with friends)
@@ -34,7 +39,7 @@ A checkout like this never updates itself; only packaged builds do.
 
 Useful options for testing: `--rowdy N` (start with rowdy N), `--coins N` (add coins),
 `--boss N [host]` (boss fight against rowdy N),
-`--host [team|waves]` and `--join <address>` / `--find` (LAN game on one machine: run
+`--host [team|waves|yardball|king|hide]` and `--join <address>` / `--find` (LAN game on one machine: run
 two instances). Playing over the network uses UDP ports 27015 and 27016.
 
 ## Project layout
