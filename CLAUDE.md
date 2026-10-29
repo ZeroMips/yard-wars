@@ -294,7 +294,12 @@ existing things that break it.
   crash.txt). Desktop-tested with `kill -9`.
   `Updater.report()` = header + update.txt + crash.txt + that log: shown by the info
   screen (`src/infoview.lua`: long press 0.6 s on the build line in the lobby, key I;
-  scrolls) and copied (`Updater.mirror()`, at start/check result/confirm/crash/info
+  scrolls; while update.txt lists bad builds a "Try build N again" button / key R =
+  `Updater.retryBad`: clears the bad list, logs "retry asked", runs the update check
+  again - the newest build is downloaded once more and used at the next start; tested on
+  desktop with a local server (bad 107 -> downloaded -> next start runs 107, confirmed).
+  Only there on devices whose running fallback build has it: a device whose hand-installed
+  build is older needs one more hand install) and copied (`Updater.mirror()`, at start/check result/confirm/crash/info
   screen) to `yard-wars-info.txt` in the app's shared folder on Android
   (`.../Android/data/org.love2d.android/files/`, next to games/, readable over USB -
   the save folder is in private storage and is not), desktop only with `--info-dir DIR`.

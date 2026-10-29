@@ -295,7 +295,8 @@ function Updater.boot()
     return true
 end
 
-local setStatus, readCrash
+local setStatus, readCrash, startCheck
+local checkUrl -- where the update check looks (nil: no check on this copy)
 
 -- Start the check in the background (from love.load)
 function Updater.start(args)
@@ -308,15 +309,48 @@ function Updater.start(args)
     Updater.mirror()
     if not own or hasArg("--no-update", args) then return end
     local _, url = hasArg("--update-url", args)
+    checkUrl = url or Updater.URL
+    lastCrash = readCrash()
+    startCheck()
+end
+
+-- The update check in its thread (again after Updater.retryBad)
+function startCheck()
     local bad = {}
     for b in pairs(readState().bad) do bad[#bad + 1] = b end
     channel = love.thread.getChannel("updater")
     channel:clear()
     thread = love.thread.newThread("src/updater_thread.lua")
-    thread:start(url or Updater.URL, own, table.concat(bad, " "), Updater.PUBLIC_KEY)
+    thread:start(checkUrl, Updater.build(), table.concat(bad, " "), Updater.PUBLIC_KEY)
     check = "checking for updates"
-    lastCrash = readCrash()
     setStatus()
+end
+
+-- The newest build marked bad on this device, or nil
+function Updater.badBuild()
+    local newest
+    for b in pairs(readState().bad) do
+        if not newest or b > newest then newest = b end
+    end
+    return newest
+end
+
+-- The player asked to try the bad builds again (info screen): forget them and check
+-- again - the newest build is downloaded once more (its file was deleted when it was
+-- marked bad) and used at the next start. Returns false without an update check here
+-- (git checkout, --no-update) or while one is still running.
+function Updater.retryBad()
+    local st = readState()
+    local list = {}
+    for b in pairs(st.bad) do list[#list + 1] = b end
+    if #list == 0 or not checkUrl or (thread and thread:isRunning()) then return false end
+    table.sort(list)
+    st.bad = {}
+    writeState(st)
+    log("retry asked: build " .. table.concat(list, ", ") .. " may be used again")
+    startCheck()
+    Updater.mirror()
+    return true
 end
 
 -- The lobby's status line: the update check and the running build's last crash
