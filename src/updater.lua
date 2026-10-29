@@ -21,7 +21,13 @@
 -- shows "last crash (build N): ..." while that build or an older one runs.
 --
 -- update-log.txt (last LOG_LINES lines) tells what happened when: every start (which
--- build, update.txt then), check results, confirmations, boot decisions, crashes.
+-- build, update.txt then), check results, confirmations, boot decisions, crashes, the
+-- steps of loading (Updater.step) and the first frame, so a native crash or a freeze
+-- while starting shows the last step reached. While the game runs, alive.txt is
+-- rewritten every HEARTBEAT seconds (time + Updater.where) and removed on a clean quit
+-- (Updater.quit); found at the next start, it is logged as "previous session ended
+-- without quitting" (closed from the app list, killed by the system or a native crash -
+-- a Lua error is in crash.txt).
 -- Updater.report() puts all three files together for the info screen (src/infoview.lua,
 -- long press on the build line in the lobby); on Android the report is also copied to
 -- the app's folder next to games/ (Updater.mirrorPath), which is reachable over USB -
@@ -41,17 +47,21 @@ Updater.PUBLIC_KEY = "9B7BBD3C86C5D362FEEBF58706BA5EA012B91D4DCA074FB91DFA8D2B37
 local STATE_FILE = "update.txt"
 local CRASH_FILE = "crash.txt"
 local LOG_FILE = "update-log.txt"
-local LOG_LINES = 80
+local LOG_LINES = 160 -- (about 5 lines per start)
 local INFO_FILE = "yard-wars-info.txt" -- the copy of the report (Android: next to games/)
 local CONFIRM_AFTER = 3 -- seconds a mounted build has to run before it counts as working
+local ALIVE_FILE = "alive.txt"
+local HEARTBEAT = 30   -- seconds between two alive.txt writes
 
 Updater.status = nil -- short text for the lobby ("up to date", ...)
 Updater.ready = nil  -- build number downloaded and ready to use (restart to switch)
 Updater.mirrorPath = nil  -- where the report copy was written (nil: none)
 Updater.mirrorError = nil -- why it couldn't be written
+Updater.where = nil       -- what the game is doing (main.lua), written to alive.txt
 
 local channel, thread
 local runTime = 0
+local nextBeat = 0
 local confirmed = false
 local check = nil     -- the update check's status ("up to date", ...)
 local lastCrash = nil -- "last crash (build N): ..." from crash.txt, see readCrash()
@@ -113,6 +123,29 @@ local function log(text)
     end)
 end
 Updater.log = log
+
+local function beat()
+    pcall(love.filesystem.write, ALIVE_FILE, os.date("%Y-%m-%d %H:%M:%S") .. " "
+        .. (Updater.where or "starting") .. "\n")
+end
+
+-- First thing in love.load: reports a previous session that never quit cleanly, then
+-- starts the heartbeat
+function Updater.begin()
+    local s = love.filesystem.getInfo(ALIVE_FILE) and love.filesystem.read(ALIVE_FILE)
+    if s then
+        log("previous session ended without quitting (last seen " .. (s:gsub("%s+$", ""))
+            .. ") - closed from the app list, killed by the system or a native crash")
+    end
+    beat()
+    log("load: begin")
+end
+
+-- A step of loading reached ("assets", "sound", ...)
+function Updater.step(text) log("load: " .. text) end
+
+-- From love.quit: the session ended normally
+function Updater.quit() pcall(love.filesystem.remove, ALIVE_FILE) end
 
 local function readFile(name)
     return love.filesystem.getInfo(name) and love.filesystem.read(name) or nil
@@ -306,6 +339,10 @@ end
 -- Every frame: confirms a mounted build after a few seconds, reads the check's progress
 function Updater.update(dt)
     runTime = runTime + dt
+    if runTime >= nextBeat then
+        nextBeat = runTime + HEARTBEAT
+        beat()
+    end
     if YARD_WARS_UPDATE and not confirmed and runTime > CONFIRM_AFTER then
         confirmed = true
         local st = readState()

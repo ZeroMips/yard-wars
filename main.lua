@@ -454,15 +454,19 @@ function betweenRounds()
 end
 
 function love.load(args)
+    Updater.begin() -- (logs the loading steps: a crash while starting shows where)
     love.graphics.setBackgroundColor(0.05, 0.15, 0.08)
     Assets.load()
+    Updater.step("assets")
     Sound.load()
+    Updater.step("sound")
     Profile.load()
     Pass.load()
     Pass.refresh(true)
     Menu.load()
     love.resize()
     openMenu()
+    Updater.step("done")
     -- Testing shortcuts: love . [--rowdy N] [--coins N] --host [team|waves] |
     -- --host yardball | --host king | --host hide |
     -- --boss N [host] (boss fight against rowdy N, fighting with the last used one) |
@@ -906,6 +910,8 @@ local function updateClient()
 end
 
 function love.update(dt)
+    Updater.where = state .. ((state == "game" and world) and (": " .. (world.mode.name or "?")
+        .. (role ~= "local" and (" (" .. tostring(role) .. ")") or "")) or "")
     Updater.update(dt)
     Menu.status = Updater.status
     -- A downloaded update is used right away if nobody is busy in the lobby. Not on
@@ -1713,9 +1719,14 @@ local function drawScreen()
     end
 end
 
+local drawnOnce = false
 function love.draw()
     drawScreen()
     drawMuteButton()
+    if not drawnOnce then
+        drawnOnce = true
+        Updater.step("first frame")
+    end
 end
 
 -- Menus, rowdy choice, join screen, result screen: taps and clicks
@@ -1874,4 +1885,5 @@ end
 function love.quit()
     if server then server:close() end
     if client then client:close() end
+    Updater.quit()
 end

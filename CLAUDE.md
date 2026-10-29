@@ -282,9 +282,16 @@ existing things that break it.
   wraps LÖVE 11.5's default `love.errhand` - `love.errorhandler` is nil there); the lobby's
   status line shows "last crash (build N): ..." while that build or an older one runs.
   These boot() rules only apply on devices whose hand-installed build has them.
-  `update-log.txt` (save folder, last 80 lines): every start (installed build or
-  downloaded update + update.txt then), check results, "confirmed", crashes and (only
-  where the hand-installed build has it, from build 85 on) boot's decisions.
+  `update-log.txt` (save folder, last 160 lines): every start (installed build or
+  downloaded update + update.txt then), check results, "confirmed", crashes, (only
+  where the hand-installed build has it, from build 85 on) boot's decisions, and since
+  build 106 the loading steps (`Updater.begin`/`Updater.step`: "load: begin / assets /
+  sound / done / first frame" - a native crash or freeze while starting shows the last
+  step) and a heartbeat: `alive.txt` (save folder) rewritten every 30 s with the time +
+  `Updater.where` (main.lua: state, mode, role), removed in `love.quit` (`Updater.quit`);
+  still there at the next start = "previous session ended without quitting (last seen
+  ...)" (closed from the app list, killed by Android or a native crash; Lua errors are in
+  crash.txt). Desktop-tested with `kill -9`.
   `Updater.report()` = header + update.txt + crash.txt + that log: shown by the info
   screen (`src/infoview.lua`: long press 0.6 s on the build line in the lobby, key I;
   scrolls) and copied (`Updater.mirror()`, at start/check result/confirm/crash/info
@@ -739,6 +746,14 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   crash/boot log from the first line.
 - Android: no instant restart after a download (moto g67, 2026-10-08); the update is
   used at the next start.
+- moto g67 crash 2026-10-29: the info file showed build 105 (downloaded, the phone's
+  hand-installed base was still 71) with a start at 19:23:33 that logged nothing more (no
+  check result, no confirm, no crash.txt): native crash, freeze or closed within ~1 s;
+  the start before (19:13) was normal. 71's boot would have marked 105 bad at the next
+  start, so build 105 was installed by hand the same day (the published .love, sha256
+  checked, all 84 files compared on the phone by sha256, conf.lua with identity
+  `brawl-clone` kept). Cause unknown - build 106 adds the loading steps + heartbeat to
+  the log for the next time; ask Gideon what the screen showed.
 
 ## Yard Pass status (2026-10-05, published as build 57)
 - Free season pass, phases 1-3 of the plan: XP/tiers/challenges/pass screen, cosmetics
