@@ -16,10 +16,11 @@
 --   host -> client   welcome {id, mode, protocol, content, build}  reliable
 --                    refused {reason}         reliable, then disconnect (other version)
 --                    events {list}            reliable, world events (with world time t)
---                    snap {t, wave, ..., e, y, z, h, k}  unreliable, SNAPSHOT_EVERY steps
---                                             (y = the Yardball ball, z = the King of the
---                                             Yard fog, h = its heart beacons, k = Hide and
---                                             seek: seeker, clock, picture pieces)
+--                    snap {t, wave, ..., e, y, z, h, k, f}  unreliable, SNAPSHOT_EVERY
+--                                             steps (y = the Yardball ball, z = the King of
+--                                             the Yard fog, h = its heart beacons, k = Hide
+--                                             and seek: seeker, clock, picture pieces, f =
+--                                             Flower Gardens: clock, fences, flowers)
 local enet     = require("enet")
 local socket   = require("socket")
 local Codec    = require("src.codec")
@@ -45,7 +46,7 @@ local CH_RELIABLE, CH_FAST = 0, 1
 -- list indexes, the client draws with its own stats). Bump PROTOCOL when messages or
 -- Net.FIELDS change; the content id is a hash of src/rowdies.lua's data, so a new or
 -- changed rowdy needs no manual bump. Builds may differ otherwise (git checkout <-> phone).
-Net.PROTOCOL = 12 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
+Net.PROTOCOL = 13 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
                  -- 4: bombs (input dist, bullet lob, blast event)
                  -- 5: boss fight (welcome mode.boss, FIELDS boss)
                  -- 6: Student/Chef/Agent Angel (bullet + blast projectile, turn and
@@ -63,6 +64,9 @@ Net.PROTOCOL = 12 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin
                  -- 12: Hide and seek (welcome mode.hideseek, snapshot k, FIELDS disguised,
                  --    placed, foundAt; seek/tag/found/disguise/pieceUp/pieceDrop/piece/
                  --    picture/hint events)
+                 -- 13: Flower Gardens (welcome mode.flowers, snapshot f, FIELDS
+                 --    carryingFlower, driving, delivered; flower/flowerUp/flowerDrop/
+                 --    deliver/dozer/dozerGone/fenceDown events)
 
 local function serialize(v, out)
     if type(v) == "table" then
@@ -110,7 +114,8 @@ Net.FIELDS = { "id", "team", "key", "x", "y", "aim", "hp", "ammo", "ammoTimer", 
     "respawnTimer", "walkPhase", "walkBlend", "recoil", "flashTimer", "flashSize",
     "hitFlash", "spawnAnim", "kills", "deaths", "isBot", "charge", "out",
     "skin", "trail", "title", "badge", "boss", "frozen", "air", "burrowed", "beam", "grabbing",
-    "held", "vanished", "goals", "rooted", "goo", "disguised", "placed", "foundAt" }
+    "held", "vanished", "goals", "rooted", "goo", "disguised", "placed", "foundAt",
+    "carryingFlower", "driving", "delivered" }
 
 local function send(peer, msg, reliable)
     peer:send(Codec.encode(msg), reliable and CH_RELIABLE or CH_FAST,
@@ -214,14 +219,15 @@ local function receive(self, peer, msg)
             local x, y = world:playerSpawn()
             p = world:addPlayer(def, x, y, team, cleanStyle(msg.style))
         end
-        -- pop-in + spawn event (King of the Yard, Hide and seek: addTeamPlayer put it
-        -- where the bot was)
-        if not (world.mode.king or world.mode.hideseek) then p:respawn() end
+        -- pop-in + spawn event (King of the Yard, Hide and seek, Flower Gardens:
+        -- addTeamPlayer put it where the bot was)
+        if not (world.mode.king or world.mode.hideseek or world.mode.flowers) then p:respawn() end
         c.id, c.fireSeen = p.id, 0
         local v = Net.version()
         send(peer, { type = "welcome", id = p.id, mode = { name = world.mode.name,
             waves = world.mode.waves, teams = world.mode.teams, boss = world.mode.boss,
-            yardball = world.mode.yardball, king = world.mode.king, hideseek = world.mode.hideseek },
+            yardball = world.mode.yardball, king = world.mode.king, hideseek = world.mode.hideseek,
+            flowers = world.mode.flowers },
             protocol = v.protocol, content = v.content, build = v.build }, true)
     elseif msg.type == "input" and c.id then
         c.input = msg
@@ -312,6 +318,23 @@ local function hide(world)
     return { h.seekerId, h.phase == "seek" and 2 or 1, h.hideUntil, h.endAt, h.hintUntil, h.placed, pieces }
 end
 
+-- Flower Gardens: { endAt, fences { 1/0 x 4 }, teams { count, delivered x 4 },
+-- flowers = { { id, x, y, carrier or 0, kind }, ... } }
+local function flowers(world)
+    local fg = world.flowerGame
+    if not fg then return nil end
+    local fences, teams, list = {}, {}, {}
+    for t = 1, #fg.fences do
+        fences[t] = fg.fences[t] and 1 or 0
+        teams[#teams + 1] = fg.teams[t].count
+        teams[#teams + 1] = fg.teams[t].delivered
+    end
+    for _, f in ipairs(fg.flowers) do
+        list[#list + 1] = { f.id, round(f.x, 10), round(f.y, 10), f.carrier or 0, f.kind }
+    end
+    return { fg.endAt, fences, teams, list }
+end
+
 local function snapshot(world)
     local ents = {}
     for _, e in ipairs(world.entities) do
@@ -332,6 +355,7 @@ local function snapshot(world)
         s[37] = round(e.rooted or 0, 100)
         s[38] = e.goo ~= nil
         s[39] = e.disguised or false
+        s[43] = e.driving and e.driving.expires or false
         ents[#ents + 1] = s
     end
     local packs = {}
@@ -350,7 +374,7 @@ local function snapshot(world)
     return { type = "snap", t = world.time, wave = world.wave, waveSize = world.waveSize,
         waveTimer = world.waveTimer, e = ents, m = packs, b = boxes, c = coins,
         w = barriers(world), z = zone(world), h = world.mode.king and beacons(world) or nil,
-        k = hide(world),
+        k = hide(world), f = flowers(world),
         y = ball and { round(ball.x, 10), round(ball.y, 10), ball.carrier or 0,
             round(ball.vx, 10), round(ball.vy, 10), round(world.kickoff or 0, 100) },
         match = { over = m.over, timeLeft = m.timeLeft and round(m.timeLeft, 10),

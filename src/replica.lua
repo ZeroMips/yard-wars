@@ -105,6 +105,22 @@ local function decodeSnap(msg)
             end
         end
     end
+    local flowerGame -- (Flower Gardens)
+    local f = msg.f
+    if type(f) == "table" and tonumber(f[1]) and type(f[2]) == "table" and type(f[3]) == "table" then
+        flowerGame = { endAt = tonumber(f[1]), fences = {}, teams = {}, flowers = {} }
+        for t = 1, World.KING_TEAMS do
+            flowerGame.fences[t] = tonumber(f[2][t]) == 1
+            flowerGame.teams[t] = { count = tonumber(f[3][2 * t - 1]) or 0,
+                delivered = tonumber(f[3][2 * t]) or 0 }
+        end
+        for _, x in pairs(type(f[4]) == "table" and f[4] or {}) do
+            if type(x) == "table" and tonumber(x[1]) and tonumber(x[2]) and tonumber(x[3]) then
+                flowerGame.flowers[#flowerGame.flowers + 1] = { id = tonumber(x[1]), x = x[2], y = x[3],
+                    carrier = tonumber(x[4]) ~= 0 and tonumber(x[4]) or nil, kind = tonumber(x[5]) or 1 }
+            end
+        end
+    end
     local m = type(msg.match) == "table" and msg.match or {}
     local place
     if type(m.place) == "table" then
@@ -118,7 +134,7 @@ local function decodeSnap(msg)
         and { tonumber(m.goals[1]) or 0, tonumber(m.goals[2]) or 0 } or nil
     return { t = tonumber(msg.t) or 0, wave = msg.wave, waveSize = msg.waveSize,
         waveTimer = msg.waveTimer, ents = ents, medpacks = packs, boxes = boxes, coins = coins,
-        ball = ball, barriers = walls, zone = zone, beacons = hearts, hide = hide,
+        ball = ball, barriers = walls, zone = zone, beacons = hearts, hide = hide, flowerGame = flowerGame,
         match = { over = m.over == true, timeLeft = tonumber(m.timeLeft),
                   winner = tonumber(m.winner), winnerTeam = tonumber(m.winnerTeam),
                   wave = tonumber(m.wave), goals = goals, place = place,
@@ -265,6 +281,9 @@ local function proxyFor(self, s)
     p.disguised = s.disguised == true or nil
     p.placed = tonumber(s.placed) or 0
     p.foundAt = tonumber(s.foundAt)
+    p.carryingFlower = tonumber(s.carryingFlower)
+    p.driving = tonumber(s.driving) and { expires = tonumber(s.driving) } or nil
+    p.delivered = tonumber(s.delivered) or 0
     return p
 end
 
@@ -324,6 +343,12 @@ function Replica:update()
     for _, piece in ipairs(world.hide and world.hide.pieces or {}) do
         local c = piece.carrier and world.byId[piece.carrier]
         if c then piece.x, piece.y, c.carryingPiece = c.x, c.y, piece.id end
+    end
+    -- Flower Gardens: as of the remote time; a carried flower sits on its carrier's proxy
+    world.flowerGame = at.flowerGame or newest.flowerGame
+    for _, f in ipairs(world.flowerGame and world.flowerGame.flowers or {}) do
+        local c = f.carrier and world.byId[f.carrier]
+        if c then f.x, f.y = c.x, c.y end
     end
 
     -- Bullets: straight lines from their spawn record

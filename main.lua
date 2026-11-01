@@ -38,6 +38,7 @@ local Ball     = require("src.ball")
 local Barrier  = require("src.barrier")
 local King     = require("src.king")
 local HideSeek = require("src.hideseek")
+local Flowers  = require("src.flowers")
 
 -- Game modes (round rules: see World.KILL_TARGET / TIME_LIMIT / LIVES).
 --   waves = false: duel - the bots respawn; first to 10 kills or most kills after
@@ -55,6 +56,10 @@ local HideSeek = require("src.hideseek")
 --                  last team standing wins (LAN: the host's team fills up first)
 --   hideseek     : Hide and seek - 1 seeker (random each round) and 5 hiders on a big
 --                  map; hiders turn into bushes and fix the picture, the seeker tags them
+--   flowers      : Flower Gardens - 4 teams of 3, each with a fenced garden in a corner;
+--                  flowers carried home from the middle, every 5 a bulldozer that knocks
+--                  down another team's fence (no fence: no popping back in); last team
+--                  standing or the most flowers after 4 minutes (LAN: as King of the Yard)
 local MODES = {
     duel  = { name = "Duel",  waves = false },
     team  = { name = "Team fight", waves = false, teams = true },
@@ -62,6 +67,7 @@ local MODES = {
     yardball = { name = "Yardball", waves = false, teams = true, yardball = true },
     king = { name = "King of the Yard", waves = false, teams = true, king = true },
     hide = { name = "Hide and seek", waves = false, teams = true, hideseek = true },
+    flowers = { name = "Flower Gardens", waves = false, teams = true, flowers = true },
 }
 
 -- Modes on the start screen (src/menu.lua): solo first, then the LAN ones.
@@ -79,6 +85,8 @@ Menu.entries = {
       icon = "crown", mode = MODES.king },
     { id = "hide", name = "Hide and seek", description = "1 seeker, 5 hiders - turn into a bush or find them all",
       icon = "hide", mode = MODES.hide },
+    { id = "flowers", name = "Flower Gardens", description = "4 teams of 3 - bring flowers home, bulldoze fences",
+      icon = "flower", mode = MODES.flowers },
     { id = "hostDuel", name = "Host duel", description = "Free-for-all - everybody against everybody",
       icon = "duel", mode = MODES.duel, host = true, lan = true },
     { id = "hostTeam", name = "Host team fight", description = "Play together - 3 vs 3 with bots",
@@ -91,6 +99,8 @@ Menu.entries = {
       icon = "crown", mode = MODES.king, host = true, lan = true },
     { id = "hostHide", name = "Host hide and seek", description = "Hide and seek together - up to 6 players",
       icon = "hide", mode = MODES.hide, host = true, lan = true },
+    { id = "hostFlowers", name = "Host Flower Gardens", description = "Teams of 3 by joining order",
+      icon = "flower", mode = MODES.flowers, host = true, lan = true },
     { id = "join", name = "Join", description = "Play in a game hosted in your Wi-Fi",
       icon = "join", join = true, lan = true },
 }
@@ -100,7 +110,8 @@ local MUTE_SIZE = 44 -- touch mute button in the top right corner (HUD units)
 local OPPONENT_COLOR = { 1, 0.5, 0.15 } -- health bar of other players
 local TEAMMATE_COLOR = { 0.3, 0.6, 1 }
 local ENEMY_TEAM_COLOR = { 1, 0.3, 0.25 } -- team fight: enemies (bots and players)
--- King of the Yard: the own team blue, the other three in this order (by team id)
+-- King of the Yard, Flower Gardens: the own team blue, the other three in this order (by
+-- team id)
 local KING_COLORS = { { 1, 0.3, 0.25 }, { 0.3, 0.85, 0.35 }, { 1, 0.85, 0.2 } }
 local KING_NAMES  = { "red", "green", "yellow" }
 
@@ -134,6 +145,7 @@ local roundReward    -- coins for the finished round: { outcome, coins } (result
 local roundXp        -- Yard Pass XP of the finished round (Pass.onRoundOver + shownAt)
 local roundUnlock    -- boss fight won: what it unlocked (Unlock.won's message)
 local tierUpSoundAt  -- love.timer time to play "tierUp" (when the result's XP bar is full)
+local dozerSound = 0 -- seconds until the next putt of the nearest bulldozer (Flower Gardens)
 
 -- HUD is laid out for a 720px screen (short side) and scaled on bigger/denser screens
 local function uiScale() return math.min(love.graphics.getDimensions()) / 720 end
@@ -145,6 +157,7 @@ local function resetGame()
     Controls.reset()
     Scoreboard.clear()
     Ball.reset()
+    Flowers.reset()
     watch = {}
     roundCoins, roundReward, roundXp, tierUpSoundAt, roundUnlock = 0, nil, nil, nil, nil
     Pass.roundStart()
@@ -468,7 +481,7 @@ function love.load(args)
     openMenu()
     Updater.step("done")
     -- Testing shortcuts: love . [--rowdy N] [--coins N] --host [team|waves] |
-    -- --host yardball | --host king | --host hide |
+    -- --host yardball | --host king | --host hide | --host flowers |
     -- --boss N [host] (boss fight against rowdy N, fighting with the last used one) |
     -- --join <address> | --find   (--coins adds to the saved coins)
     for i, a in ipairs(args or {}) do
@@ -481,7 +494,7 @@ function love.load(args)
             startBoss(args[i + 2] == "host")
         end
         if a == "--host" then
-            newGame(MODES[args[i + 1]] or MODES.duel, true) -- duel / team / waves / yardball / king / hide
+            newGame(MODES[args[i + 1]] or MODES.duel, true) -- duel / team / waves / yardball / king / hide / flowers
         elseif a == "--join" and args[i + 1] then
             Join.address = args[i + 1]
             joinGame()
@@ -509,11 +522,14 @@ end
 
 local function hidden(e) return world:isHiddenFrom(e, player) end
 
+-- Four teams (King of the Yard, Flower Gardens)?
+local function fourTeams() return world.mode.king or world.mode.flowers end
+
 -- Colour and name of a team as this device's player sees it: own team blue ("your
--- team"); King of the Yard: the others red, green, yellow; else enemies red
+-- team"); four teams: the others red, green, yellow; else enemies red
 local function teamColor(team)
     if player and team == player.team then return TEAMMATE_COLOR end
-    if not world.mode.king then return ENEMY_TEAM_COLOR end
+    if not fourTeams() then return ENEMY_TEAM_COLOR end
     local n = 0
     for t = 1, World.KING_TEAMS do
         if t ~= (player and player.team) then n = n + 1 end
@@ -532,10 +548,10 @@ local function teamName(team)
     return "team " .. tostring(team)
 end
 
--- Where the camera looks: the own rowdy; King of the Yard / Hide and seek while out: a
--- team mate who is up (else anybody up)
+-- Where the camera looks: the own rowdy; King of the Yard / Hide and seek / Flower Gardens
+-- while out: a team mate who is up (else anybody up)
 local function focus()
-    if not (player.out and (world.mode.king or world.mode.hideseek)) then return player end
+    if not (player.out and (world.mode.king or world.mode.hideseek or world.mode.flowers)) then return player end
     local any
     for _, e in ipairs(world.entities) do
         if not e.dead then
@@ -820,6 +836,55 @@ local function playEvents(events)
             elseif player and not player.out then
                 Scoreboard.flash("You shimmer - the seeker can see you!", { 1, 0.95, 0.6 })
             end
+        elseif ev.kind == "flower" then -- Flower Gardens: one grew
+            Effects.ring(ev.x, ev.y, 30, { 1, 0.75, 0.85 })
+        elseif ev.kind == "flowerUp" then
+            Effects.ring(ev.x, ev.y, 34, { 1, 0.75, 0.85 })
+            Sound.play("flower", ev.x, ev.y, ev.id == localId and 1 or 0.6)
+        elseif ev.kind == "flowerDrop" then
+            Effects.puff(ev.x, ev.y)
+        elseif ev.kind == "deliver" then
+            Effects.sparks(ev.x, ev.y, 10, { 1, 0.75, 0.85 }, 180)
+            Effects.ring(ev.x, ev.y, 50, GOLD)
+            local own = player and ev.team == player.team
+            Sound.play("deliver", ev.x, ev.y, own and 1 or 0.6)
+            local n = tonumber(ev.n) or 0
+            if ev.id == localId and n > 0 then
+                Scoreboard.flash("Flower home! " .. n .. " of " .. World.DOZER_FLOWERS .. " for a bulldozer", { 1, 0.75, 0.85 })
+            end
+        elseif ev.kind == "dozer" then
+            Effects.ring(ev.x, ev.y, 70, { 1, 0.8, 0.1 })
+            Effects.sparks(ev.x, ev.y, 14, GOLD, 220)
+            Sound.play("dozerStart", ev.x, ev.y)
+            if ev.id == localId then
+                Scoreboard.flash("You get the bulldozer!", GOLD)
+            elseif player and ev.team == player.team then
+                Scoreboard.flash("Your team has a bulldozer!", GOLD)
+            elseif player then
+                local c = teamColor(ev.team)
+                Scoreboard.flash(teamName(ev.team):gsub("^%l", string.upper) .. " has a bulldozer!", { c[1], c[2], c[3] })
+            end
+        elseif ev.kind == "dozerGone" then
+            Effects.poof(ev.x, ev.y)
+            if ev.id == localId then Scoreboard.flash("Your bulldozer rolled away", { 1, 0.82, 0.4 }) end
+        elseif ev.kind == "fenceDown" then -- planks fly
+            Effects.burst(ev.x, ev.y, { 0.97, 0.96, 0.9 }, 14)
+            Effects.clods(ev.x, ev.y, 12, 70, { 0.6, 0.42, 0.25 })
+            Effects.ring(ev.x, ev.y, 90, { 1, 0.85, 0.3 })
+            if player then
+                local d = math.sqrt((player.x - ev.x) ^ 2 + (player.y - ev.y) ^ 2)
+                if d < 500 then Camera.shake(6 * (1 - d / 500)) end
+            end
+            Sound.play("fence", ev.x, ev.y)
+            Sound.play("fence", nil, nil, 0.35) -- (everybody hears that one)
+            if player and ev.team == player.team then
+                Scoreboard.flash("Your fence is down!", { 1, 0.45, 0.45 })
+            elseif player then
+                local c = teamColor(ev.team)
+                local name = teamName(ev.team)
+                Scoreboard.flash(ev.by == localId and ("You knocked down " .. name .. "'s fence!")
+                    or (name:gsub("^%l", string.upper) .. "'s fence is down"), { c[1], c[2], c[3] })
+            end
         elseif ev.kind == "matchStart" then
             roundCoins, roundReward, roundXp, tierUpSoundAt, roundUnlock = 0, nil, nil, nil, nil
             Pass.roundStart()
@@ -857,7 +922,8 @@ local function readInput()
         input = { dx = 0, dy = 0 }
         return
     end
-    Controls.hasSuper = player.super ~= nil and not world.mode.hideseek -- (no supers there)
+    Controls.hasSuper = player.super ~= nil and not world.mode.hideseek -- (no supers there,
+        and not player.driving                                          -- nor in a bulldozer)
     Controls.superCharge = player.charge or 0
     local target = world:nearestOpponent(player, true)
     -- Yardball: carrying, the attack kicks (a tap: at the middle of the opponents' goal)
@@ -956,6 +1022,18 @@ function love.update(dt)
 
     Effects.update(dt)
     Scoreboard.update(dt)
+    if world and world.flowerGame and player then -- the nearest bulldozer's engine
+        dozerSound = dozerSound - dt
+        if dozerSound <= 0 then
+            dozerSound = 0.3
+            local best, bestD2
+            for _, e in ipairs(world.entities) do
+                local d2 = (e.x - player.x) ^ 2 + (e.y - player.y) ^ 2
+                if e.driving and not e.dead and (not bestD2 or d2 < bestD2) then best, bestD2 = e, d2 end
+            end
+            if best then Sound.play("dozer", best.x, best.y, best.id == localId and 0.7 or 0.9) end
+        end
+    end
     if player and world then watchMatch() end
     if player then
         local f = focus()
@@ -1007,6 +1085,7 @@ local function drawMinimap(screenW)
         love.graphics.rectangle("fill", x0 + b.x * s - 3.5, y0 + b.y * s - 3.5, 7, 7)
     end
     if world.mode.king then King.drawMinimap(world, x0, y0, s, mw, mh, uiScale(), teamColor) end
+    if world.flowerGame then Flowers.drawMinimap(world, x0, y0, s, teamColor) end
     if world.hide then HideSeek.drawMinimap(world.hide, x0, y0, s) end
     -- (Hide and seek: the seeker's minimap never shows the hiders, except a shimmering hint)
     local hiders = world.hide and player.team ~= World.TEAM_HIDERS
@@ -1018,7 +1097,7 @@ local function drawMinimap(screenW)
                 love.graphics.circle("fill", x0 + e.x * s, y0 + e.y * s, 4.5)
             end
         elseif e ~= player and not e.dead and not hidden(e) then
-            if world.mode.king then love.graphics.setColor(teamColor(e.team))
+            if fourTeams() then love.graphics.setColor(teamColor(e.team))
             elseif world:isOpponent(e, player) then love.graphics.setColor(0.95, 0.25, 0.25, 1)
             else love.graphics.setColor(TEAMMATE_COLOR) end
             love.graphics.circle("fill", x0 + e.x * s, y0 + e.y * s, 3.5)
@@ -1069,9 +1148,11 @@ end
 -- "1 knockout", "3 knockouts"
 local function count(n, word) return n .. " " .. word .. (n == 1 and "" or "s") end
 
--- A scoreboard line's numbers: "3 knockouts   out 1 time" (Yardball: goals first)
+-- A scoreboard line's numbers: "3 knockouts   out 1 time" (Yardball: goals first, Flower
+-- Gardens: flowers brought home first)
 local function score(e)
     local goals = world.mode.yardball and (count(e.goals or 0, "goal") .. "   ") or ""
+    if world.mode.flowers then goals = count(e.delivered or 0, "flower") .. "   " end
     return goals .. count(e.kills, "knockout") .. "   out " .. count(e.deaths, "time")
 end
 
@@ -1157,7 +1238,8 @@ local function resultInfo()
                 Cosmetics.get(e.badge, "badge") and e.badge }
         end
         info.lines = lines
-        if world.mode.king then -- teams by place: the own one rowdy by rowdy, the others
+        local fg = world.flowerGame
+        if fourTeams() then -- teams by place: the own one rowdy by rowdy, the others
             local place = m.place or {}  -- in one line each (12 lines wouldn't fit)
             local nth = { "1st", "2nd", "3rd", "4th" }
             local teams = {}
@@ -1187,13 +1269,38 @@ local function resultInfo()
                         end
                     end
                     local name = teamName(t)
+                    local what = count(kills, "knockout")
+                    if fg then -- (Flower Gardens: the flowers and the fence)
+                        what = count(fg.teams[t].delivered, "flower") .. (fg.fences[t] and "" or ", fence down")
+                    end
                     lines[#lines + 1] = { string.format("[%s, %s]  %s   (%s)", name:sub(1, 1):upper() .. name:sub(2),
-                        where, count(kills, "knockout"), table.concat(names, ", ")), false }
+                        where, what, table.concat(names, ", ")), false }
                 end
             end
             info.lines = lines
         end
-        if world.mode.king and m.winnerTeam ~= player.team then
+        if fg then -- Flower Gardens: by place; the time is up = the most flowers won
+            local own = m.place and m.place[player.team]
+            local nth = { "1st", "2nd", "3rd", "4th" }
+            local timeUp = m.timeLeft and m.timeLeft <= 0
+            local function flowersOf(t) return fg.teams[t] and fg.teams[t].delivered or 0 end
+            if not m.winnerTeam then
+                local most = 0
+                for t = 1, World.KING_TEAMS do most = math.max(most, flowersOf(t)) end
+                info.title, info.color = "Draw", { 1, 1, 1 }
+                info.subtitle = "Time is up - the best teams brought " .. count(most, "flower") .. " home each"
+            elseif m.winnerTeam == player.team then
+                info.title, info.color = "Victory!", { 1, 0.82, 0.1 }
+                info.subtitle = timeUp and ("Time is up - your team brought the most flowers home ("
+                    .. flowersOf(player.team) .. ")") or "Your team is the last team standing!"
+            else
+                info.title, info.color = (nth[own] or "?") .. " place", own == 2 and { 0.8, 0.85, 0.95 } or { 1, 0.55, 0.3 }
+                local winner = teamName(m.winnerTeam):gsub("^%l", string.upper)
+                info.subtitle = "Your team came " .. (nth[own] or "?") .. " of " .. World.KING_TEAMS .. "   -   "
+                    .. winner .. (timeUp and (" brought the most flowers home (" .. flowersOf(m.winnerTeam) .. ")")
+                    or " is the last team standing")
+            end
+        elseif world.mode.king and m.winnerTeam ~= player.team then
             local own = m.place and m.place[player.team]
             local nth = { "1st", "2nd", "3rd", "4th" }
             if not m.winnerTeam then
@@ -1213,7 +1320,7 @@ local function resultInfo()
         else
             info.title, info.color = "Defeat", { 1, 0.35, 0.3 }
         end
-        if world.mode.king then -- (subtitle: above)
+        if fourTeams() then -- (subtitle: above)
         elseif world.mode.yardball then -- (always a winner: no time limit)
             local g = m.goals or { 0, 0 }
             local own = g[player.team] or 0
@@ -1321,6 +1428,24 @@ local function scoreboardInfo()
                  left = left, hiders = all, placed = h.placed or 0, pieces = #h.pieces,
                  seeker = h.seekerId == localId }
     end
+    local fg = world.flowerGame
+    if fg then -- Flower Gardens: the teams (own first) with their flowers and fences, the clock
+        local up = {}
+        for _, e in ipairs(world.entities) do
+            if not e.out then up[e.team] = true end
+        end
+        local function entry(t, name, color)
+            local tm = fg.teams[t] or { count = 0, delivered = 0 }
+            return { name = name, color = color, delivered = tm.delivered, count = tm.count,
+                     fence = fg.fences[t], out = not up[t] }
+        end
+        local teams = { entry(player.team, "YOURS", TEAMMATE_COLOR) }
+        for t = 1, World.KING_TEAMS do
+            if t ~= player.team then teams[#teams + 1] = entry(t, teamName(t):sub(6):upper(), teamColor(t)) end
+        end
+        return { kind = "flowers", teams = teams, timeLeft = math.max(0, (fg.endAt or 0) - world.time),
+                 need = World.DOZER_FLOWERS }
+    end
     if world.mode.king then -- the teams (own first) and the fog
         local up = {}
         for _, e in ipairs(world.entities) do
@@ -1388,6 +1513,32 @@ function watchMatch()
         now.time = not info.hiding and info.timeLeft or nil
         for _, mark in ipairs({ { 60, "1 minute left" }, { 30, "30 seconds left!" }, { 10, "10 seconds!" } }) do
             if watch.time and now.time and watch.time > mark[1] and now.time <= mark[1] then
+                Scoreboard.flash(mark[2], mark[1] <= 30 and { 1, 0.45, 0.45 } or nil)
+            end
+        end
+    elseif world.flowerGame then -- Flower Gardens: teams out, the last two, time marks
+        now.left, now.out = 0, {}
+        for t = 1, World.KING_TEAMS do
+            now.out[t] = not world:teamUp(t)
+            if not now.out[t] then now.left = now.left + 1 end
+        end
+        if watch.out then
+            for t = 1, World.KING_TEAMS do
+                if now.out[t] and not watch.out[t] and now.left >= 1 then
+                    if t == player.team then Scoreboard.flash("Your team is out", { 1, 0.45, 0.45 })
+                    else
+                        local c = teamColor(t)
+                        Scoreboard.flash(teamName(t):gsub("^%l", string.upper) .. " is out", { c[1], c[2], c[3] })
+                    end
+                end
+            end
+            if now.left == 2 and watch.left > 2 and not now.out[player.team] then
+                Scoreboard.flash("Last two teams!", { 1, 0.82, 0.1 })
+            end
+        end
+        now.time = math.max(0, (world.flowerGame.endAt or 0) - world.time)
+        for _, mark in ipairs({ { 60, "1 minute left" }, { 30, "30 seconds left!" }, { 10, "10 seconds!" } }) do
+            if watch.time and watch.time > mark[1] and now.time <= mark[1] then
                 Scoreboard.flash(mark[2], mark[1] <= 30 and { 1, 0.45, 0.45 } or nil)
             end
         end
@@ -1519,6 +1670,25 @@ local function drawHud()
             text = "Stand still to turn into a bush - or bring a picture piece to the frame"
         end
         if text then love.graphics.printf(text, 0, y, sw, "center") end
+    elseif world.flowerGame then -- Flower Gardens
+        local fg = world.flowerGame
+        local text
+        if player.out then
+            text = world:teamUp(player.team) and "You're out - your fence is down. Watching your team"
+                or "Your team is out - watching the others"
+        elseif player.dead then
+            text = string.format("You're out - back in your garden in %.1f", math.max(0, player.respawnTimer))
+        elseif player.driving then
+            text = string.format("You drive the bulldozer - knock down a fence! (%d)",
+                math.max(0, math.ceil((player.driving.expires or world.time) - world.time)))
+        elseif player.carryingFlower then
+            text = "Bring the flower home to your garden!"
+        elseif not fg.fences[player.team] then
+            text = "Your fence is down - no more respawns"
+        elseif (fg.endAt or 0) - world.time > World.FLOWER_TIME - 12 then
+            text = "Pick flowers in the middle and bring them home - " .. World.DOZER_FLOWERS .. " = a bulldozer"
+        end
+        if text then love.graphics.printf(text, 0, y, sw, "center") end
     elseif player.out and world.mode.king then
         local heart
         for _, h in ipairs(world.beacons or {}) do
@@ -1569,7 +1739,7 @@ local function drawGame()
         elseif e.boss or e.isBot then e.hudColor = BOT_COLOR -- its rowdy's own bar may be green
         else e.hudColor = OPPONENT_COLOR end
         e.teamColor = world.mode.teams and (ally and TEAMMATE_COLOR or ENEMY_TEAM_COLOR) or nil
-        if world.mode.king and e ~= player then e.hudColor, e.teamColor = teamColor(e.team), teamColor(e.team) end
+        if fourTeams() and e ~= player then e.hudColor, e.teamColor = teamColor(e.team), teamColor(e.team) end
         e.noBars = world.mode.hideseek or nil -- (no HP, ammo or super there)
     end
     local hide = world.hide -- (Hide and seek)
@@ -1578,6 +1748,10 @@ local function drawGame()
     Camera.attach()
     Arena.drawBelow()
     if hide then HideSeek.drawFrame(hide, world.time, World.pieceSlot) end
+    local fg = world.flowerGame -- (Flower Gardens)
+    for t, g in ipairs(fg and Arena.gardens or {}) do
+        Flowers.drawGarden(g, teamColor(t), fg.teams[t] and fg.teams[t].delivered or 0)
+    end
     local ball = world.ball -- (Yardball)
     if ball then
         Ball.drawGoals({ [player.team] = TEAMMATE_COLOR,
@@ -1587,7 +1761,7 @@ local function drawGame()
         if input and input.aiming and not player.dead and hide.seekerId == localId and hide.phase == "seek" then
             HideSeek.drawTagAim(player, World.TAG)
         end
-    elseif input and not player.dead then
+    elseif input and not player.dead and not player.driving then
         if input.aimingSuper and player.super then player:drawAim(true)
         elseif input.aiming and player.carrying then Ball.drawKickAim(player, input.aimDist)
         elseif input.aiming then player:drawAim() end
@@ -1600,6 +1774,10 @@ local function drawGame()
     for _, p in ipairs(hide and hide.pieces or {}) do
         if not p.placed and not p.carrier then HideSeek.drawGroundPiece(p, world.time) end
     end
+    for t, g in ipairs(fg and Arena.gardens or {}) do Flowers.drawFence(g, teamColor(t), fg.fences[t]) end
+    for _, f in ipairs(fg and fg.flowers or {}) do
+        if not f.carrier then Flowers.drawFlower(f, world.time) end
+    end
     Effects.drawBelow()
     if ball and not ball.carrier then Ball.draw(ball, world.kickoff) end -- (rowdies walk over it)
     for _, b in ipairs(world.bullets) do b:draw() end
@@ -1609,17 +1787,23 @@ local function drawGame()
         if e ~= player and (not hidden(e) or e.burrowed) then
             if e.disguised and world:isOpponent(e, player) then HideSeek.drawDisguise(e, 1)
             else
+                if e.driving and not e.dead then Flowers.drawDozer(e, teamColor(e.team), world.time) end
                 e:draw()
                 if e.disguised then HideSeek.drawLeaf(e) end
             end
         end
     end
+    if player.driving and not player.dead then Flowers.drawDozer(player, TEAMMATE_COLOR, world.time) end
     player:draw() -- own rowdy on top
     if player.disguised and not player.dead then HideSeek.drawDisguise(player, 0.6) end
     if ball and ball.carrier then Ball.draw(ball) end -- in the carrier's hands
     for _, p in ipairs(hide and hide.pieces or {}) do -- held up over the carrier's head
         local c = p.carrier and world:get(p.carrier)
         if c and not c.dead then HideSeek.drawCarriedPiece(p, c) end
+    end
+    for _, f in ipairs(fg and fg.flowers or {}) do
+        local c = f.carrier and world:get(f.carrier)
+        if c and not c.dead and (c == player or not hidden(c)) then Flowers.drawCarried(f, c, world.time) end
     end
     Effects.drawAbove()
     Arena.drawBushes(player)

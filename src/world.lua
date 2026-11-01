@@ -1,6 +1,6 @@
 -- The simulation: all rowdies (players + bots) with ids and teams, bullets, hits,
 -- scores and the game mode (duel / team fight / waves / boss fight / Yardball / King of
--- the Yard / Hide and seek). It runs in fixed steps of World.TICK.
+-- the Yard / Hide and seek / Flower Gardens). It runs in fixed steps of World.TICK.
 --
 -- No input devices, rendering, camera or particles in here: players are driven by
 -- input tables (src/controls.lua format), and everything worth showing is pushed as
@@ -152,6 +152,37 @@ local NOTICE_RATE   = 1.2  -- ...with this chance per second
 local TAG_REACH     = 95   -- px: the seeker bot swings at a hider this close
 local GIVE_UP       = 4    -- s: a bot that got no closer to where it walks picks another goal
 
+-- Flower Gardens (mode.flowers, also `teams`; on the "gardens" layout, see
+-- src/arena.lua): KING_TEAMS teams of TEAM_SIZE, each with a fenced garden in a corner
+-- (Arena.gardens) where it starts and pops back in. The fence lets the own team through
+-- (walking and shooting); other teams are pushed out, their shots and beams stop at it
+-- and their bombs and blasts don't reach anybody inside (a safe spawn). Flowers grow in
+-- the middle: up to FLOWER_MAX, one every FLOWER_EVERY s within FLOWER_FIELD px of the
+-- centre. A rowdy that walks over one carries it (one at a time; knocked out = it drops
+-- there), walking into the own garden delivers it. Every DOZER_FLOWERS delivered flowers
+-- the one who brought the last drives a toy bulldozer: can't be hurt or pushed, no
+-- attacks, DOZER_SPEED; driving into another team's fence knocks it down (the bulldozer
+-- is gone then; unused it rolls away after DOZER_TIME s - CHARTER.md: no endless
+-- invulnerability). Knocked out while the own fence is down = out for the round. A team
+-- is out when its fence is down and nobody of it is up; the last team wins, or after
+-- FLOWER_TIME s the team (still up) with the most flowers delivered - a tie between the
+-- leaders is a draw.
+World.FLOWER_TIME   = 240
+World.FLOWER_MAX    = 8
+World.FLOWER_EVERY  = 6
+World.FLOWER_START  = 4    -- flowers already there when the round starts
+World.FLOWER_FIELD  = 600
+World.FLOWER_REACH  = 20   -- px: picked up within the rowdy's radius + this
+World.DOZER_FLOWERS = 5
+World.DOZER_SPEED   = 150
+World.DOZER_TIME    = 40
+World.FENCE_HALF    = 8    -- px: half the fence's thickness
+local FLOWER_GAP    = 70   -- px: a new flower doesn't grow closer than this to another
+local FLOWER_NOTICE = 900  -- px: a hunting bot goes after an opponent's flower carrier this close
+local FLOWER_FIGHT  = 300  -- px: a fetching bot first fights an opponent in sight this close
+local FLOWER_CARRIER_BONUS = 400 -- px: bots go after a flower carrier as if it were this much nearer
+local DOZER_AIM     = 400  -- px: a bot's bulldozer heads for the fence's corner until this close
+
 World.PULL_SPEED = 900 -- px/s: a rowdy hit by a pull attack flies to the puller
 World.GOO_TIME   = 2   -- s: sticky goo (attack.goo) does its extra damage over this long
 local GOO_TICK   = 0.5 -- s between two goo stings
@@ -181,7 +212,7 @@ local IDLE = { dx = 0, dy = 0 } -- input of a player that sent nothing
 -- mode: entry of MODES in main.lua ({ waves = bool, ... })
 function World.new(mode)
     Arena.setLayout(mode.king and "kingdom" or mode.yardball and "pitch"
-        or mode.hideseek and "hideout" or "yard")
+        or mode.hideseek and "hideout" or mode.flowers and "gardens" or "yard")
     return setmetatable({
         mode = mode,
         entities = {}, -- every rowdy, in insertion order (players and bots)
@@ -207,17 +238,20 @@ function World.new(mode)
         beacons = {},  -- King of the Yard: { id, team, owner, x, y, born, expires, progress }
         zone = nil,    -- King of the Yard: the fog's clear circle, see newZone
         hide = nil,    -- Hide and seek: the round's state, see startHideSeek
+        flowerGame = nil, -- Flower Gardens: the round's state, see startFlowers
     }, World)
 end
 
 -- Round state: { over = bool, timeLeft (duel), winner = entity id or nil (draw),
 -- wave = wave reached (waves), goals = { [team] = n } (Yardball), place = { [team] =
--- 1..KING_TEAMS } (King of the Yard: the winner 1, the first team out last) }
+-- 1..KING_TEAMS } (King of the Yard, Flower Gardens: the winner 1, the first team out
+-- last) }
 function World.newMatch(mode)
     return { over = false, goals = mode.yardball and { 0, 0 } or nil,
-        place = mode.king and {} or nil,
-        timeLeft = not (mode.waves or mode.boss or mode.yardball or mode.king or mode.hideseek)
-            and World.TIME_LIMIT or nil } -- (Hide and seek: set from world.hide every step)
+        place = (mode.king or mode.flowers) and {} or nil,
+        timeLeft = not (mode.waves or mode.boss or mode.yardball or mode.king or mode.hideseek
+            or mode.flowers) and World.TIME_LIMIT or nil } -- (Hide and seek, Flower Gardens:
+                                                           -- set from their clock every step)
 end
 
 -- The boss's look: the rowdy's own, BOSS_SIZE bigger (also used by src/replica.lua)
@@ -264,6 +298,10 @@ end
 --         found {id, by} (after its death event)  disguise {id} (turned into a bush)
 --         pieceUp {id, piece}  pieceDrop {id, piece}  piece {id, piece, n (placed now)}
 --         picture (all pieces placed)  hint (the hiders shimmer)
+--   Flower Gardens: flower {flower} (one grew)  flowerUp {id, flower}  flowerDrop {id,
+--         flower}  deliver {id, team, flower, n (towards the bulldozer), total}
+--         dozer {id, team} (drives a bulldozer now)  dozerGone {id} (it rolled away)
+--         fenceDown {team, by}  teamOut {team} (as in King of the Yard)
 function World:emit(kind, data)
     data.kind = kind
     data.t = self.time
@@ -356,7 +394,9 @@ end
 -- underground - its dirt mound is drawn anyway)
 function World:isHiddenFrom(e, viewer)
     if e.dead or not self:isOpponent(e, viewer) then return false end
-    if e.carrying or e.carryingPiece then return false end -- the ball / a picture piece gives it away
+    if e.carrying or e.carryingPiece or e.carryingFlower or e.driving then -- the ball, a picture
+        return false                                                    -- piece, a flower or a
+    end                                                                 -- bulldozer gives it away
     if e.burrowed then return true end
     if not Arena.inBush(e.x, e.y) and not e.vanished then return false end
     local dx, dy = e.x - viewer.x, e.y - viewer.y
@@ -391,13 +431,16 @@ function World:botTarget(e)
         end
     end
     local best, bestScore, bestAlive
-    local notice = self.mode.king and KING_NOTICE or math.huge -- (the big map: roams first)
-    for _, o in ipairs(self.entities) do
+    local notice = (self.mode.king or self.mode.flowers) and KING_NOTICE or math.huge -- (the big
+    for _, o in ipairs(self.entities) do                                              -- map: roams first)
         local d = math.sqrt((o.x - e.x) ^ 2 + (o.y - e.y) ^ 2)
-        if self:isOpponent(e, o) and d <= notice and not o.out then
+        -- (Flower Gardens: not a bulldozer driver, nobody behind its fence - no use)
+        if self:isOpponent(e, o) and d <= notice and not o.out and not o.driving
+            and not self:sheltered(o) then
             local score = d + TARGET_CROWD * (crowd[o.id] or 0)
             if o.id == e.targetId then score = score - TARGET_KEEP end
             if o.carrying then score = score - CARRIER_BONUS end -- (Yardball)
+            if o.carryingFlower then score = score - FLOWER_CARRIER_BONUS end
             local alive = not o.dead
             if not best or (alive and not bestAlive) or (alive == bestAlive and score < bestScore) then
                 best, bestScore, bestAlive = o, score, alive
@@ -483,9 +526,12 @@ function World:playersPerTeam()
     return n
 end
 
--- King of the Yard: a player takes the place of a bot of the first team that has one
--- (host + first two joiners = team 1, the next three = team 2, ...) - where the bot is
--- right now, or out (with its heart) if it was out
+local handOver -- (Flower Gardens: below)
+
+-- King of the Yard, Flower Gardens: a player takes the place of a bot of the first team
+-- that has one (host + first two joiners = team 1, the next three = team 2, ...) - where
+-- the bot is right now (its spot if it waits to pop back in), or out (with its heart) if
+-- it was out
 local function addKingPlayer(self, def, style)
     local n = self:playersPerTeam()
     local team = World.KING_TEAMS
@@ -509,10 +555,11 @@ local function addKingPlayer(self, def, style)
             if b.owner == bot.id then b.owner = p.id end
         end
     else
-        p.x, p.y = bot.x, bot.y
+        if not bot.dead then p.x, p.y = bot.x, bot.y end
         p.spawnAnim = 0.35
         self:emit("spawn", { x = p.x, y = p.y, id = p.id })
     end
+    if self.flowerGame then handOver(self, bot, p) end
     return p
 end
 
@@ -581,7 +628,7 @@ end
 -- Team fight: the humans play together against the bots - a player joins blue and
 -- takes a bot's place (red only once blue has no bots left)
 function World:addTeamPlayer(def, style)
-    if self.mode.king then return addKingPlayer(self, def, style) end
+    if self.mode.king or self.mode.flowers then return addKingPlayer(self, def, style) end
     if self.mode.hideseek then return addHidePlayer(self, def, style) end
     local n = self:playersPerTeam()
     local team = ((n[World.TEAM_BLUE] or 0) < World.TEAM_SIZE) and World.TEAM_BLUE
@@ -598,23 +645,24 @@ function World:addTeamPlayer(def, style)
     return self:addPlayer(def, x, y, team, style)
 end
 
--- A player leaves; in a team fight a bot takes over the empty place (King of the Yard:
--- where the player was, or out with its heart)
+-- A player leaves; in a team fight a bot takes over the empty place (King of the Yard,
+-- Flower Gardens: where the player was, or out with its heart)
 function World:removePlayer(p)
     self:remove(p)
     if not self.mode.teams then return end
     local bot = newBot(self, p.team, p.spawnX, p.spawnY)
     if self.mode.hideseek then takeOver(self, p, bot) return end
-    if not self.mode.king then return end
+    if not (self.mode.king or self.mode.flowers) then return end
     bot.kills, bot.deaths = p.kills, p.deaths
     if p.out then
         bot.dead, bot.out, bot.hp = true, true, 0
         for _, b in ipairs(self.beacons) do
             if b.owner == p.id then b.owner = bot.id end
         end
-    else
+    elseif not p.dead then
         bot.x, bot.y = p.x, p.y
     end
+    if self.flowerGame then handOver(self, p, bot) end
 end
 
 -- Kills per team
@@ -736,7 +784,7 @@ function World:start()
     end
     if self.mode.teams then -- fill the teams with bots
         local teams = { World.TEAM_BLUE, World.TEAM_RED }
-        if self.mode.king then teams = { 1, 2, 3, 4 } end
+        if self.mode.king or self.mode.flowers then teams = { 1, 2, 3, 4 } end
         for _, team in ipairs(teams) do
             local members = 0
             for _, e in ipairs(self.entities) do
@@ -751,6 +799,7 @@ function World:start()
     else
         self:spawnBots(1)
     end
+    if self.mode.flowers then self:startFlowers() end
 end
 
 local function bulletHits(b, victim)
@@ -785,6 +834,8 @@ local function knockout(self, victim, shooter)
         victim.out = true
         addBeacon(self, victim)
     end
+    local fg = self.flowerGame
+    if fg and not fg.fences[victim.team] then victim.out = true end -- no fence: no way back
 end
 
 -- Hide and seek: the seeker's tag hit a hider - found: a poof, out for the round; a
@@ -855,7 +906,7 @@ local function explode(self, b)
         super = b.super, projectile = b.projectile })
     for _, e in ipairs(self.entities) do
         local reach = r + e.radius
-        if e.team ~= b.team and not e.dead and not e:untouchable()
+        if e.team ~= b.team and not e.dead and not e:untouchable() and not self:sheltered(e)
             and (e.x - x) ^ 2 + (e.y - y) ^ 2 < reach * reach then
             damage(self, b, e, e.x, e.y)
         end
@@ -895,7 +946,7 @@ end
 
 -- One hit of a rowdy's own attack (a beam tick, a flung rowdy crashing) on `victim`
 function World:hitWith(owner, attack, victim, x, y)
-    if victim.dead or victim.team == owner.team then return end
+    if victim.dead or victim.team == owner.team or self:sheltered(victim) then return end
     damage(self, { owner = owner, team = owner.team, damage = attack.damage or 0,
         super = attack == owner.super, freeze = attack.freeze, pull = attack.pull,
         hold = attack.hold, goo = attack.goo }, victim, x, y)
@@ -1027,7 +1078,7 @@ local function updateGoo(self, dt)
             if g.timer <= 0 then
                 g.timer, g.left = g.timer + GOO_TICK, g.left - 1
                 local owner = self.byId[g.by] or { id = g.by }
-                if not e:untouchable() then
+                if not e:untouchable() and not self:sheltered(e) then
                     damage(self, { owner = owner, team = g.team, damage = g.per }, e, e.x, e.y)
                 end
                 if e.goo == g and g.left <= 0 then e.goo = nil end
@@ -1051,7 +1102,12 @@ local function segmentPush(ax, ay, bx, by, px, py)
 end
 
 -- A barrier of another team than `team` that a circle at x, y (radius r) touches
+-- (Flower Gardens: or the garden of another team with its fence up)
 function World:barrierAt(x, y, r, team)
+    if self.flowerGame then
+        local g = self:fenceAt(x, y, r, team)
+        if g then return g end
+    end
     for _, w in ipairs(self.barriers) do
         if w.team ~= team then
             local p = w.points
@@ -1093,7 +1149,7 @@ local function updateBarriers(self)
     end
     if #list == 0 then return end
     for _, e in ipairs(self.entities) do
-        if not e.dead and not e.vanished and not e.leap and not e.burrowed then
+        if not e.dead and not e.vanished and not e.leap and not e.burrowed and not e.driving then
             for _, w in ipairs(list) do
                 if w.team ~= e.team then
                     local p = w.points
@@ -1221,6 +1277,9 @@ local function boxSpot(self)
         if ball and (ball.x - x) ^ 2 + (ball.y - y) ^ 2 < BOX_MIN_DIST ^ 2 then ok = false end
         for _, g in ipairs(ball and Arena.goals or {}) do
             if (g.x - x) ^ 2 + ((g.y1 + g.y2) / 2 - y) ^ 2 < 400 ^ 2 then ok = false end
+        end
+        for _, g in ipairs(Arena.gardens or {}) do -- (Flower Gardens: not in a garden)
+            if x > g.x1 - 100 and x < g.x2 + 100 and y > g.y1 - 100 and y < g.y2 + 100 then ok = false end
         end
         if ok then return x, y end
     end
@@ -1665,6 +1724,337 @@ function World:hidePlan(e)
     return nil -- there: stand still (a bush in 2 s)
 end
 
+---------------------------------------------------------------------------- Flower Gardens
+
+-- Does a circle at x, y (radius r) touch garden g (Arena.gardens)?
+local function gardenOverlap(g, x, y, r)
+    local cx = math.max(g.x1, math.min(x, g.x2))
+    local cy = math.max(g.y1, math.min(y, g.y2))
+    return (x - cx) ^ 2 + (y - cy) ^ 2 < r * r
+end
+
+-- Is x, y in garden g? (margin: px around it count too)
+function World.inGarden(g, x, y, margin)
+    margin = margin or 0
+    return x >= g.x1 - margin and x <= g.x2 + margin and y >= g.y1 - margin and y <= g.y2 + margin
+end
+
+-- Where a circle of radius r overlapping garden g gets out: the nearest spot beyond one
+-- of its open sides (the map border closes the other two)
+local function outOfGarden(g, x, y, r)
+    local best, bx, by
+    local function try(d, nx, ny)
+        if not best or d < best then best, bx, by = d, nx, ny end
+    end
+    if g.x1 > 0 then try(x - (g.x1 - r), g.x1 - r, y) end
+    if g.x2 < Arena.width then try(g.x2 + r - x, g.x2 + r, y) end
+    if g.y1 > 0 then try(y - (g.y1 - r), x, g.y1 - r) end
+    if g.y2 < Arena.height then try(g.y2 + r - y, x, g.y2 + r) end
+    return bx or x, by or y
+end
+
+-- Is `e` in its own garden with the fence up? (no other team's shot, bomb or blast
+-- reaches it there)
+function World:sheltered(e)
+    local fg = self.flowerGame
+    if not fg or not fg.fences[e.team] then return false end
+    local g = Arena.gardens and Arena.gardens[e.team]
+    return g ~= nil and World.inGarden(g, e.x, e.y, World.FENCE_HALF)
+end
+
+-- The garden (of another team than `team`, fence up) a circle at x, y touches, or nil
+function World:fenceAt(x, y, r, team)
+    local fg = self.flowerGame
+    for t, g in ipairs(Arena.gardens or {}) do
+        if t ~= team and fg.fences[t] and gardenOverlap(g, x, y, r + World.FENCE_HALF) then return g end
+    end
+end
+
+-- Reset what a rowdy has of a round of Flower Gardens
+local function prepareFlowers(e)
+    e.driving, e.carryingFlower, e.delivered, e.fl = nil, nil, 0, nil
+end
+
+-- `to` (a player that joined, or the bot of one that left) takes over from `from`: its
+-- flowers delivered, the flower it carries, its bulldozer
+function handOver(self, from, to)
+    to.delivered, to.driving = from.delivered or 0, from.driving
+    for _, f in ipairs(self.flowerGame.flowers) do
+        if f.carrier == from.id then f.carrier, to.carryingFlower = to.id, f.id end
+    end
+end
+
+-- A new flower at a random free spot in the flower field (if there is one)
+local function addFlower(self)
+    local fg = self.flowerGame
+    for _ = 1, 30 do
+        local a, d = math.random() * math.pi * 2, math.sqrt(math.random()) * World.FLOWER_FIELD
+        local x, y = Arena.center.x + math.cos(a) * d, Arena.center.y + math.sin(a) * d
+        local ok = not Arena.hitsSolid(x, y, 26) and not Arena.inBush(x, y) and not self:boxAt(x, y, 30)
+        for _, f in ipairs(fg.flowers) do
+            if (f.x - x) ^ 2 + (f.y - y) ^ 2 < FLOWER_GAP * FLOWER_GAP then ok = false end
+        end
+        if ok then
+            local f = { id = self.nextLootId, x = x, y = y, kind = math.random(4), born = self.time }
+            self.nextLootId = self.nextLootId + 1
+            fg.flowers[#fg.flowers + 1] = f
+            self:emit("flower", { flower = f.id, x = x, y = y })
+            return
+        end
+    end
+end
+
+-- A new round: all fences up, no flowers delivered, the first flowers in the field
+function World:startFlowers()
+    local fg = { fences = {}, teams = {}, flowers = {}, endAt = self.time + World.FLOWER_TIME,
+        nextFlower = self.time + World.FLOWER_EVERY }
+    for t = 1, World.KING_TEAMS do
+        fg.fences[t] = true
+        fg.teams[t] = { count = 0, delivered = 0 } -- count: towards the next bulldozer
+    end
+    self.flowerGame = fg
+    for _, e in ipairs(self.entities) do prepareFlowers(e) end
+    for _ = 1, World.FLOWER_START do addFlower(self) end
+    self.match.timeLeft = World.FLOWER_TIME
+end
+
+-- Is there a fence the bulldozer of `team` could knock down?
+local function fenceToKnock(self, team)
+    for t = 1, World.KING_TEAMS do
+        if t ~= team and self.flowerGame.fences[t] then return true end
+    end
+    return false
+end
+
+-- A flower carried into the own garden: count it; every DOZER_FLOWERS the carrier gets
+-- a bulldozer (if there is a fence left to knock down)
+local function deliver(self, i, c)
+    local fg = self.flowerGame
+    local f = table.remove(fg.flowers, i)
+    c.carryingFlower = nil
+    c.delivered = (c.delivered or 0) + 1
+    local tm = fg.teams[c.team]
+    tm.delivered, tm.count = tm.delivered + 1, tm.count + 1
+    self:emit("deliver", { id = c.id, team = c.team, flower = f.id, n = tm.count,
+        total = tm.delivered, x = c.x, y = c.y })
+    if tm.count >= World.DOZER_FLOWERS then
+        tm.count = 0
+        if fenceToKnock(self, c.team) then
+            c:clearActions()
+            c.driving = { expires = self.time + World.DOZER_TIME, speed = World.DOZER_SPEED }
+            self:emit("dozer", { id = c.id, team = c.team, x = c.x, y = c.y })
+        end
+    end
+end
+
+-- Every step: new flowers grow, carried ones follow their carrier (dropped when it is
+-- knocked out, delivered in its garden), free ones are picked up; old bulldozers go
+local function updateFlowers(self, dt)
+    local fg = self.flowerGame
+    if self.time >= fg.nextFlower then
+        fg.nextFlower = fg.nextFlower + World.FLOWER_EVERY
+        if #fg.flowers < World.FLOWER_MAX then addFlower(self) end
+    end
+    for _, e in ipairs(self.entities) do
+        if e.driving and self.time >= e.driving.expires then
+            e.driving = nil
+            self:emit("dozerGone", { id = e.id, x = e.x, y = e.y })
+        end
+    end
+    for i = #fg.flowers, 1, -1 do
+        local f = fg.flowers[i]
+        local c = f.carrier and self.byId[f.carrier]
+        if f.carrier and (not c or c.dead or c.driving or c.carryingFlower ~= f.id) then
+            f.carrier = nil
+            if c then
+                if c.carryingFlower == f.id then c.carryingFlower = nil end
+                f.x, f.y = Arena.nearestOpen(c.x, c.y, 12)
+                self:emit("flowerDrop", { id = c.id, flower = f.id, x = f.x, y = f.y })
+            end
+        elseif c then
+            f.x, f.y = c.x, c.y
+            if World.inGarden(Arena.gardens[c.team], c.x, c.y) then deliver(self, i, c) end
+        else
+            local best, bestD2
+            for _, e in ipairs(self.entities) do
+                local r = e.radius + World.FLOWER_REACH
+                local d2 = (e.x - f.x) ^ 2 + (e.y - f.y) ^ 2
+                if not e.dead and not e.driving and not e.carryingFlower and not e.burrowed
+                    and not e.leap and d2 < r * r and (not bestD2 or d2 < bestD2) then
+                    best, bestD2 = e, d2
+                end
+            end
+            if best then
+                f.carrier, best.carryingFlower = best.id, f.id
+                self:emit("flowerUp", { id = best.id, flower = f.id, x = f.x, y = f.y })
+            end
+        end
+    end
+    self.match.timeLeft = math.max(0, fg.endAt - self.time)
+end
+
+-- The fences: a bulldozer of another team that touches one knocks it down; everybody
+-- else of another team is pushed out of the garden (whatever way they came in: walking,
+-- a leap, a blink, a fling)
+local function updateFences(self)
+    local fg = self.flowerGame
+    for _, e in ipairs(self.entities) do
+        if not e.dead and not e.leap then
+            for t, g in ipairs(Arena.gardens) do
+                local reach = e.radius + World.FENCE_HALF
+                if t ~= e.team and fg.fences[t] and gardenOverlap(g, e.x, e.y, reach + (e.driving and 4 or 0)) then
+                    if e.driving then
+                        fg.fences[t] = false
+                        e.driving = nil
+                        self:emit("fenceDown", { team = t, by = e.id, x = e.x, y = e.y })
+                    else
+                        local x, y = outOfGarden(g, e.x, e.y, reach)
+                        e.x, e.y = Arena.resolveCircle(x, y, e.radius)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Has a team been knocked out of the round, is it over? (last team up, or the time is up:
+-- the team still up with the most flowers delivered wins)
+local function checkFlowers(self)
+    local m, fg = self.match, self.flowerGame
+    if not fg then return end
+    local up, left = {}, 0
+    for team = 1, World.KING_TEAMS do
+        up[team] = self:teamUp(team)
+        if up[team] then left = left + 1 end
+    end
+    for team = 1, World.KING_TEAMS do
+        if not up[team] and not m.place[team] then -- just went out: shares the place with
+            m.place[team] = left + 1                -- any team out in the same step
+            self:emit("teamOut", { team = team })
+        end
+    end
+    m.teamsLeft = left
+    if left <= 1 then
+        local winner
+        for team = 1, World.KING_TEAMS do
+            if up[team] then winner = team; m.place[team] = 1 end
+        end
+        endMatch(self, nil, winner)
+    elseif self.time >= fg.endAt then
+        m.timeLeft = 0
+        local winner, best, tie
+        for team = 1, World.KING_TEAMS do
+            if up[team] then
+                local n = fg.teams[team].delivered
+                local ahead = 0 -- (place: 1 + the teams up with more flowers)
+                for other = 1, World.KING_TEAMS do
+                    if up[other] and fg.teams[other].delivered > n then ahead = ahead + 1 end
+                end
+                m.place[team] = ahead + 1
+                if not best or n > best then winner, best, tie = team, n, false
+                elseif n == best then tie = true end
+            end
+        end
+        endMatch(self, nil, not tie and winner or nil)
+    end
+end
+
+-- The team whose fence a bulldozer of `e` goes for: another one still up - the one with
+-- the most flowers delivered, the nearest of those (it keeps its choice while it stands)
+local function dozerTarget(self, e, mem)
+    local fg = self.flowerGame
+    if mem.dozer and fg.fences[mem.dozer] and mem.dozer ~= e.team then return mem.dozer end
+    local best, bestScore
+    for t, g in ipairs(Arena.gardens) do
+        if t ~= e.team and fg.fences[t] then
+            local score = fg.teams[t].delivered * 1000 - math.sqrt((g.cx - e.x) ^ 2 + (g.cy - e.y) ^ 2)
+            if not bestScore or score > bestScore then best, bestScore = t, score end
+        end
+    end
+    mem.dozer = best
+    return best
+end
+
+-- Does bot `e` fetch flowers? Per team the first two bots (by id) that are up; one when
+-- a player is in the team
+local function isFetcher(self, e)
+    local bots, humans = {}, 0
+    for _, o in ipairs(self.entities) do
+        if o.team == e.team and not o.out then
+            if not o.isBot then humans = humans + 1
+            elseif not o.driving then bots[#bots + 1] = o end
+        end
+    end
+    table.sort(bots, function(a, b) return a.id < b.id end)
+    for i = 1, math.min(humans > 0 and 1 or 2, #bots) do
+        if bots[i] == e then return true end
+    end
+    return false
+end
+
+-- What Flower Gardens bot `e` does (src/enemy.lua), or nil = fight as usual:
+-- { x, y, state } = walk there (shooting at its target goes on).
+-- A bulldozer drives to its fence (the corner first, then the nearest point); a carrier
+-- takes its flower home; fetchers go for the nearest free flower no team mate goes for;
+-- the others go after an opponent carrying a flower, else they roam the flower field.
+-- Opponents in sight and close come first (except for a bulldozer and a carrier).
+function World:flowerPlan(e, visible, targetDist)
+    local fg = self.flowerGame
+    if not fg or self.match.over then return nil end
+    local mem = e.fl
+    if not mem then mem = {}; e.fl = mem end
+    if e.driving then
+        local t = dozerTarget(self, e, mem)
+        if not t then return nil end
+        local g = Arena.gardens[t]
+        local x = math.max(g.x1, math.min(e.x, g.x2))
+        local y = math.max(g.y1, math.min(e.y, g.y2))
+        if (x - e.x) ^ 2 + (y - e.y) ^ 2 > DOZER_AIM * DOZER_AIM then
+            x, y = g.fence[3], g.fence[4] -- (the inner corner: open ground in front of it)
+        end
+        return { x = x, y = y, state = "dozer" }
+    end
+    if e.carryingFlower then
+        local g = Arena.gardens[e.team]
+        return { x = g.cx, y = g.cy, state = "flower" }
+    end
+    mem.flower = nil
+    if visible and targetDist and targetDist < FLOWER_FIGHT then return nil end
+    if isFetcher(self, e) then
+        local best, bestD
+        for _, f in ipairs(fg.flowers) do
+            if not f.carrier then
+                local taken = false -- (a team mate goes for it already)
+                for _, o in ipairs(self.entities) do
+                    if o ~= e and o.team == e.team and o.fl and o.fl.flower == f.id and not o.dead then taken = true end
+                end
+                local d = dist(f, e)
+                if not taken and (not bestD or d < bestD) then best, bestD = f, d end
+            end
+        end
+        if best then
+            mem.flower = best.id
+            return { x = best.x, y = best.y, state = "fetch" }
+        end
+    end
+    local carrier, carrierD
+    for _, o in ipairs(self.entities) do
+        if o.carryingFlower and o.team ~= e.team and sees(self, e, o, FLOWER_NOTICE) then
+            local d = dist(o, e)
+            if not carrierD or d < carrierD then carrier, carrierD = o, d end
+        end
+    end
+    if carrier then return { x = carrier.x, y = carrier.y, state = "hunt" } end
+    if visible then return nil end
+    local p = mem.patrol
+    if not p or dist(p, e) < 60 or self.time >= p.untilT then
+        local x, y = Arena.randomOpenPoint(Arena.center.x, Arena.center.y, World.FLOWER_FIELD * 0.8)
+        p = { x = x, y = y, untilT = self.time + 6 }
+        mem.patrol = p
+    end
+    return { x = p.x, y = p.y, state = "patrol" }
+end
+
 ---------------------------------------------------------------------------- Yardball
 
 local BR = World.BALL_RADIUS
@@ -1887,6 +2277,7 @@ local function checkMatch(self, dt)
         return
     end
     if self.mode.yardball then return end -- (goals: scoreGoal; no time limit)
+    if self.mode.flowers then return checkFlowers(self) end
     if self.mode.king then -- the last team with somebody up wins
         local up, left = {}, 0
         for team = 1, World.KING_TEAMS do
@@ -1958,7 +2349,7 @@ function World:restartMatch()
         if e.isBot then self:remove(e) end
     end
     self.bullets, self.medpacks, self.boxes, self.coins, self.barriers = {}, {}, {}, {}, {}
-    self.beacons, self.hide = {}, nil
+    self.beacons, self.hide, self.flowerGame = {}, nil, nil
     self.boxTimer = World.BOX_FIRST
     self.wave, self.waveSize, self.waveTimer = 0, 0, 0
     for _, e in ipairs(self.entities) do
@@ -2005,6 +2396,7 @@ function World:update(dt, inputs)
         end
     end
     updateBarriers(self)
+    if self.flowerGame then updateFences(self) end
     newBullets(self)
     updateBullets(self, dt)
     updateGoo(self, dt)
@@ -2017,6 +2409,7 @@ function World:update(dt, inputs)
         updateZone(self, dt)
     end
     if self.hide then updateHide(self, dt) end
+    if self.flowerGame then updateFlowers(self, dt) end
     checkMatch(self, dt)
     self.time = self.time + dt
 end

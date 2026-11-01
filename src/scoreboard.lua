@@ -13,7 +13,11 @@
 --   hide  : { kind = "hide", hiding = seconds of the hide phase left (nil: seeking),
 --             timeLeft, left = hiders not found, hiders = all hiders, placed, pieces,
 --             seeker = bool (this player seeks) }
+--   flowers: { kind = "flowers", teams = { { name, color, delivered, count (towards the
+--             bulldozer), fence = up?, out = bool }, ... } (own first), timeLeft,
+--             need = flowers per bulldozer }
 local Ball = require("src.ball")
+local Flowers = require("src.flowers")
 
 local Scoreboard = {}
 
@@ -184,6 +188,33 @@ function Scoreboard.draw(info, fonts, cx, y, time)
         elseif info.seeker then text = "find them all before the time is up"
         else text = "stay hidden - pieces take time off" end
         label(text, fonts.small, x - 20, y + BOX_H + 3, W + 40)
+    elseif info.kind == "flowers" then
+        -- the teams (own first): flowers delivered, the fence, the way to the next
+        -- bulldozer as a bar below; then the clock
+        local n = #info.teams
+        local clockW = 70
+        local tw = (W - clockW - 8 - (n - 1) * 4) / n
+        for i, team in ipairs(info.teams) do
+            local tx = x + (i - 1) * (tw + 4)
+            box(tx, y, tw, BOX_H, team.out and { 0.3, 0.3, 0.32 } or team.color, team.out and 0.6 or 0.85)
+            local name = team.name
+            if fonts.small:getWidth(name) > tw - 4 then name = name:sub(1, 3) end
+            label(name, fonts.small, tx, y + 2, tw)
+            label(tostring(team.delivered), fonts.big, tx - 9, y + 13, tw)
+            Flowers.drawFenceIcon(tx + tw - 12, y + 30, 0.85, team.fence)
+            local k = math.min(1, team.count / info.need)
+            love.graphics.setColor(0, 0, 0, 0.5)
+            love.graphics.rectangle("fill", tx, y + BOX_H + 4, tw, 5, 2, 2)
+            love.graphics.setColor(1, 0.82, 0.2, 1)
+            if k > 0 then love.graphics.rectangle("fill", tx, y + BOX_H + 4, tw * k, 5, 2, 2) end
+        end
+        local cx2 = x + W - clockW
+        local t = info.timeLeft or 0
+        local urgent = t <= 30
+        box(cx2, y, clockW, BOX_H, urgent and { 0.75, 0.12, 0.12 } or { 0.15, 0.15, 0.2 })
+        label("TIME", fonts.small, cx2, y + 2, clockW)
+        label(formatTime(t), fonts.big, cx2, y + 13, clockW)
+        label("flowers home - " .. info.need .. " = a bulldozer", fonts.small, x - 20, y + BOX_H + 10, W + 40)
     else -- waves
         local sideW = 86
         box(x, y, sideW, BOX_H, { 0.15, 0.15, 0.2 })

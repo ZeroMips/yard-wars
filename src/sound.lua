@@ -245,6 +245,20 @@ local DEFS = {
                          { { wave = "noise", f1 = 1, f2 = 1, dur = 0.8, vol = 0.15, lowpass = 0.7, attack = 0.1, delay = 0.3 } }),
     hint         = { { wave = "sine", f1 = 1800, f2 = 2600, dur = 0.5, vol = 0.12, vibrato = { 0.04, 16 } },
                      { wave = "triangle", f1 = 2400, f2 = 3200, dur = 0.4, vol = 0.08, delay = 0.12 } },
+    -- Flower Gardens: a flower picked (a soft pluck), one delivered (a chime), a bulldozer
+    -- arrives (a toy horn), its engine (a short putt-putt, played again and again while
+    -- it drives), a fence knocked down (wood crashing)
+    flower       = { { wave = "triangle", f1 = 900, f2 = 1300, dur = 0.09, vol = 0.25 },
+                     { wave = "sine", f1 = 1300, f2 = 1600, dur = 0.12, vol = 0.12, delay = 0.05 } },
+    deliver      = notes({ { E5, 0.07 }, { G5, 0.07 }, { C6, 0.2 } }, "sine", 0.32,
+                         { { wave = "triangle", f1 = C6 * 2, f2 = C6 * 2, dur = 0.3, vol = 0.08, delay = 0.14 } }),
+    dozerStart   = notes({ { G5 / 2, 0.14 }, { C5, 0.32 } }, "square", 0.2),
+    dozer        = { { wave = "square", f1 = 70, f2 = 60, dur = 0.12, vol = 0.18, duty = 0.3 },
+                     { wave = "noise", f1 = 1, f2 = 1, dur = 0.1, vol = 0.15, lowpass = 0.1 } },
+    fence        = { { wave = "noise", f1 = 1, f2 = 1, dur = 0.6, vol = 0.6, lowpass = 0.25, curve = 2 },
+                     { wave = "sine", f1 = 200, f2 = 70, dur = 0.3, vol = 0.6 },
+                     { wave = "square", f1 = 420, f2 = 300, dur = 0.08, vol = 0.12, delay = 0.12, duty = 0.2 },
+                     { wave = "square", f1 = 360, f2 = 250, dur = 0.08, vol = 0.1, delay = 0.25, duty = 0.2 } },
     -- rounds and UI
     roundStart   = notes({ { G5, 0.09 }, { C6, 0.16 } }, "square", 0.18),
     victory      = notes({ { C5, 0.11 }, { E5, 0.11 }, { G5, 0.11 }, { C6, 0.35 } }, "square", 0.2,

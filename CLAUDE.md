@@ -2,7 +2,8 @@
 
 Top-down arena shooter in LÖVE (Lua) with mobile twin-stick controls. Modes: duel, team
 fight, waves, Yardball (a ball game), King of the Yard (4 teams of 3, last team standing),
-Hide and seek (1 seeker, 5 hiders) and boss fights, solo against bots or over LAN, in a
+Hide and seek (1 seeker, 5 hiders), Flower Gardens (4 teams of 3 with fenced gardens) and
+boss fights, solo against bots or over LAN, in a
 mirrored arena. The characters are "rowdies" (code: `Rowdy`, `Rowdies`).
 Name everything "Yard Wars" / "yard-wars": no references to other games or their
 trademarks anywhere (code, comments, docs, website, file names; renamed 2026-10-04).
@@ -25,7 +26,7 @@ existing things that break it.
 - Test coins: `love . --coins 300` (adds to the saved coins in `profile.txt`).
 - Boss fight: `love . --boss 4` (against rowdy 4, any rowdy, also owned ones; `--boss 4 host`
   hosts it for LAN helpers).
-- LAN test on one machine: `love . --host` (or `--host waves` / `team` / `yardball` / `king` / `hide`) and `love . --join 127.0.0.1`
+- LAN test on one machine: `love . --host` (or `--host waves` / `team` / `yardball` / `king` / `hide` / `flowers`) and `love . --join 127.0.0.1`
   (or `love . --find` for the join screen with discovery) in a second terminal.
   UDP ports 27015 (game) + 27016 (discovery); if a phone can't connect/find the desktop:
   `sudo ufw allow 27015:27016/udp`.
@@ -97,9 +98,9 @@ existing things that break it.
 
 ## Layout
 - `main.lua` — client: state (menu/pick/join/game/pass/style), roles local/host/client, the modes of
-  the start screen (`Menu.entries`: Duel, Team fight, Waves, Yardball, King of the Yard, Hide and seek, Host duel =
-  free-for-all, Host team fight, Host waves = co-op, Host Yardball, Host King of the Yard, Host hide and
-  seek, Join); PLAY starts the chosen mode with the chosen
+  the start screen (`Menu.entries`: Duel, Team fight, Waves, Yardball, King of the Yard, Hide and seek, Flower
+  Gardens, Host duel = free-for-all, Host team fight, Host waves = co-op, Host Yardball, Host King of the Yard,
+  Host hide and seek, Host Flower Gardens, Join); PLAY starts the chosen mode with the chosen
   rowdy (`Menu.rowdy`); a locked rowdy: `openBoss` (panel) → `startBoss(host)` = newGame with
   mode `{ boss = index }` and `Menu.fighter`; matchOver of a won boss fight →
   `Unlock.won` (message = result subtitle); result screen (Play again / Rowdy / Menu; LAN clients:
@@ -130,6 +131,12 @@ existing things that break it.
   marks, countdown `tick`s), scoreboard kind "hide", result: "Seeker wins!" / "Hiders
   win!", the seeker first, then the hiders by how long they stayed hidden ("found 1st"
   ... "never found!", pieces placed).
+  Flower Gardens (`MODES.flowers`): `fourTeams()` = king or flowers (team colours/names,
+  minimap, result layout); gardens + planted flowers below everything, fences, flowers on
+  the ground / above the carrier, the bulldozer under its driver (src/flowers.lua); no aim
+  preview and no super button while driving; the nearest bulldozer's engine putts every
+  0.3 s; HUD lines, banners (flower home n of 5, bulldozer, fence down, team out, last two
+  teams, time marks), scoreboard kind "flowers", result: places + flowers per team.
   Escape / Android back: game → menu, menu → quit. (F2 used to toggle a Kenney
   character style; those sprites were removed 2026-10-04.)
 - `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
@@ -222,7 +229,37 @@ existing things that break it.
   `TAG_REACH` 95, goes to the last seen / hinted spot, else checks the nearest unchecked
   hiding place (a swing into bushes); `GIVE_UP` 4 s without getting closer = another goal.
   Bot-only rounds (20 seeds, 2026-10-25): seeker wins 9/20, median 95 s, every round ends,
-  2.5 pieces placed on average (BOLT_DIST was 190: seeker 12/20); boss fight (`mode.boss` = rowdy index): the players (team
+  2.5 pieces placed on average (BOLT_DIST was 190: seeker 12/20); Flower Gardens
+  (`mode.flowers`, also `teams`, checked BEFORE the `teams` branches; 2026-11-01, Gideon's
+  idea, name not final - ask Gideon): `World.new` switches to the "gardens" layout, teams
+  and joining as in King of the Yard (`addKingPlayer`, `removePlayer`; `handOver` moves the
+  carried flower, `delivered` and the bulldozer); `world.flowerGame` {fences[t] = up,
+  teams[t] = {count (towards the bulldozer), delivered}, flowers = {id, x, y, kind,
+  carrier}, nextFlower, endAt}. Fences (`World:fenceAt` inside `barrierAt`, `updateFences`,
+  `World:sheltered`): other teams are pushed out of an intact garden (whichever way they
+  got in: walking, leap, blink, fling), their bullets/beams stop at it, `explode`/`hitWith`/
+  goo skip a rowdy in its own intact garden; the own team walks and shoots through.
+  Flowers: `FLOWER_START` 4, then one every `FLOWER_EVERY` 6 s up to `FLOWER_MAX` 8 within
+  `FLOWER_FIELD` 600 px of the centre; walk over = `carryingFlower` (one at a time, not
+  while driving/underground/leaping), knocked out = drops there, the carrier's centre in
+  its garden = delivered (`e.delivered`); every `DOZER_FLOWERS` 5 the deliverer gets
+  `e.driving` {expires, speed} (only if some other fence still stands): `untouchable()`,
+  `Rowdy:shoot`/`shootSuper`/beam refuse, `DOZER_SPEED` 150 in `Rowdy:move`, Officer
+  barriers don't push it; touching another team's intact fence = `fenceDown`, the
+  bulldozer is gone; unused it rolls away after `DOZER_TIME` 40 s (`dozerGone`).
+  `knockout` with the own fence down = `out`. `checkFlowers`: a team is out when nobody of
+  it is up (only possible without a fence), places as in King; at `FLOWER_TIME` 240 s the
+  teams still up get places by flowers delivered, a tie at the top = draw. Bots
+  (`World:flowerPlan`, from Enemy:update like kingPlan): a driver heads for the inner
+  corner of the target fence (the team with the most flowers, kept while it stands), then
+  the nearest point; a carrier goes home; per team the first 2 bots by id fetch (1 with a
+  player in the team; nearest free flower no team mate goes for); the others go after an
+  opponent carrier in sight within 900 px, else roam the field; opponents in sight within
+  300 px come first. `botTarget` skips drivers and sheltered opponents, a flower carrier
+  counts 400 px nearer, `KING_NOTICE` applies. No loot boxes in or near a garden.
+  Bot-only rounds (40 seeds, 2026-11-01): all end, 138-240 s (about half by the clock),
+  3-5 bulldozers and 3-4 fences down per round, rarely one rolls away, wins by team
+  10/5/6/8 + 1 draw (30 seeds): no side bias. Step without JIT 0.44 ms (King 0.21 ms); boss fight (`mode.boss` = rowdy index): the players (team
   `TEAM_PLAYERS`) vs one big bot with that rowdy's def (`boss` flag, `BOSS_HP` 3x HP,
   `BOSS_SIZE` 1.4: `World.bossLook`, radius), no time limit, players respawn forever, the
   boss never respawns (`out`) - won (`winnerTeam` = players) when it is out (charter: you
@@ -262,7 +299,11 @@ existing things that break it.
   hintUntil, placed, pieces {id, x, y, carrier or 0, placed 0/1}), FIELDS `disguised`,
   `placed`, `foundAt`, seek/tag/found/disguise/pieceUp/pieceDrop/piece/picture/hint
   events (no respawn of a joiner either; the replica puts a carried piece on its
-  carrier's proxy and sets `carryingPiece`). Version
+  carrier's proxy and sets `carryingPiece`); 13 since Flower Gardens: welcome
+  `mode.flowers`, snapshot `f` (endAt, fences 1/0, count + delivered per team, flowers
+  {id, x, y, carrier or 0, kind}), FIELDS `carryingFlower`, `driving` (its expires time or
+  false), `delivered`, flower/flowerUp/flowerDrop/deliver/dozer/dozerGone/fenceDown events
+  (no respawn of a joiner either; the replica puts a carried flower on its carrier). Version
   check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
   `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
   refused with a reason ("The host has a newer build (52): restart to update"), different
@@ -377,6 +418,13 @@ existing things that break it.
   shapes), ground + carried pieces, the disguise bush (the arena's bush quad at 76 px -
   smaller than the 128 px arena bushes, so it can be spotted), leaf, shimmer, counting
   bubble, the seeker's cover, minimap marks, the mode icon "hide" (used by src/menu.lua)
+- `src/flowers.lua` — Flower Gardens drawing: the gardens (team-coloured patch, a flower
+  bed along the inside of the fence with one planted flower per delivered one), the picket
+  fence (posts in the team colour; scattered broken planks once down), flowers (4 kinds of
+  shape-drawn blooms, `drawBloom`), the carried flower, the yellow toy bulldozer (scaled
+  1.45, faces the way it moves - heading tracked from positions, so it works on LAN
+  clients; blinks its last 5 s), minimap marks, the scoreboard's fence icon, the mode icon
+  "flower" (used by src/menu.lua)
 - `src/king.lua` — King of the Yard drawing: heart beacons (team-coloured ring, pulsing
   heart, green progress ring, blinks its last 4 s), the fog (a grey ring mesh from the
   clear circle outwards, soft edge, drifting cloud puffs; CHARTER.md: no poison look) and
@@ -438,8 +486,13 @@ existing things that break it.
   open middle with `Arena.frame` (4x3 tiles, drawn, not solid), `Arena.pieceSpots` (one per
   quarter, tile 6.5/9.5 mirrored); "pitch" = Yardball: no centre wall, an open middle lane,
   `Arena.goals` [team defending it] = mouths of 4 tiles in the left/right border,
+  "gardens" = Flower Gardens: 60x40 (`mirror4`), `Arena.gardens[team]` {x1, y1, x2, y2, cx,
+  cy, fence = the two open sides as one polyline} = 9x7 tiles in each corner (team order
+  as `teamSpawns`), 3 spots inside, cover on the way, open middle;
   `Arena.center`, pitch markings in `drawBelow`); `resolveCircle`, `hitsSolid`,
-  raycast, `hasLineOfSight`, `randomOpenPoint`, spawns
+  raycast, `hasLineOfSight` (only tests the solids near the line - 2026-11-01: without JIT
+  that took a Flower Gardens step from 2.1 to 0.44 ms, King 0.85 to 0.21; checked equal to
+  the old way on 100000 random lines on all layouts), `randomOpenPoint`, spawns
 - `src/camera.lua` — follows player; `viewSize=720` world units along the SHORTER screen
   side (landscape + portrait); clamp to arena; shake; `toWorld()`
 - `src/controls.lua` — input abstraction → `{ dx, dy, aim, fire, aiming }`
@@ -561,7 +614,8 @@ existing things that break it.
   sine/triangle/noise with pitch slides + envelopes; no files): per-rowdy shots, hit/hurt,
   impact, poof (knockout), spawn, super, superReady chime, heal, round start, victory/defeat/draw, click,
   box/boxHit/boxBreak, coin, unlock, tierUp, claim, kick/pickup/bounce/goal,
-  beacon/revive/fog (King of the Yard), tick/ready/rustle/piece/picture/hint (Hide and seek;
+  beacon/revive/fog (King of the Yard), flower/deliver/dozerStart/dozer/fence (Flower
+  Gardens), tick/ready/rustle/piece/picture/hint (Hide and seek;
   the swing plays shot_shovel, a found hider the poof).
   `Sound.play(name, x, y)`: quieter with distance from the own rowdy, panned; same sound
   not faster than 35 ms; M mutes (touch: speaker button top right on every screen, the
@@ -569,7 +623,8 @@ existing things that break it.
 - `src/scoreboard.lua` — in-game scoreboard top centre (duel/team: scores with bars to the kill
   target + timer, red in the last 30 s; Yardball: goals, a ball instead of the timer;
   King of the Yard: 4 team boxes (own first) with the rowdies up, grey when out, + a fog
-  box: countdown, then a pulsing cloud; Hide and seek ("hide"): hiders as heads (grey
+  box: countdown, then a pulsing cloud; Flower Gardens ("flowers"): 4 team boxes with the
+  flowers delivered, a fence icon and a gold bar to the next bulldozer, + the clock; Hide and seek ("hide"): hiders as heads (grey
   once found), the hide countdown / clock, the picture pieces as squares; waves: wave, lives as hearts, bots left; boss: one
   wide health bar; below the minimap on narrow screens) and banners (time marks, new wave,
   lost life, 1 kill to win, boss at half / 20%)
@@ -737,6 +792,21 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   portrait), LAN host + 2 clients on one machine. Frame on desktop: update 0.5 ms (host),
   draw 1.4 ms. NOT yet on a device (touch tag, readability of the disguise on a phone,
   round length with humans).
+- Flower Gardens (2026-11-01, Gideon's idea; decisions with the user: the bulldozer is
+  driven and only its driver can't be hurt, every 5 flowers, last team standing or most
+  flowers after 4 min, no way back without a fence, the fence blocks the other teams'
+  shots): tested on desktop - headless rules test (90 checks: layout + symmetry, yard
+  restored, fences block walking/landing/bullets/blasts of others but not the own team,
+  pick one at a time / drop on knockout / deliver, 5 = bulldozer for the deliverer:
+  untouchable, no attacks, speed 150, knocks a fence down, rolls away; no bulldozer
+  without a target; no respawn without a fence; elimination + places; end by flowers /
+  draw; restart; join order + a leaver's flower), 40 bot-only rounds, screenshots
+  (start, carrying, delivered, bulldozer, fence down, out, result; landscape + portrait),
+  autoplay rounds with 10 rowdies as the player (all end, no errors), LAN host + 2 clients
+  (same teams, flowers and fences on all; a protocol-12 build is refused).
+  The name is a working name (mode card, website): ask Gideon. NOT yet on a device (12
+  rowdies + fences on a phone, round length with humans; charter watch: with no way back,
+  eliminated kids sit out - a rebuild rule would be a small change).
 - Yardball (2026-10-11, published as build 93): tested on desktop (headless rules test, bot-only
   rounds, autopilot solo round + screenshots landscape/portrait, LAN host + client on one
   machine: same goals and carriers on both sides). NOT yet on a device (kick with the

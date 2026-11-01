@@ -23,7 +23,9 @@ local walls, bushes, crates, solids = {}, {}, {}, {}
 -- the four corners where the teams start are equal), an open middle; "hideout": Hide and
 -- seek - as big as "kingdom" and mirrored the same way, full of bushes, hedge rows
 -- (long bushes), sheds (walls) and crates that break up the long sight lines, the
--- picture frame in the open middle and one picture piece per quarter.
+-- picture frame in the open middle and one picture piece per quarter; "gardens": Flower
+-- Gardens - as big as "kingdom" and mirrored the same way, a fenced garden in every
+-- corner (the teams' spawn), cover on the way to the open flower field in the middle.
 local LAYOUTS = {
     yard = {
         walls  = { {x=6, y=4, w=2, h=4}, {x=6, y=16, w=2, h=4}, {x=11, y=10, w=2, h=4} },
@@ -74,6 +76,19 @@ local LAYOUTS = {
         frame = { w = 4, h = 3 },
         piece = { 6.5, 9.5 },
     },
+    gardens = {
+        cols = 60, rows = 40, mirror4 = true,
+        walls  = { {x=12, y=3, w=2, h=4}, {x=3, y=11, w=4, h=2}, {x=17, y=9, w=4, h=2},
+                   {x=10, y=14, w=2, h=4}, {x=22, y=3, w=2, h=4} },
+        bushes = { {x=15, y=0, w=4, h=2}, {x=0, y=14, w=2, h=4}, {x=13, y=9, w=2, h=2},
+                   {x=24, y=10, w=2, h=2}, {x=16, y=15, w=4, h=2}, {x=6, y=17, w=2, h=2} },
+        crates = { {x=11, y=9}, {x=20, y=6}, {x=7, y=14}, {x=26, y=15}, {x=19, y=13}, {x=26, y=6} },
+        centerWalls = {}, centerBushes = {},
+        -- the garden in the top-left corner (tiles from the corner, mirrored to the
+        -- others like the spots), fenced on its two open sides; the spots are inside
+        garden = { w = 9, h = 7 },
+        spots = { {3, 2.5}, {6, 2.5}, {3, 5} },
+    },
 }
 
 -- Goals (pitch only): a mouth of GOAL_TILES tiles in the middle of the left and right
@@ -102,8 +117,8 @@ local function mirrored(list, out, mirror4)
     end
 end
 
--- Switch to another layout ("yard", "pitch", "kingdom" or "hideout"): size, walls,
--- bushes, crates, goals, spawns, the Hide and seek frame and pieces
+-- Switch to another layout ("yard", "pitch", "kingdom", "hideout" or "gardens"): size,
+-- walls, bushes, crates, goals, spawns, the Hide and seek frame and pieces, the gardens
 function Arena.setLayout(name)
     local L = LAYOUTS[name] or LAYOUTS.yard
     Arena.layout = LAYOUTS[name] and name or "yard"
@@ -146,6 +161,22 @@ function Arena.setLayout(name)
             Arena.teamSpawns[team] = list
         end
         Arena.spawn = { x = Arena.teamSpawns[1][1][1], y = Arena.teamSpawns[1][1][2] }
+    end
+
+    -- Flower Gardens: Arena.gardens[team] = { x1, y1, x2, y2 (px), cx, cy (its middle),
+    -- fence = the two open sides as one line { x, y, x, y, x, y } } (corners as the spots)
+    Arena.gardens = nil
+    if L.garden then
+        Arena.gardens = {}
+        local gw, gh = L.garden.w * TILE, L.garden.h * TILE
+        local W, H = Arena.width, Arena.height
+        for team, f in ipairs({ { false, false }, { true, true }, { true, false }, { false, true } }) do
+            local x1, x2 = f[1] and W - gw or 0, f[1] and W or gw
+            local y1, y2 = f[2] and H - gh or 0, f[2] and H or gh
+            local fx, fy = f[1] and x1 or x2, f[2] and y1 or y2 -- (the inner corner)
+            Arena.gardens[team] = { x1 = x1, y1 = y1, x2 = x2, y2 = y2, cx = (x1 + x2) / 2,
+                cy = (y1 + y2) / 2, fence = { fx, f[2] and H or 0, fx, fy, f[1] and W or 0, fy } }
+        end
     end
 
     -- Hide and seek: Arena.frame = { x, y, w, h } (px), Arena.pieceSpots = 4 x { x, y }
@@ -218,13 +249,40 @@ function Arena.inBush(x, y)
     return false
 end
 
--- True if nothing solid lies on the straight line between two points.
+-- True if nothing solid lies on the straight line between two points. (Only the solids
+-- near the line are tested: bots ask this a lot, and without JIT - Android - testing
+-- every solid at every step of the line was most of a simulation step on the big maps.)
+local near = {} -- (reused: the solids near the current line)
 function Arena.hasLineOfSight(x1, y1, x2, y2)
     local dx, dy = x2 - x1, y2 - y1
     local steps = math.ceil(math.sqrt(dx * dx + dy * dy) / 8)
+    local W, H = Arena.width, Arena.height
+    if x1 < 0 or y1 < 0 or x2 < 0 or y2 < 0 or x1 > W or x2 > W or y1 > H or y2 > H then
+        for i = 1, steps - 1 do -- (an end outside the arena: the plain way)
+            local t = i / steps
+            if Arena.hitsSolid(x1 + dx * t, y1 + dy * t, 3) then return false end
+        end
+        return true
+    end
+    local minX, maxX = math.min(x1, x2) - 3, math.max(x1, x2) + 3
+    local minY, maxY = math.min(y1, y2) - 3, math.max(y1, y2) + 3
+    local n = 0
+    for _, s in ipairs(solids) do
+        if s.x < maxX and s.x + s.w > minX and s.y < maxY and s.y + s.h > minY then
+            n = n + 1
+            near[n] = s
+        end
+    end
+    if n == 0 then return true end
     for i = 1, steps - 1 do
         local t = i / steps
-        if Arena.hitsSolid(x1 + dx * t, y1 + dy * t, 3) then return false end
+        local x, y = x1 + dx * t, y1 + dy * t
+        for j = 1, n do
+            local s = near[j]
+            local cx = math.max(s.x, math.min(x, s.x + s.w))
+            local cy = math.max(s.y, math.min(y, s.y + s.h))
+            if (x - cx) ^ 2 + (y - cy) ^ 2 < 9 then return false end
+        end
     end
     return true
 end

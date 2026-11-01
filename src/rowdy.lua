@@ -78,6 +78,8 @@ function Rowdy:init(x, y, look, stats)
     -- push (forced or own movement { vx, vy, t, own }), leap, burrowed: see Rowdy:act
     -- carrying: has the ball (Yardball, set by src/world.lua): no attacks, only the super
     -- noAttacks: Hide and seek (src/world.lua) - no attacks and no super at all
+    -- driving: Flower Gardens' bulldozer { expires, speed } (src/world.lua): can't be
+    --   hurt or pushed, no attacks, drives at its speed
     -- animation state
     self.walkPhase, self.walkBlend, self.stepTimer = 0, 0, 0
     self.dirX, self.dirY = 1, 0
@@ -222,6 +224,7 @@ function Rowdy:move(dx, dy, dt)
     if len > 0 then
         self.dirX, self.dirY = dx / len, dy / len
         local speed = self.burrowed and self.speed * BURROW_SPEED or self.speed
+        if self.driving then speed = self.driving.speed or speed end
         self.x = self.x + self.dirX * speed * dt
         self.y = self.y + self.dirY * speed * dt
     end
@@ -262,9 +265,9 @@ function Rowdy:canAct()
     return self:canMove() and not self.burrowed and not self.grab
 end
 
--- Out of reach of bullets and blasts (in the air or underground)
+-- Out of reach of bullets and blasts (in the air, underground or in a bulldozer)
 function Rowdy:untouchable()
-    return self.leap ~= nil or self.burrowed ~= nil
+    return self.leap ~= nil or self.burrowed ~= nil or self.driving ~= nil
 end
 
 -- Move by a push: forced (pulled to a rowdy, flung) or own (the dash of a punch).
@@ -422,7 +425,7 @@ function Rowdy:actBeam(dt)
     if self.grab then return end -- (its beam is the grab's)
     local attack = self.attack
     if attack.kind ~= "beam" or self.beamHold <= 0 or not self:canAct() or self.ammo <= 0
-        or not self.world or self.carrying then
+        or not self.world or self.carrying or self.driving then
         self.beamLen, self.beamTimer, self.beamSound = 0, nil, nil
         return
     end
@@ -612,9 +615,10 @@ function Rowdy:landing(attack, angle)
 end
 
 -- One attack: uses one ammo bar and fires `pellets` projectiles in a cone.
--- Returns true if the attack happened. (Not while carrying the ball: the attack kicks it.)
+-- Returns true if the attack happened. (Not while carrying the ball: the attack kicks it;
+-- not in a bulldozer.)
 function Rowdy:shoot(bullets, hold)
-    if self.carrying or self.noAttacks then return false end
+    if self.carrying or self.noAttacks or self.driving then return false end
     if self.attack.kind == "beam" then -- keeps the beam on (a tap: a bit longer)
         if not self:canAct() or self.ammo <= 0.05 then return false end
         self.beamHold = math.max(self.beamHold, hold and 0.12 or 0.35)
@@ -644,7 +648,10 @@ end
 
 -- The super attack: needs a full meter, no ammo. Returns true if it happened.
 function Rowdy:shootSuper(bullets)
-    if not self:superReady() or not self:canAct() or self.cooldown > 0 or self.noAttacks then return false end
+    if not self:superReady() or not self:canAct() or self.cooldown > 0 or self.noAttacks
+        or self.driving then
+        return false
+    end
     self.bursting = nil
     fire(self, bullets, self.super)
     -- (a burst super keeps its follow-up shots: fire set self.bursting again)

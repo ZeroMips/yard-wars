@@ -18,10 +18,12 @@ unlock new rowdies.
 - Hide and seek: one seeker, five hiders who turn into bushes when they stand still, and
   a picture puzzle that makes the round shorter
 - A free Yard Pass with seasons, challenges that never expire and cosmetics to win
-- Modes: Duel, Team fight (3 vs 3), Waves, Yardball, King of the Yard and Hide and seek,
-  against bots
+- Flower Gardens: four teams carry flowers home to their fenced gardens; every five
+  flowers bring a toy bulldozer that knocks down another team's fence
+- Modes: Duel, Team fight (3 vs 3), Waves, Yardball, King of the Yard, Hide and seek and
+  Flower Gardens, against bots
 - Play together in the same Wi-Fi: free-for-all, team fight, co-op waves, Yardball, King
-  of the Yard and Hide and seek, the host is found automatically
+  of the Yard, Hide and seek and Flower Gardens, the host is found automatically
 - Touch controls (move stick, aim and release to fire) and keyboard + mouse
 - New rowdies: save up coins (treasure chests, round rewards) and beat the rowdy in a
   boss fight - you can't lose, you pop back in until it's out (alone or with friends)
@@ -39,7 +41,7 @@ A checkout like this never updates itself; only packaged builds do.
 
 Useful options for testing: `--rowdy N` (start with rowdy N), `--coins N` (add coins),
 `--boss N [host]` (boss fight against rowdy N),
-`--host [team|waves|yardball|king|hide]` and `--join <address>` / `--find` (LAN game on one machine: run
+`--host [team|waves|yardball|king|hide|flowers]` and `--join <address>` / `--find` (LAN game on one machine: run
 two instances). Playing over the network uses UDP ports 27015 and 27016.
 
 ## Project layout

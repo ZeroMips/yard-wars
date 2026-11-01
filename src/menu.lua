@@ -20,13 +20,14 @@ local Decor    = require("src.decor")
 local Seasons  = require("src.seasons")
 local Ball     = require("src.ball")
 local HideSeek = require("src.hideseek")
+local Flowers  = require("src.flowers")
 local PassView = require("src.passview")
 local Unlock   = require("src.unlock")
 
 local Menu = {}
 
 Menu.entries = {}       -- modes to choose from (set by main.lua): { id, name, description,
-                        --   icon = "duel"|"team"|"waves"|"ball"|"crown"|"hide"|"join", lan = bool, ... }
+                        --   icon = "duel"|"team"|"waves"|"ball"|"crown"|"hide"|"flower"|"join", lan = bool, ... }
 Menu.mode = 1           -- index into Menu.entries
 Menu.rowdy = 1        -- index into Rowdies
 Menu.modesOpen = false  -- the mode list is shown over the lobby
@@ -55,6 +56,7 @@ local MODE_COLORS = {
     ball  = { 0.15, 0.62, 0.6 },
     crown = { 0.85, 0.6, 0.1 },
     hide  = { 0.35, 0.55, 0.2 },
+    flower = { 0.85, 0.35, 0.55 },
     join  = { 0.2, 0.7, 0.45 },
 }
 local PLAY_COLOR     = { 1, 0.78, 0.1 }
@@ -335,6 +337,8 @@ local function drawIcon(kind, cx, cy, s)
         end
     elseif kind == "hide" then -- Hide and seek: eyes peeking out of a bush
         HideSeek.drawIcon(cx, cy, s * 0.9)
+    elseif kind == "flower" then -- Flower Gardens: a flower over a picket fence
+        Flowers.drawIcon(cx, cy, s)
     else -- join: wifi arcs
         love.graphics.circle("fill", cx, cy + s * 0.5, s * 0.12)
         for i = 1, 3 do
