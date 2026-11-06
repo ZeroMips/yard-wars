@@ -42,6 +42,30 @@ Net.CONNECT_TIMEOUT = 5
 
 local CH_RELIABLE, CH_FAST = 0, 1
 
+-- enet's host:service raises "Error during service" when a send or receive on its socket
+-- fails (seen on the moto g67 hosting a team fight, build 109: crashed 4 times in a few
+-- minutes, probably when a phone dropped off the Wi-Fi or left). That is not the end of
+-- the game: the call is retried next frame, and the error goes to the update log (the
+-- first few of a session). Only when it keeps failing for SERVICE_GIVE_UP s does a
+-- client give up (a lost host is noticed by enet's own timeout otherwise).
+local SERVICE_GIVE_UP = 6
+local SERVICE_LOGGED  = 3
+
+-- self.host:service(0) without raising: event, or nil + the error after a failure
+local function serviceOnce(self)
+    local ok, ev = pcall(self.host.service, self.host, 0)
+    if ok then
+        self.failingSince = nil
+        return ev
+    end
+    self.netErrors = (self.netErrors or 0) + 1
+    self.failingSince = self.failingSince or love.timer.getTime()
+    if self.netErrors <= SERVICE_LOGGED then
+        Updater.log("net: " .. tostring(ev) .. " (" .. self.netErrors .. ". this session, kept going)")
+    end
+    return nil, ev
+end
+
 -- Host and client must agree on the messages and the rowdy list (rowdies travel as
 -- list indexes, the client draws with its own stats). Bump PROTOCOL when messages or
 -- Net.FIELDS change; the content id is a hash of src/rowdies.lua's data, so a new or
@@ -242,7 +266,7 @@ end
 function Server:service()
     if self.discovery then answerQueries(self) end
     while true do
-        local ev = self.host:service(0)
+        local ev = serviceOnce(self) -- (an error: try again next frame)
         if not ev then break end
         if ev.type == "connect" then
             setTimeout(ev.peer)
@@ -554,8 +578,11 @@ end
 function Client:service()
     if self.state == "closed" then return end
     while true do
-        local ok, ev = pcall(self.host.service, self.host, 0)
-        if not ok then self:fail("Network error") return end
+        local ev, err = serviceOnce(self)
+        if err and love.timer.getTime() - self.failingSince > SERVICE_GIVE_UP then
+            self:fail("Network error")
+            return
+        end
         if not ev then break end
         if ev.type == "connect" then
             setTimeout(self.peer)

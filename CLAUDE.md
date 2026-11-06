@@ -309,6 +309,13 @@ existing things that break it.
   refused with a reason ("The host has a newer build (52): restart to update"), different
   builds with the same protocol and rowdies may play together (git checkout <-> phone).
   Clients up to build 51 have no check: a newer host refuses them ("Could not connect")
+  `host:service` is called through `serviceOnce` (pcall): enet raises "Error during
+  service" when a socket send/receive fails; the host crashed on it 4 times in a few
+  minutes (moto g67 hosting a team fight, build 109, 2026-11-06 - the server's call had
+  no pcall since the first LAN version). Now an error is retried next frame and logged
+  (`net: ...`, the first 3 per session, update-log.txt); a client gives up with "Network
+  error" only after 6 s of nothing but errors (before: at the first one). Desktop test with
+  a host/client whose service fails every 2nd/3rd call: both keep playing
 - `src/replica.lua` — client-side World copy from snapshots: others interpolated 100 ms
   behind the host, own rowdy 50 ms; the ball at the remote time, a carried one at its
   carrier's proxy (`carrying` set on the proxies); bullets drawn from spawn records (straight lines);
