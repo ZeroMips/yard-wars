@@ -755,8 +755,10 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   website with the King of the Yard card uploaded the same day). Build 103 (2026-10-15:
   King of the Yard's faster fog, protocol unchanged). Build 105 (2026-10-25: Hide and
   seek, protocol 12). Build 106 (2026-10-29: loading steps + heartbeat in the
-  update log, protocol unchanged). Build 109 (2026-11-01, current: Flower Gardens + faster
+  update log, protocol unchanged). Build 109 (2026-11-01: Flower Gardens + faster
   line of sight, protocol 13; website with the Flower Gardens card uploaded the same day).
+  Build 111 (2026-11-06, current: a failing enet service call no longer crashes the LAN
+  host, protocol unchanged).
 - New rowdies 2 (Gideon's photos of 2026-10-12, ~/Downloads/download (2).zip): Posion
   (goo spray cone + firework rockets; name as Gideon wants it), Fruit Man (two apples in
   a V + heals himself), Officer (handcuffs: 12 damage - "no damage" scored 0 knockouts,
