@@ -88,11 +88,25 @@
 --                           sight) to the rowdy, with `damage` each (pull = true)
 --                  "barrier" a fence in front of the rowdy for `duration` seconds:
 --                           opponents can't walk or shoot through, the own team can
+--                  "fly"    flies for `duration` seconds at bulletSpeed px/s, steered with
+--                           the move stick, over walls, can't be hit or attack; lands with
+--                           a blast (blast, damage) when the time is up or on the next
+--                           press of the super button. range: for bots, as for burrow
+--                  "car"    turns into a toy car for up to `duration` seconds: drives on its
+--                           own at bulletSpeed px/s, steered with the move stick, until it
+--                           hits a wall or chest (nothing) or an opponent (blast, damage);
+--                           range: for bots, how near a target must be to start it
+--                  "reflect" for `duration` seconds shots that hit the rowdy fly back at
+--                           the shooter (bombs and beams are not sent back)
+--                  "shield" for `duration` seconds nothing can hurt the rowdy
+--   width        kind "beam" only: how wide the beam is (px); an opponent within half of
+--                it from the beam's line is hit. projectile "note" draws it as music notes
 --   projectile   how it is drawn (src/bullet.lua): "pen", "book", "pan", "waffle",
 --                "snowball", "potion", "magnet", "glove", "swing", "apple", "stone",
---                "goo", "rocket", "cuffs"; for a leap / burrow / blink / spin / gust its
---                blast: "slam", "dirt", "boo", "whirl"; default a ball in bulletColor (a bomb for
---                lob)
+--                "goo", "rocket", "cuffs", "beam" (a long streak); for a leap / burrow /
+--                blink / spin / gust / fly / car its blast: "slam", "dirt", "boo", "whirl";
+--                for a kind "beam": "note" (music notes); default a ball in bulletColor (a
+--                bomb for lob)
 --   super        special attack, charged by dealing damage (optional):
 --                  name, description, charge (damage needed to fill the meter), and
 --                  and every attack field above (pellets, spread, damage, range,
@@ -320,6 +334,48 @@ local Rowdies = {
                             charge = 120, kind = "gust", damage = 50, blast = 80, range = 450,
                             bulletSpeed = 1000, projectile = "whirl" } },
     },
+    {
+        -- Gideon's third batch (photos of 2026-11-22). An umbrella (CHARTER.md: a plain rain
+        -- umbrella) and a long steerable flight that ends with a landing blast
+        name = "Mrs Star", role = "Umbrella, long flights", price = 400, shot = "shot_shovel",
+        comic = { image = "mrstar", origin = { 79.5, 62 }, muzzle = { 45, 0 } },
+        stats = { speed = 250, hp = 130, damage = 42, range = 95, bulletSpeed = 800,
+                  radius = 28, wallRadius = 8, pierce = true, reload = 0.35, maxAmmo = 3,
+                  ammoRefill = 1.0, projectile = "swing", bulletColor = { 0.3, 0.4, 0.85 },
+                  super = { name = "Star Flight", description = "Flies far, steer it, tap to land",
+                            charge = 110, kind = "fly", duration = 3, bulletSpeed = 330,
+                            damage = 60, blast = 110, range = 600, projectile = "slam" } },
+    },
+    {
+        -- A fat toy ray gun with one strong shot, and a mirror shield that sends shots back
+        name = "Wonder Destroyer", role = "Strong shot, reflects", price = 500, shot = "shot_wonder",
+        comic = { image = "wonder", origin = { 33.5, 120.5 }, muzzle = { 117.5, 1 } },
+        stats = { speed = 235, hp = 110, damage = 32, range = 560, bulletSpeed = 2200,
+                  radius = 14, wallRadius = 6, pierce = true, reload = 1.1, maxAmmo = 2,
+                  ammoRefill = 2.2, projectile = "beam", bulletColor = { 1, 0.35, 0.3 },
+                  super = { name = "Mirror Shield", description = "Sends shots back at the shooter",
+                            charge = 200, kind = "reflect", duration = 3, range = 450 } },
+    },
+    {
+        -- A disco speaker: a broad beam of music notes, heals the whole team
+        name = "Danger Disco", role = "Broad note beam, heals team", price = 450, shot = "shot_disco",
+        comic = { image = "disco", origin = { 49.5, 75 }, muzzle = { 70, -1 } },
+        stats = { speed = 245, hp = 100, kind = "beam", damage = 2.5, width = 56, range = 380,
+                  reload = 0.2, maxAmmo = 3, ammoRefill = 1.5, projectile = "note",
+                  bulletColor = { 1, 0.45, 0.85 },
+                  super = { name = "Dance Floor", description = "Heals her and her team around her",
+                            charge = 150, kind = "heal", heal = 0.4, blast = 260 } },
+    },
+    {
+        -- Turns into a toy car you steer until it bumps into something; a shield bubble
+        name = "Transform Girl", role = "Steered toy car, shield", price = 450, shot = "gust",
+        comic = { image = "transform", origin = { 46, 80 }, muzzle = { 77, 0 } },
+        stats = { speed = 250, hp = 125, kind = "car", damage = 45, blast = 60, range = 450,
+                  duration = 2.5, bulletSpeed = 420, reload = 1.0, maxAmmo = 2, ammoRefill = 2.0,
+                  projectile = "slam", bulletColor = { 1, 0.8, 0.2 },
+                  super = { name = "Bubble Shield", description = "Nothing can hurt her for 3 s",
+                            charge = 130, kind = "shield", duration = 3 } },
+    },
 }
 
 -- The old enemy bot (not playable). No longer spawned - bots are random rowdies from
@@ -345,7 +401,7 @@ local ATTACK = { damage = NUMBER, pellets = NUMBER, spread = NUMBER, range = NUM
                  burstDelay = NUMBER, twin = BOOL, freeze = NUMBER, projectile = STRING,
                  pull = BOOL, dash = NUMBER, kind = STRING, duration = NUMBER,
                  hold = NUMBER, goo = NUMBER, chargeHit = NUMBER, heal = NUMBER,
-                 targets = NUMBER }
+                 targets = NUMBER, width = NUMBER }
 local STATS = { speed = NUMBER, hp = NUMBER, reload = NUMBER, maxAmmo = NUMBER,
                 ammoRefill = NUMBER, super = TABLE, barColor = TABLE, bulletColor = TABLE }
 local SUPER = { name = STRING, description = STRING, charge = NUMBER }
@@ -353,12 +409,17 @@ for k, v in pairs(ATTACK) do STATS[k], SUPER[k] = v, v end
 local PROJECTILES = { pen = true, book = true, pan = true, waffle = true, snowball = true,
                       potion = true, magnet = true, glove = true, swing = true, slam = true,
                       dirt = true, boo = true, apple = true, stone = true, goo = true,
-                      rocket = true, cuffs = true, whirl = true }
+                      rocket = true, cuffs = true, whirl = true, beam = true, note = true }
 local KINDS = { shot = true, leap = true, burrow = true, blink = true, vanish = true,
                 beam = true, grab = true, heal = true, spin = true, gust = true,
-                magnet = true, barrier = true }
+                magnet = true, barrier = true, fly = true, car = true, reflect = true,
+                shield = true }
 -- kinds that hit with a blast around a spot (they need blast = radius)
-local BLASTS = { leap = true, burrow = true, blink = true, spin = true, gust = true }
+local BLASTS = { leap = true, burrow = true, blink = true, spin = true, gust = true,
+                 fly = true, car = true }
+-- kinds that last `duration` seconds
+local TIMED = { burrow = true, vanish = true, barrier = true, fly = true, car = true,
+                reflect = true, shield = true }
 
 local function validate(def, label)
     local function fail(msg) error("src/rowdies.lua: " .. label .. ": " .. msg, 0) end
@@ -412,9 +473,15 @@ local function validate(def, label)
         if t and BLASTS[t.kind] and not (t.blast and t.blast > 0) then
             fail(a[2] .. "kind " .. t.kind .. " needs blast (radius of the hit)")
         end
-        if t and (t.kind == "burrow" or t.kind == "vanish" or t.kind == "barrier")
-            and not (t.duration and t.duration > 0) then
+        if t and TIMED[t.kind] and not (t.duration and t.duration > 0) then
             fail(a[2] .. "kind " .. t.kind .. " needs duration (seconds)")
+        end
+        if t and t.width and t.kind ~= "beam" then
+            fail(a[2] .. "width only goes with kind = \"beam\"")
+        end
+        if t and t.width and t.width <= 0 then fail(a[2] .. "width must be > 0") end
+        if t and (t.kind == "fly" or t.kind == "car") and not (t.bulletSpeed and t.bulletSpeed > 0) then
+            fail(a[2] .. "kind " .. t.kind .. " needs bulletSpeed (its speed in px/s)")
         end
         if t and t.kind == "beam" and t == sup then fail("a beam can only be the normal attack") end
         if t and t.kind == "magnet" and not t.pull then fail(a[2] .. "kind magnet needs pull = true") end

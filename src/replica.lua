@@ -284,6 +284,9 @@ local function proxyFor(self, s)
     p.carryingFlower = tonumber(s.carryingFlower)
     p.driving = tonumber(s.driving) and { expires = tonumber(s.driving) } or nil
     p.delivered = tonumber(s.delivered) or 0
+    p.reflecting = s.reflecting == true or nil -- (the host keeps seconds; here only on / off)
+    p.shielded = s.shielded == true or nil     -- (Rowdy:untouchable checks for nil)
+    p.ramming = s.ramming == true or nil
     return p
 end
 

@@ -142,7 +142,7 @@ existing things that break it.
 - `src/world.lua` — the simulation, no graphics/input/effects (runs headless): entities with
   `id`/`team`/`def`/kills/deaths, bullets (sub-stepped, hit other teams), waves, bush
   hiding (`isHiddenFrom`), `nearestOpponent`, bots (since 2026-10-10: `newBot` picks a
-  random rowdy of all of them (19 since 2026-10-14), locked ones too, `randomBotDef` prefers one nobody in the world
+  random rowdy of all of them (23 since 2026-11-23), locked ones too, `randomBotDef` prefers one nobody in the world
   uses; kept for the round incl. respawns, new ones at `restartMatch`/new wave/team refill;
   handicap `BOT_DAMAGE` 0.75 (applied in `damage()` via `damageScale`), `BOT_SPEED` 0.8,
   `BOT_CHARGE` 0.6 (`chargeScale` in `Rowdy:addCharge`); bosses not handicapped;
@@ -303,7 +303,10 @@ existing things that break it.
   `mode.flowers`, snapshot `f` (endAt, fences 1/0, count + delivered per team, flowers
   {id, x, y, carrier or 0, kind}), FIELDS `carryingFlower`, `driving` (its expires time or
   false), `delivered`, flower/flowerUp/flowerDrop/deliver/dozer/dozerGone/fenceDown events
-  (no respawn of a joiner either; the replica puts a carried flower on its carrier). Version
+  (no respawn of a joiner either; the replica puts a carried flower on its carrier); 14 since
+  Mrs Star/Wonder Destroyer/Danger Disco/Transform Girl: FIELDS `reflecting`, `shielded`, `ramming`
+  (booleans on the wire; seconds left on the host), fly/car/shield/reflect events, `heal.src`
+  (a super's heal is no medpack for the pass); a reflected shot reuses the `turn` event. Version
   check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
   `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
   refused with a reason ("The host has a newer build (52): restart to update"), different
@@ -854,6 +857,41 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   halves into ~/Downloads/yard-wars-art-new/top|side/gardener.png; prompts in
   gardener-prompts.md there). Tested on desktop (lobby, picker, staged firing + super).
 - Open: NOT yet on a device (touch drag on the track, skin shader on GLES).
+
+## New rowdies 3 (Gideon's photos of 2026-11-22; branch `new-rowdies`, not merged yet)
+- Mrs Star (400, `mrstar`): umbrella swing (Digger template) + super `kind = "fly"`: a 3 s flight at
+  330 px/s steered with the move stick over walls and chests, untouchable, no attacks;
+  `Rowdy:land()` (blast 110) on the timer or on the next super press (not within `FLY_MIN`
+  0.4 s); `air` already syncs, so no field. Bots take off in range, steer to the target, land on it.
+  World skips `flying` for fences, chest push-out, flower and ball pick-up.
+- Wonder Destroyer (500, `wonder`): one fast piercing shot (projectile "beam", `ITEMS.beam`) +
+  super `kind = "reflect"` 3 s: `World` `reflect()` in `updateBullets` flips a bullet that hits
+  her (team, owner, new full flight, `reflect` + `turn` events). Bombs and beams are not sent back.
+- Danger Disco (450, `disco`): held beam like the Wizard's with `width` 56 (`World:traceBeam(owner,
+  range, width)`, drawn as music notes: `Rowdy:drawNoteBeam`, projectile "note") + super `kind =
+  "heal"` with `blast` 260: heals her and living team mates in range (events `heal` with
+  `src = "super"`, `Pass.onEvent` ignores those). Bots heal when they or a team mate in range is
+  below 55%.
+- Transform Girl (450, `transform`): normal attack `kind = "car"`: a toy car that drives on its
+  own at 420 px/s, the stick only turns it (4 rad/s, `Rowdy:driveCar`, called by Player/Enemy
+  instead of `move`), stops at a wall/chest (no damage) or an opponent (blast 60, damage 45), 2.5 s
+  at most, team mates are driven through; she is hittable meanwhile. Super `kind = "shield"` 3 s
+  (`untouchable()`). Bots use reflect/shield when a shot is coming (`shotComing`) or when hurt
+  with an opponent near.
+- Validation in src/rowdies.lua: kinds fly/car/reflect/shield (`TIMED` needs `duration`; fly/car
+  need `bulletSpeed` and `blast`), `width` only with kind beam, projectiles beam/note.
+- Tested on desktop: headless mechanics test (31 checks), 1v1 bot duels vs 8 rowdies, 4 x 90 s x
+  4 (knockout share Mrs Star 37%, Wonder 50%, Disco 39%, Transform Girl 40%; Digger 17%, Wizard
+  42%, Sniper 64% as a yardstick), bot-only rounds of team/king/flowers/yardball/waves with the
+  new rowdies (60 rounds, no errors, all end), screenshots of every effect, boss fights 20-23,
+  LAN host + client smoke. NOT yet on a device (steering the flight and the car with the touch
+  stick, landing with the super button).
+- ART IS A PLACEHOLDER: `assets/images/{comic,side}/{mrstar,wonder,disco,transform}.png` are
+  copies of Digger/Sniper/Wizard/Gunner (commit "TEMP: placeholder sprites"). Prompts:
+  ~/Downloads/yard-wars-art-new/<image>-prompts.md. Then `tools/make_comic_sprites.py` (origin and
+  muzzle by hand, the `comic` lines in src/rowdies.lua still hold the copied ones), website cards,
+  publish. Not done: "Power" (2 equipped extra abilities), "Spezial" (new Yard Pass screen),
+  friends/names/invites (needs a server and kids' personal data: charter) - ask Gideon.
 
 ## Pirate status (2026-10-06)
 - Bomb mechanics done and tested on desktop: headless (lands where aimed over a wall,

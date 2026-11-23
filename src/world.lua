@@ -953,24 +953,42 @@ function World:hitWith(owner, attack, victim, x, y)
 end
 
 -- A beam from `owner` along its aim: how long it is (up to range, the first wall or
--- crate), and the first opponent or chest on it
-function World:traceBeam(owner, range)
+-- crate), and the first opponent or chest on it. width (px, optional): a broad beam also
+-- hits what is within half of it from its line (walls are still tested on the line)
+function World:traceBeam(owner, range, width)
     local c, s = math.cos(owner.aim), math.sin(owner.aim)
+    local half = (width or 0) / 2
     local d = 0
     while d < range do
         d = math.min(range, d + 6)
         local x, y = owner.x + c * d, owner.y + s * d
         if Arena.hitsSolid(x, y, 3) or self:barrierAt(x, y, 3, owner.team) then return d end
-        local box = self:boxAt(x, y, 4)
+        local box = self:boxAt(x, y, 4 + half)
         if box then return d, nil, box end
         for _, e in ipairs(self.entities) do
+            local reach = e.radius + half
             if e.team ~= owner.team and not e.dead and not e:untouchable()
-                and (e.x - x) ^ 2 + (e.y - y) ^ 2 < e.radius * e.radius then
+                and (e.x - x) ^ 2 + (e.y - y) ^ 2 < reach * reach then
                 return d, e
             end
         end
     end
     return range
+end
+
+-- A rowdy with a mirror shield (Rowdy.reflecting): a bullet that hits it flies back,
+-- now its own (the reflector gets the credit). Bombs never get here (they fly over)
+local function reflect(self, b, victim)
+    b.vx, b.vy = -b.vx, -b.vy
+    b.team, b.owner = victim.team, victim
+    b.hitIds, b.hitBoxes, b.boomerang, b.returning = nil, nil, nil, nil
+    b.life = math.max(b.life, b.flight or 0.4) -- a whole new flight
+    b.color = victim.bulletColor
+    self:emit("reflect", { id = victim.id, x = b.x, y = b.y })
+    if b.id then -- the clients continue the straight line the other way (as for a boomerang)
+        self:emit("turn", { x = b.x, y = b.y, vx = b.vx, vy = b.vy, life = b.life,
+            bullet = b.id, owner = victim.id, wall = false })
+    end
 end
 
 local function updateBullets(self, dt)
@@ -1048,7 +1066,9 @@ local function updateBullets(self, dt)
                     break
                 end
             end
-            if victim and b.blast then -- a rocket bursts on the one it hits (and around)
+            if victim and victim.reflecting and not b.tag then
+                reflect(self, b, victim) -- (the bullet flies on, now against its shooter)
+            elseif victim and b.blast then -- a rocket bursts on the one it hits (and around)
                 explode(self, b)
                 remove = true
                 break
@@ -1149,7 +1169,8 @@ local function updateBarriers(self)
     end
     if #list == 0 then return end
     for _, e in ipairs(self.entities) do
-        if not e.dead and not e.vanished and not e.leap and not e.burrowed and not e.driving then
+        if not e.dead and not e.vanished and not e.leap and not e.burrowed and not e.driving
+            and not e.flying then
             for _, w in ipairs(list) do
                 if w.team ~= e.team then
                     local p = w.points
@@ -1300,7 +1321,7 @@ local function updateLoot(self, dt)
         end
     end
     for _, e in ipairs(self.entities) do
-        if not e.dead then
+        if not e.dead and not e.flying then
             for _, box in ipairs(self.boxes) do
                 local nx, ny, depth = boxOverlap(box, e.x, e.y, e.radius)
                 if nx then
@@ -1880,7 +1901,7 @@ local function updateFlowers(self, dt)
                 local r = e.radius + World.FLOWER_REACH
                 local d2 = (e.x - f.x) ^ 2 + (e.y - f.y) ^ 2
                 if not e.dead and not e.driving and not e.carryingFlower and not e.burrowed
-                    and not e.leap and d2 < r * r and (not bestD2 or d2 < bestD2) then
+                    and not e.leap and not e.flying and d2 < r * r and (not bestD2 or d2 < bestD2) then
                     best, bestD2 = e, d2
                 end
             end
@@ -1899,7 +1920,7 @@ end
 local function updateFences(self)
     local fg = self.flowerGame
     for _, e in ipairs(self.entities) do
-        if not e.dead and not e.leap then
+        if not e.dead and not e.leap and not e.flying then
             for t, g in ipairs(Arena.gardens) do
                 local reach = e.radius + World.FENCE_HALF
                 if t ~= e.team and fg.fences[t] and gardenOverlap(g, e.x, e.y, reach + (e.driving and 4 or 0)) then
@@ -2193,7 +2214,7 @@ local function updateBall(self, dt)
     -- Picked up by the nearest rowdy touching it
     local best, bestD2
     for _, e in ipairs(self.entities) do
-        if canHold(e) and not e.leap and not (e.push and not e.push.own)
+        if canHold(e) and not e.leap and not e.flying and not (e.push and not e.push.own)
             and not ((ball.noPick[e.id] or 0) > self.time) then
             local r = e.radius + BR + 4
             local d2 = (e.x - ball.x) ^ 2 + (e.y - ball.y) ^ 2

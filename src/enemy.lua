@@ -68,6 +68,43 @@ local function separation(self, world)
     return sx, sy
 end
 
+local THREAT_DIST = 320 -- px: a shot this near and heading for the bot makes it defend
+local THREAT_HURT = 0.6 -- ... or being this hurt with an opponent this close:
+local THREAT_NEAR = 350
+local HEAL_BELOW  = 0.55 -- a healing super is used when somebody is below this share of HP
+
+-- Is an opponent's shot flying at the bot? (the cue for a reflect / shield super)
+local function shotComing(self, world)
+    for _, b in ipairs(world.bullets) do
+        if b.team ~= self.team then
+            local dx, dy = self.x - b.x, self.y - b.y
+            local d = math.sqrt(dx * dx + dy * dy)
+            local speed = math.sqrt(b.vx * b.vx + b.vy * b.vy)
+            if d < THREAT_DIST and d > 0 and speed > 0 and (dx * b.vx + dy * b.vy) / (d * speed) > 0.9 then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Should a healing super be used now? The bot itself, or (blast = radius) a living team
+-- mate within it, is hurt
+local function needsHeal(self, world, super)
+    if self.hp < self.maxHp * HEAL_BELOW then return true end
+    if super.blast then
+        for _, o in ipairs(world.entities) do
+            local reach = super.blast + o.radius
+            if o ~= self and o.team == self.team and not o.dead and not o.out
+                and o.hp < o.maxHp * HEAL_BELOW
+                and (o.x - self.x) ^ 2 + (o.y - self.y) ^ 2 < reach * reach then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 local walk -- (below: moves the bot, slides along walls it is stuck on)
 
 -- Hide and seek (World:hidePlan): hide, run, fetch pieces - or seek and swing the tag
@@ -106,10 +143,11 @@ function Enemy:update(dt, world)
         return
     end
 
-    -- a healing super (src/rowdies.lua: kind "heal") is for when it's hurt, not for a target
+    -- a healing super (src/rowdies.lua: kind "heal") is for when it's hurt (or, with a
+    -- blast radius, a team mate near it is), not for a target
     local super = self.super
     local heals = super and super.kind == "heal"
-    if heals and self:superReady() and self.cooldown <= 0 and self.hp < self.maxHp * 0.55 then
+    if heals and self:superReady() and self.cooldown <= 0 and needsHeal(self, world, super) then
         self:shootSuper(world.bullets)
     end
 
@@ -118,6 +156,21 @@ function Enemy:update(dt, world)
     if target then
         dx, dy = target.x - self.x, target.y - self.y
         dist = math.max(0.001, math.sqrt(dx * dx + dy * dy))
+    end
+
+    -- A flight (kind "fly") or a toy car (kind "car") goes on by itself: steer it at the
+    -- target; the flight lands on it, the car stops by hitting something
+    if self.flying or self.car then
+        local ux, uy = 0, 0
+        if target then ux, uy = dx / dist, dy / dist end
+        if target then self.aim = math.atan2(dy, dx) end
+        if self.car then
+            self:driveCar(ux, uy, dt)
+        else
+            self:move(ux, uy, dt)
+            if target and dist < self.flying.attack.blast * 0.6 then self:land() end
+        end
+        return
     end
     local visible = target and not target.dead and dist <= SIGHT_RANGE
         and Arena.hasLineOfSight(self.x, self.y, target.x, target.y)
@@ -128,6 +181,15 @@ function Enemy:update(dt, world)
     if visible and target.vanished and dist > BUSH_REVEAL then visible = false end
     if target and target.carrying and not target.dead and dist <= SIGHT_RANGE then
         visible = Arena.hasLineOfSight(self.x, self.y, target.x, target.y) -- the ball shows it
+    end
+
+    -- a mirror / shield super (kinds "reflect", "shield"): when a shot is coming, or it is
+    -- hurt with an opponent close
+    local defends = super and (super.kind == "reflect" or super.kind == "shield")
+    if defends and self:superReady() and self.cooldown <= 0
+        and (shotComing(self, world)
+            or (visible and dist < THREAT_NEAR and self.hp < self.maxHp * THREAT_HURT)) then
+        self:shootSuper(world.bullets)
     end
 
     local mx, my = 0, 0
@@ -162,7 +224,7 @@ function Enemy:update(dt, world)
 
         -- bombs land where the target stands (aimDist is measured from the body centre)
         self.aimDist = dist
-        if super and not heals and self:superReady() and self.cooldown <= 0
+        if super and not heals and not defends and self:superReady() and self.cooldown <= 0
             and dist <= self:reach(super) * SHOOT_RANGE then
             local exact = self.aim
             self.aim = exact + (math.random() - 0.5) * AIM_SPREAD * 0.5

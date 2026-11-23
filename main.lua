@@ -671,6 +671,19 @@ local function playEvents(events)
         elseif ev.kind == "barrier" then
             Effects.ring(ev.x, ev.y, 140, { 1, 0.85, 0.2 })
             Sound.play("barrier", ev.x, ev.y)
+        elseif ev.kind == "fly" then -- Mrs Star takes off
+            Effects.puff(ev.x, ev.y + 8)
+            Effects.ring(ev.x, ev.y, 40, { 0.5, 0.6, 1 })
+            Sound.play("jump", ev.x, ev.y)
+        elseif ev.kind == "car" then -- Transform Girl turns into a toy car
+            Effects.poof(ev.x, ev.y)
+            Sound.play("gust", ev.x, ev.y)
+        elseif ev.kind == "shield" then -- a bubble (or, with mirror, a mirror shield) goes up
+            Effects.ring(ev.x, ev.y, 50, ev.mirror and { 0.9, 0.95, 1 } or { 0.5, 0.85, 1 })
+            Sound.play("barrier", ev.x, ev.y)
+        elseif ev.kind == "reflect" then -- a shot bounces off a mirror shield
+            Effects.sparks(ev.x, ev.y, 8, { 0.9, 0.95, 1 }, 220)
+            Sound.play("clang", ev.x, ev.y)
         elseif ev.kind == "magnet" then -- a tractor beam: blue rings pulling inwards
             Effects.ring(ev.x, ev.y, 120, { 0.4, 0.75, 1 })
             Effects.ring(ev.x, ev.y, 60, { 0.6, 0.9, 1 })
@@ -1708,6 +1721,11 @@ local function drawHud()
     elseif player.carrying then
         love.graphics.printf(Controls.touchMode and "You have the ball - the attack stick kicks it"
             or "You have the ball - click to kick it", 0, y, sw, "center")
+    elseif player.flying then -- Mrs Star's flight
+        love.graphics.printf(Controls.touchMode and "Flying! Steer with the left stick, tap the super button to land"
+            or "Flying! Steer with WASD, press the super button (E) to land", 0, y, sw, "center")
+    elseif player.car then -- Transform Girl's toy car
+        love.graphics.printf("You're a car! Steer - it stops at the first thing it hits", 0, y, sw, "center")
     elseif world.mode.king and world.zone and not world:inZone(player.x, player.y) then
         love.graphics.printf("You're in the fog - get back into the clear circle!", 0, y, sw, "center")
     elseif world.mode.king and #(world.beacons or {}) > 0 then -- a team mate is out

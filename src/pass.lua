@@ -427,7 +427,7 @@ function Pass.onEvent(ev, localId, world)
         if ev.id ~= localId then return end
         progress("supers", 1, context(localId, world))
     elseif kind == "heal" then
-        if ev.id ~= localId then return end
+        if ev.id ~= localId or ev.src then return end -- (a super's heal is no medpack)
         progress("medpacks", 1, context(localId, world))
     else
         return

@@ -149,7 +149,10 @@ local function attackText(stats)
     if stats.boomerang then return dmg .. " dmg, out + back " .. stats.range end
     if stats.kind == "leap" then return dmg .. " dmg jump (" .. stats.range .. ")" end
     if stats.kind == "blink" then return dmg .. " dmg boo (" .. stats.range .. ")" end
-    if stats.kind == "beam" then return (stats.damage * 10) .. " dmg/s beam (" .. stats.range .. ")" end
+    if stats.kind == "beam" then
+        return (stats.damage * 10) .. " dmg/s " .. (stats.width and "broad " or "") .. "beam (" .. stats.range .. ")"
+    end
+    if stats.kind == "car" then return dmg .. " dmg, you steer a toy car" end
     if stats.range < 120 then return dmg .. " dmg, up close" end
     return dmg .. " dmg, range " .. stats.range
 end

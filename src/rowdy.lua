@@ -25,6 +25,12 @@ local FLING_SPEED  = 950  -- px/s and FLING_TIME s: how a grabbed rowdy is flung
 local FLING_TIME   = 0.45
 local BEAM_COLOR   = { 0.75, 0.45, 1 }
 local ICE_COLOR    = { 0.55, 0.85, 1 }
+local FLY_HEIGHT   = 70   -- px: how high a flight (kind "fly") is drawn
+local FLY_RISE     = 0.25 -- s to climb to it
+local FLY_MIN      = 0.4  -- s of flight before the super button lands it (the button's
+                          -- 0.25 s buffer must not land it at once)
+local CAR_TURN     = 4    -- rad/s: how fast a toy car (kind "car") turns
+local CAR_HIT      = 6    -- px: how close to an opponent the car hits it (plus radii)
 
 local fire -- (defined below, used by tick for the shots of a burst)
 
@@ -80,6 +86,8 @@ function Rowdy:init(x, y, look, stats)
     -- noAttacks: Hide and seek (src/world.lua) - no attacks and no super at all
     -- driving: Flower Gardens' bulldozer { expires, speed } (src/world.lua): can't be
     --   hurt or pushed, no attacks, drives at its speed
+    -- flying { time, age, attack } (kind "fly"), car { time, attack, heading } (kind "car"),
+    -- reflecting / shielded (seconds left, kinds "reflect" / "shield"): see ACTIONS below
     -- animation state
     self.walkPhase, self.walkBlend, self.stepTimer = 0, 0, 0
     self.dirX, self.dirY = 1, 0
@@ -103,6 +111,7 @@ function Rowdy:clearActions()
     self:releaseGrab()
     if self.vanished then self:reappear() end
     self.bursting, self.push, self.leap, self.burrowed = nil, nil, nil, nil
+    self.flying, self.car, self.reflecting, self.shielded = nil, nil, nil, nil
     self.frozen, self.air, self.beamLen, self.beamHold = 0, 0, 0, 0
     self.rooted, self.goo = 0, nil
     self.heldBy = nil
@@ -191,6 +200,7 @@ function Rowdy:takeDamage(amount, killer)
         self.dead = true
         self:releaseGrab()
         self.beamLen, self.beamHold = 0, 0
+        self.flying, self.car, self.reflecting, self.shielded, self.air = nil, nil, nil, nil, 0
         self.respawnTimer = RESPAWN_TIME
         self:emit("death", { x = self.x, y = self.y, id = self.id, color = self.barColor,
             killer = killer })
@@ -225,10 +235,11 @@ function Rowdy:move(dx, dy, dt)
         self.dirX, self.dirY = dx / len, dy / len
         local speed = self.burrowed and self.speed * BURROW_SPEED or self.speed
         if self.driving then speed = self.driving.speed or speed end
+        if self.flying then speed = self.flying.attack.bulletSpeed end
         self.x = self.x + self.dirX * speed * dt
         self.y = self.y + self.dirY * speed * dt
     end
-    if self.vanished then -- walks through walls, but stays in the arena
+    if self.vanished or self.flying then -- walks through walls, but stays in the arena
         local r = self.radius
         self.x = math.max(r, math.min(Arena.width - r, self.x))
         self.y = math.max(r, math.min(Arena.height - r, self.y))
@@ -262,12 +273,15 @@ end
 
 -- May attack: can move, isn't underground and holds nobody
 function Rowdy:canAct()
-    return self:canMove() and not self.burrowed and not self.grab
+    return self:canMove() and not self.burrowed and not self.grab and not self.flying
+        and not self.car
 end
 
--- Out of reach of bullets and blasts (in the air, underground or in a bulldozer)
+-- Out of reach of bullets and blasts (in the air, underground, in a bulldozer, flying or
+-- inside a shield bubble)
 function Rowdy:untouchable()
     return self.leap ~= nil or self.burrowed ~= nil or self.driving ~= nil
+        or self.flying ~= nil or self.shielded ~= nil
 end
 
 -- Move by a push: forced (pulled to a rowdy, flung) or own (the dash of a punch).
@@ -374,6 +388,22 @@ function Rowdy:act(dt)
             if self.world then self.world:blastAt(self, leap.attack, self.x, self.y) end
         end
     end
+    local fly = self.flying
+    if fly then -- climbs, flies (steered from Player/Enemy:update through move), then lands
+        fly.age = fly.age + dt
+        fly.time = fly.time - dt
+        self.air = math.min(FLY_HEIGHT, self.air + dt * FLY_HEIGHT / FLY_RISE)
+        if fly.time <= 0 then self:land() end
+    end
+    if self.car and (self.rooted > 0 or not self:canMove()) then self.car = nil end -- cuffed, frozen, held
+    if self.reflecting then
+        self.reflecting = self.reflecting - dt
+        if self.reflecting <= 0 then self.reflecting = nil end
+    end
+    if self.shielded then
+        self.shielded = self.shielded - dt
+        if self.shielded <= 0 then self.shielded = nil end
+    end
     local b = self.burrowed
     if b then
         b.time = b.time - dt
@@ -389,6 +419,64 @@ function Rowdy:act(dt)
             self.burrowed = nil
             self.cooldown = math.max(self.cooldown, 0.3)
             if self.world then self.world:blastAt(self, b.attack, self.x, self.y) end
+        end
+    end
+end
+
+-- The end of a flight (kind "fly"): down on open ground (it may be over a wall), a blast
+-- around the landing spot. Only once it has flown FLY_MIN s when asked for (the button)
+function Rowdy:land(asked)
+    local fly = self.flying
+    if not fly or (asked and fly.age < FLY_MIN) then return false end
+    self.flying, self.air = nil, 0
+    self.x, self.y = Arena.nearestOpen(self.x, self.y, self.radius)
+    self.cooldown = math.max(self.cooldown, 0.3)
+    if self.world then self.world:blastAt(self, fly.attack, self.x, self.y) end
+    return true
+end
+
+-- One step of a toy car (kind "car", ACTIONS.car): it always drives forward at its speed,
+-- the stick (dx, dy) only turns it (CAR_TURN rad/s). It stops at a wall or chest (no
+-- damage), or at the first opponent: a blast there. Called instead of move() while it lasts
+function Rowdy:driveCar(dx, dy, dt)
+    local car = self.car
+    if not car then return end
+    if dx * dx + dy * dy > 0.04 then
+        local diff = (math.atan2(dy, dx) - car.heading + math.pi) % (2 * math.pi) - math.pi
+        local turn = CAR_TURN * dt
+        car.heading = car.heading + math.max(-turn, math.min(turn, diff))
+    end
+    local c, s = math.cos(car.heading), math.sin(car.heading)
+    self.aim, self.dirX, self.dirY = car.heading, c, s
+    local ox, oy = self.x, self.y
+    local speed = car.attack.bulletSpeed
+    local wx, wy = ox + c * speed * dt, oy + s * speed * dt
+    self.x, self.y = Arena.resolveCircle(wx, wy, self.radius)
+    self:animateWalk(math.sqrt((self.x - ox) ^ 2 + (self.y - oy) ^ 2), dt)
+    car.time = car.time - dt
+    local world = self.world
+    local stop = car.time <= 0 or (wx - self.x) ^ 2 + (wy - self.y) ^ 2 > 1 -- (a wall pushed it back)
+    local hit
+    if world then
+        if world.boxAt and world:boxAt(self.x + c * 4, self.y + s * 4, self.radius) then stop = true end
+        for _, e in ipairs(world.entities) do
+            local reach = self.radius + e.radius + CAR_HIT
+            if e.team ~= self.team and not e.dead and not e:untouchable()
+                and (e.x - self.x) ^ 2 + (e.y - self.y) ^ 2 < reach * reach then
+                hit = true
+            end
+        end
+    end
+    if hit or stop then
+        self.car = nil
+        self.cooldown = math.max(self.cooldown, 0.3)
+        if world then
+            if hit then
+                world:blastAt(self, car.attack, self.x, self.y)
+            else
+                self:emit("impact", { x = self.x + c * self.radius, y = self.y + s * self.radius,
+                    color = self.bulletColor })
+            end
         end
     end
 end
@@ -430,7 +518,7 @@ function Rowdy:actBeam(dt)
         return
     end
     self.ammo = math.max(0, self.ammo - BEAM_DRAIN * dt)
-    local len, victim, box = self.world:traceBeam(self, attack.range or Bullet.range)
+    local len, victim, box = self.world:traceBeam(self, attack.range or Bullet.range, attack.width)
     self.beamLen = len
     self.beamTimer = (self.beamTimer or 0) - dt
     if self.beamTimer <= 0 then
@@ -486,10 +574,48 @@ function ACTIONS.leap(self, attack) -- flies on an arc over everything, lands wi
     self:emit("leap", { id = self.id, x = self.x, y = self.y, toX = tx, toY = ty })
 end
 
-function ACTIONS.heal(self, attack) -- heals itself (a share of its max HP)
-    local amount = math.min(self.maxHp - self.hp, math.ceil(self.maxHp * (attack.heal or 0.5)))
-    self.hp = self.hp + amount
-    self:emit("heal", { id = self.id, x = self.x, y = self.y, amount = amount })
+-- Heals itself (a share of its max HP); with `blast` also every living team mate within
+-- that radius (Danger Disco). src = "super": not a medpack (the pass challenge)
+function ACTIONS.heal(self, attack)
+    local function healOne(e)
+        local amount = math.min(e.maxHp - e.hp, math.ceil(e.maxHp * (attack.heal or 0.5)))
+        e.hp = e.hp + amount
+        if e == self or amount > 0 then
+            self:emit("heal", { id = e.id, x = e.x, y = e.y, amount = amount, src = "super" })
+        end
+    end
+    healOne(self)
+    if attack.blast and self.world then
+        for _, e in ipairs(self.world.entities) do
+            local reach = attack.blast + e.radius
+            if e ~= self and e.team == self.team and not e.dead and not e.out
+                and (e.x - self.x) ^ 2 + (e.y - self.y) ^ 2 < reach * reach then
+                healOne(e)
+            end
+        end
+    end
+end
+
+function ACTIONS.fly(self, attack) -- takes off: steered with the stick, lands with a blast
+    self.flying = { time = attack.duration or 3, age = 0, attack = attack }
+    self.push, self.bursting = nil, nil
+    self:emit("fly", { id = self.id, x = self.x, y = self.y })
+end
+
+function ACTIONS.car(self, attack) -- turns into a toy car (driveCar steers it)
+    self.car = { time = attack.duration or 2.5, attack = attack, heading = self.aim }
+    self.push, self.bursting = nil, nil
+    self:emit("car", { id = self.id, x = self.x, y = self.y })
+end
+
+function ACTIONS.reflect(self, attack) -- shots that hit fly back (src/world.lua: reflect)
+    self.reflecting = attack.duration or 3
+    self:emit("shield", { id = self.id, x = self.x, y = self.y, mirror = true })
+end
+
+function ACTIONS.shield(self, attack) -- nothing can hurt it (untouchable)
+    self.shielded = attack.duration or 3
+    self:emit("shield", { id = self.id, x = self.x, y = self.y })
 end
 
 function ACTIONS.spin(self, attack) -- a spin: hits everybody around it
@@ -648,6 +774,7 @@ end
 
 -- The super attack: needs a full meter, no ammo. Returns true if it happened.
 function Rowdy:shootSuper(bullets)
+    if self.flying then return self:land(true) end -- the button again: land
     if not self:superReady() or not self:canAct() or self.cooldown > 0 or self.noAttacks
         or self.driving then
         return false
@@ -675,14 +802,40 @@ function Rowdy:drawAim(useSuper)
     if a.kind == "beam" or a.kind == "grab" then -- a thin line to the first wall
         local mx, my = self:muzzle()
         local len = Arena.raycast(mx, my, self.aim, a.range or Bullet.range, 3)
+        local ex, ey = mx + math.cos(self.aim) * len, my + math.sin(self.aim) * len
+        if a.width then -- a broad beam: the band it covers
+            love.graphics.setColor(c[1], c[2], c[3], 0.18)
+            love.graphics.setLineWidth(a.width)
+            love.graphics.line(mx, my, ex, ey)
+        end
         love.graphics.setColor(c[1], c[2], c[3], 0.5)
         love.graphics.setLineWidth(3)
-        love.graphics.line(mx, my, mx + math.cos(self.aim) * len, my + math.sin(self.aim) * len)
+        love.graphics.line(mx, my, ex, ey)
         love.graphics.setLineWidth(1)
         love.graphics.setColor(1, 1, 1, 1)
         return
     end
-    if a.kind == "heal" then -- a green "+" ring around itself
+    if a.kind == "fly" or a.kind == "reflect" or a.kind == "shield" then
+        -- fly: the circle of the landing blast around her (it follows her); reflect/shield: a
+        -- ring around her
+        local r = a.kind == "fly" and a.blast or self.radius + 16
+        love.graphics.setColor(c[1], c[2], c[3], 0.15)
+        love.graphics.circle("fill", self.x, self.y, r)
+        love.graphics.setColor(c[1], c[2], c[3], 0.7)
+        love.graphics.setLineWidth(2)
+        love.graphics.circle("line", self.x, self.y, r)
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(1, 1, 1, 1)
+        return
+    end
+    if a.kind == "heal" then -- a green "+" ring around itself (with a blast: the team heal's reach)
+        if a.blast then
+            love.graphics.setColor(0.4, 1, 0.4, 0.12)
+            love.graphics.circle("fill", self.x, self.y, a.blast)
+            love.graphics.setColor(0.4, 1, 0.4, 0.5)
+            love.graphics.setLineWidth(2)
+            love.graphics.circle("line", self.x, self.y, a.blast)
+        end
         love.graphics.setColor(0.4, 1, 0.4, 0.7)
         love.graphics.setLineWidth(3)
         love.graphics.circle("line", self.x, self.y, self.radius + 16)
@@ -944,7 +1097,64 @@ function Rowdy:drawGoo(alpha)
 end
 
 -- The beam (src/rowdies.lua: beam / grab): a wobbling glowing line from the muzzle
+-- A music note (head, stem, flag; double = two joined eighth notes) in the current colour
+local function drawNote(x, y, size, double)
+    local hx, hy = size, size * 0.72
+    local sx = x + hx * 0.85
+    love.graphics.setLineWidth(math.max(1.5, size * 0.28))
+    love.graphics.ellipse("fill", x, y, hx, hy)
+    love.graphics.line(sx, y, sx, y - size * 3)
+    if double then
+        local x2 = x + size * 2.4
+        love.graphics.ellipse("fill", x2, y - size * 0.4, hx, hy)
+        love.graphics.line(x2 + hx * 0.85, y - size * 0.4, x2 + hx * 0.85, y - size * 3.4)
+        love.graphics.line(sx, y - size * 3, x2 + hx * 0.85, y - size * 3.4)
+    else
+        love.graphics.line(sx, y - size * 3, sx + size * 1.2, y - size * 2.1)
+    end
+end
+
+local NOTE_COLORS = { { 1, 0.45, 0.85 }, { 1, 0.85, 0.25 }, { 0.35, 0.9, 1 }, { 1, 1, 1 } }
+
+-- Danger Disco's beam (src/rowdies.lua: width, projectile "note"): a soft broad band and
+-- a stream of music notes flowing out of the speaker, spreading as they go
+function Rowdy:drawNoteBeam()
+    local mx, my = self:muzzle()
+    local c, s = math.cos(self.aim), math.sin(self.aim)
+    local px, py = -s, c
+    local len = math.max(0, self.beamLen - self.look.muzzle[1])
+    if len < 4 then return end
+    local w = self.attack.width or 56
+    local col = self.bulletColor
+    local t = love.timer.getTime()
+    love.graphics.setBlendMode("add")
+    love.graphics.setColor(col[1], col[2], col[3], 0.16)
+    love.graphics.polygon("fill", mx + px * 6, my + py * 6, mx + c * len + px * w / 2,
+        my + s * len + py * w / 2, mx + c * len - px * w / 2, my + s * len - py * w / 2,
+        mx - px * 6, my - py * 6)
+    love.graphics.setColor(1, 1, 1, 0.5)
+    love.graphics.circle("fill", mx + c * len, my + s * len, 9 + 3 * math.sin(t * 20))
+    love.graphics.setBlendMode("alpha")
+    local n = math.max(3, math.floor(len / 34))
+    for i = 0, n - 1 do
+        local d = ((i / n + t * 1.4) % 1) * len
+        local side = math.sin(i * 2.3 + t * 3) * (w / 2 - 10) * math.min(1, d / 70)
+        local x, y = mx + c * d + px * side, my + s * d + py * side
+        local fade = math.min(1, d / 24, (len - d) / 24 + 0.2)
+        local size = 4.5 + (i % 3)
+        local nc = NOTE_COLORS[i % #NOTE_COLORS + 1]
+        love.graphics.setColor(0.12, 0.05, 0.25, 0.8 * fade)
+        drawNote(x + 1, y + 1.5, size + 1, i % 3 == 0)
+        love.graphics.setColor(nc[1], nc[2], nc[3], fade)
+        drawNote(x, y, size, i % 3 == 0)
+    end
+    love.graphics.setLineWidth(1)
+end
+
 function Rowdy:drawBeam()
+    if self.attack.projectile == "note" and not (self.grab or self.grabbing) then
+        return self:drawNoteBeam()
+    end
     local mx, my = self:muzzle()
     local c, s = math.cos(self.aim), math.sin(self.aim)
     local len = math.max(0, self.beamLen - self.look.muzzle[1])
@@ -987,6 +1197,75 @@ function Rowdy:drawMound(alpha)
         local a = i * 1.3 + self.walkPhase * 0.3
         love.graphics.circle("fill", self.x + math.cos(a) * r * 0.55, self.y + math.sin(a) * r * 0.35, 4)
     end
+end
+
+-- Transform Girl as a toy car (kind "car"): a chunky yellow car facing the way it drives
+function Rowdy:drawCar(alpha)
+    local L, W = 64, 38
+    love.graphics.push()
+    love.graphics.translate(self.x, self.y)
+    love.graphics.rotate(self.aim)
+    love.graphics.setColor(0.12, 0.12, 0.15, alpha)
+    for _, wx in ipairs({ -20, 20 }) do
+        for _, wy in ipairs({ -W / 2 - 3, W / 2 + 3 }) do
+            love.graphics.rectangle("fill", wx - 8, wy - 5, 16, 10, 4, 4)
+        end
+    end
+    love.graphics.setColor(1, 0.8, 0.15, alpha)
+    love.graphics.rectangle("fill", -L / 2, -W / 2, L, W, 12, 12)
+    love.graphics.setColor(1, 0.55, 0.1, alpha)
+    love.graphics.rectangle("fill", -18, -W / 2 + 6, 26, W - 12, 6, 6)
+    love.graphics.setColor(0.6, 0.85, 1, alpha)
+    love.graphics.rectangle("fill", 4, -W / 2 + 8, 8, W - 16, 3, 3)
+    love.graphics.setColor(1, 1, 0.8, alpha)
+    love.graphics.circle("fill", L / 2 - 4, -W / 2 + 8, 4)
+    love.graphics.circle("fill", L / 2 - 4, W / 2 - 8, 4)
+    love.graphics.setColor(0.2, 0.12, 0.05, alpha)
+    love.graphics.setLineWidth(3)
+    love.graphics.rectangle("line", -L / 2, -W / 2, L, W, 12, 12)
+    love.graphics.setLineWidth(1)
+    love.graphics.pop()
+end
+
+-- A shield bubble (kind "shield") or a mirror ring (kind "reflect") around the rowdy
+function Rowdy:drawProtection(py, alpha)
+    local t = love.timer.getTime()
+    local r = self.radius + 16 + 2 * math.sin(t * 8)
+    if self.shielded then
+        love.graphics.setColor(0.5, 0.85, 1, 0.18 * alpha)
+        love.graphics.circle("fill", self.x, py, r)
+        love.graphics.setColor(0.7, 0.95, 1, 0.85 * alpha)
+        love.graphics.setLineWidth(3)
+        love.graphics.circle("line", self.x, py, r)
+        love.graphics.setColor(1, 1, 1, 0.8 * alpha)
+        love.graphics.arc("line", "open", self.x, py, r - 5, math.pi * 1.1, math.pi * 1.45)
+    end
+    if self.reflecting then
+        love.graphics.setColor(0.9, 0.95, 1, 0.9 * alpha)
+        love.graphics.setLineWidth(4)
+        for i = 0, 5 do -- six shiny mirror plates turning around her
+            local a = t * 3 + i * math.pi / 3
+            love.graphics.arc("line", "open", self.x, py, self.radius + 14, a, a + 0.6)
+        end
+        love.graphics.setColor(0.8, 0.9, 1, 0.15 * alpha)
+        love.graphics.circle("fill", self.x, py, self.radius + 14)
+    end
+    love.graphics.setLineWidth(1)
+end
+
+-- Mrs Star's parasol while she flies (kind "fly"): an open umbrella above her
+function Rowdy:drawParasol(px, py, alpha)
+    local y = py - 30
+    love.graphics.setColor(0.35, 0.25, 0.15, alpha)
+    love.graphics.setLineWidth(3)
+    love.graphics.line(px, y, px, py - 4)
+    love.graphics.setColor(0.25, 0.35, 0.85, alpha)
+    love.graphics.arc("fill", "pie", px, y, 34, math.pi, math.pi * 2)
+    love.graphics.setColor(1, 0.85, 0.2, alpha)
+    love.graphics.circle("fill", px, y - 18, 5)
+    love.graphics.setColor(0.1, 0.1, 0.3, alpha)
+    love.graphics.arc("line", "open", px, y, 34, math.pi, math.pi * 2)
+    love.graphics.setLineWidth(1)
 end
 
 function Rowdy:draw()
@@ -1061,11 +1340,17 @@ function Rowdy:draw()
     end
     -- The art faces up: rotate a quarter turn more, and sx (the aim axis) is its y
     local look = self.look
-    local k = look.scale * (1 + air / 400)
-    local shaded = Assets.beginSkin(look) -- colour-change skin (src/cosmetics.lua)
-    love.graphics.draw(Assets.comic[look.image], px, py, self.aim + sway + math.pi / 2,
-        k * sy, k * sx, look.origin[1], look.origin[2])
-    if shaded then love.graphics.setShader() end
+    if self.car or self.ramming then -- Transform Girl as a toy car
+        self:drawCar(alpha)
+    else
+        local k = look.scale * (1 + air / 400)
+        local shaded = Assets.beginSkin(look) -- colour-change skin (src/cosmetics.lua)
+        love.graphics.draw(Assets.comic[look.image], px, py, self.aim + sway + math.pi / 2,
+            k * sy, k * sx, look.origin[1], look.origin[2])
+        if shaded then love.graphics.setShader() end
+    end
+    if air > 8 and self.super and self.super.kind == "fly" then self:drawParasol(px, py, alpha) end
+    if self.shielded or self.reflecting then self:drawProtection(py, alpha) end
     if self.frozen > 0 then self:drawIce(alpha) end
     if (self.rooted or 0) > 0 then self:drawCuffs(alpha) end
     if self.goo then self:drawGoo(alpha) end

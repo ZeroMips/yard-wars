@@ -140,6 +140,13 @@ local DEFS = {
     shot_beam    = { { wave = "saw", f1 = 330, f2 = 300, dur = 0.32, vol = 0.07, attack = 0.03, curve = 0.5,
                        vibrato = { 0.03, 18 } },
                      { wave = "sine", f1 = 660, f2 = 640, dur = 0.32, vol = 0.08, attack = 0.03, curve = 0.5 } },
+    -- Wonder Destroyer's one strong shot: a big toy-ray zap
+    shot_wonder  = { { wave = "saw", f1 = 2200, f2 = 320, dur = 0.22, vol = 0.2 },
+                     { wave = "sine", f1 = 160, f2 = 55, dur = 0.22, vol = 0.45 },
+                     { wave = "noise", f1 = 1, f2 = 1, dur = 0.05, vol = 0.25, lowpass = 0.8 } },
+    -- Danger Disco's beam hum (every 0.3 s): three soft notes of a chord over a bass beat
+    shot_disco   = notes({ { 523, 0.08 }, { 659, 0.08 }, { 784, 0.08 } }, "triangle", 0.09,
+                         { { wave = "sine", f1 = 110, f2 = 70, dur = 0.12, vol = 0.14 } }),
     grab         = notes({ { 880, 0.05 }, { 1175, 0.05 }, { 1480, 0.12 } }, "triangle", 0.2,
                          { { wave = "sine", f1 = 300, f2 = 600, dur = 0.3, vol = 0.15, vibrato = { 0.1, 12 } } }),
     fling        = { { wave = "noise", f1 = 1, f2 = 1, dur = 0.3, vol = 0.3, lowpass = 0.3, attack = 0.05 },

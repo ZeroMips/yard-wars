@@ -81,6 +81,22 @@ function ITEMS.pen(b, x, y, r, spin, dir) -- a ballpoint pen, tip first
     love.graphics.pop()
 end
 
+function ITEMS.beam(b, x, y, r, spin, dir) -- a strong toy-ray shot: a long glowing streak
+    local c = b.color or { 1, 0.35, 0.3 }
+    love.graphics.push()
+    love.graphics.translate(x, y)
+    love.graphics.rotate(dir)
+    love.graphics.setBlendMode("add")
+    love.graphics.setColor(c[1], c[2], c[3], 0.3)
+    love.graphics.ellipse("fill", -r * 2.5, 0, r * 5.5, r * 1.5)
+    love.graphics.setColor(c[1], c[2], c[3], 0.8)
+    love.graphics.ellipse("fill", -r * 1.8, 0, r * 4, r * 0.9)
+    love.graphics.setColor(1, 1, 1, 0.95)
+    love.graphics.ellipse("fill", -r * 1.2, 0, r * 2.8, r * 0.4)
+    love.graphics.setBlendMode("alpha")
+    love.graphics.pop()
+end
+
 function ITEMS.pan(b, x, y, r, spin) -- a frying pan, spinning
     love.graphics.push()
     love.graphics.translate(x, y)

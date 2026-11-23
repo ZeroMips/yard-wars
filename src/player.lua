@@ -24,7 +24,11 @@ function Player:update(dt, input, bullets)
         return
     end
 
-    if self:walks() then self:move(input.dx, input.dy, dt) end
+    if self.car then -- a toy car drives on its own; the stick only steers it
+        self:driveCar(input.dx or 0, input.dy or 0, dt)
+    elseif self:walks() then
+        self:move(input.dx, input.dy, dt)
+    end
 
     -- A requested shot is remembered for a moment (with its direction), so it
     -- still fires if it arrives while reloading. Same for a super (it needs no ammo,
