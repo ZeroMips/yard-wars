@@ -19,6 +19,7 @@ local Menu     = require("src.menu")
 local Join     = require("src.join")
 local Nick     = require("src.nick")
 local Waiting  = require("src.waiting")
+local Invite   = require("src.invite")
 local InfoView = require("src.infoview")
 local Net      = require("src.net")
 local Replica  = require("src.replica")
@@ -123,6 +124,8 @@ local pickFor        -- what the rowdy choice is for: "lobby", "waiting" room or
 local waiting = false    -- in the LAN waiting room (state waiting, or pick/style from there)
 local roomPlayers = {}   -- client: the waiting room's list from the host (net.lua "lobby")
 local autoStartAt        -- (--autostart S, for tests) host: start the round at this time
+local listener           -- lobby: answers "who is there?" and receives invites (net.lua)
+local invitedAt = {}     -- waiting room (host): address -> time of the invite sent
 local styleFrom      -- where the style screen goes back to: "menu" or "pick"
 local role           -- "local", "host" or "client" while playing
 local menuTime = 0   -- drives the camera pan behind the menu
@@ -173,6 +176,12 @@ local function closeFinder()
     finder = nil
 end
 
+local function closeListener()
+    if listener then listener:close() end
+    listener = nil
+    Invite.clear()
+end
+
 -- Back to the start screen (message: why, e.g. "Connection lost")
 local function openMenu(message)
     if server then server:close() end
@@ -191,6 +200,7 @@ end
 -- (default: the one chosen in the lobby)
 local function newGame(mode, host, def)
     resetGame()
+    closeListener()
     world = World.new(mode)
     if host then
         local err
@@ -210,8 +220,10 @@ local function newGame(mode, host, def)
     if host then -- the waiting room: friends join, the host starts the round
         player.nick = Nick.name
         server.hostNick, server.hostId = Nick.name, player.id
-        state, waiting, roomPlayers = "waiting", true, {}
+        state, waiting, roomPlayers, invitedAt = "waiting", true, {}, {}
         autoStartAt = autoStartAt and (love.timer.getTime() + autoStartAt)
+        closeFinder()
+        finder = Net.newFinder({}, true) -- friends in the lobby, to invite (src/invite.lua)
         return
     end
     world:start()
@@ -227,6 +239,7 @@ local function startRound()
     world:start()
     world:takeEvents() -- the bots' spawn sounds would all play at once
     waiting, state, pickFor, autoStartAt = false, "game", nil, nil
+    closeFinder()
     Camera.snap(player.x, player.y, Arena.width, Arena.height)
 end
 
@@ -238,13 +251,15 @@ local function openJoin()
     finder = Net.newFinder({ Join.address }) -- ask the last joined host first
 end
 
--- address: a found game's address, or nil for the one typed in
-local function joinGame(address)
+-- address: a found game's address, or nil for the one typed in; rowdy: the index to play
+-- (default: the one chosen in the lobby)
+local function joinGame(address, rowdy)
     if address then Join.address = address end
     address = Join.address
     if address == "" then Join.status = "Enter the host's address" return end
     local err
-    client, err = Net.newClient(address, Menu.rowdy, Pass.style(Rowdies[Menu.rowdy]), Nick.name)
+    rowdy = rowdy or Menu.rowdy
+    client, err = Net.newClient(address, rowdy, Pass.style(Rowdies[rowdy]), Nick.name)
     if not client then Join.status = err return end
     Join.save()
     Join.close()
@@ -1027,9 +1042,10 @@ end
 
 -- LAN waiting room: the host lets friends in and starts the round, a client waits for
 -- the list of players and for the start (net.lua "lobby" / "start" messages)
-local function updateWaiting()
+local function updateWaiting(dt)
     if role == "host" then
         server:service()
+        if finder then finder:update(dt) end
         if autoStartAt and love.timer.getTime() >= autoStartAt then startRound() end
         return
     end
@@ -1064,6 +1080,7 @@ local function waitingInfo()
         address = role == "host" and hostAddress or nil, localId = localId or (client and client.id) }
     if role == "host" then
         info.players = server:roster()
+        info.nearby, info.invited, info.now = finder and finder.games or {}, invitedAt, love.timer.getTime()
     else
         info.players = roomPlayers
         for _, p in ipairs(roomPlayers) do
@@ -1106,8 +1123,19 @@ function love.update(dt)
         tierUpSoundAt = nil
         Sound.play("tierUp")
     end
+    -- Lobby: be findable and receive invites (only here, and only if the player allows it)
+    local lobby = role == nil and not waiting and state ~= "game" and Nick.visible
+    if lobby and not listener then listener = Net.newLobbyListener(Nick.name)
+    elseif not lobby and listener then closeListener() end
+    if listener then
+        listener.nick = Nick.name
+        for _, inv in ipairs(listener:update()) do
+            if Invite.add(inv) then Sound.play("pickup") end
+        end
+    end
+    Invite.update()
     if waiting then
-        updateWaiting()
+        updateWaiting(dt)
         if state == "menu" then return end -- connection lost / left
     end
     -- The game keeps running while a rowdy is chosen between rounds (LAN!)
@@ -2008,6 +2036,7 @@ local function drawScreen()
         Camera.detach()
         if state == "menu" or state == "info" then Menu.draw(menuFonts, Controls.touchMode) end
         if state == "menu" then -- (drawn above)
+            if not (Menu.modesOpen or Menu.bossOpen) then Invite.draw(menuFonts) end
         elseif state == "info" then InfoView.draw(menuFonts)
         elseif state == "join" then Join.draw(menuFonts)
         elseif state == "waiting" then Waiting.draw(waitingInfo(), menuFonts)
@@ -2044,6 +2073,23 @@ end
 
 -- Menus, rowdy choice, join screen, result screen: taps and clicks
 local function press(x, y)
+    if state == "menu" and not (Menu.modesOpen or Menu.bossOpen) and Invite.current then
+        local what = Invite.hit(x, y)
+        if what then -- the banner: JOIN goes into the host's waiting room
+            local inv = Invite.current
+            if what == "join" then
+                Invite.clear()
+                Sound.play("click")
+                local rowdy = Menu.rowdy
+                if not Profile.isUnlocked(Rowdies[rowdy]) then Menu.checkFighter(); rowdy = Menu.fighter end
+                joinGame(inv.address, rowdy)
+            elseif what == "no" then
+                Invite.clear()
+                Sound.play("click")
+            end
+            return
+        end
+    end
     if state == "menu" then
         menuAction(Menu.hit(x, y))
     elseif state == "info" then
@@ -2077,13 +2123,21 @@ local function press(x, y)
         local id = Result.hit(resultInfo(), x, y)
         if id then resultAction(id) end
     elseif state == "waiting" then
-        local what = Waiting.hit(waitingInfo(), x, y)
-        if what == "start" then startRound()
+        local what, i = Waiting.hit(waitingInfo(), x, y)
+        if what == "invite" then
+            local g = finder and finder.games[i]
+            if g and not (invitedAt[g.address] and love.timer.getTime() - invitedAt[g.address] < Waiting.INVITE_QUIET) then
+                invitedAt[g.address] = love.timer.getTime()
+                Net.sendInvite(g.address, Nick.name, world.mode.name)
+                Sound.play("click")
+            end
+        elseif what == "start" then startRound()
         elseif what == "rowdy" then openPicker("waiting")
         elseif what == "leave" then Sound.play("click"); openMenu() end
     elseif state == "nick" then
         local what = Nick.hit(x, y)
         if what == "ok" then Sound.play("click"); Nick.close(); state = "menu"
+        elseif what == "visible" then Sound.play("click"); Nick.toggleVisible()
         elseif what == "field" then love.keyboard.setTextInput(true) end
     elseif state == "join" then
         local what, i = Join.hit(x, y)

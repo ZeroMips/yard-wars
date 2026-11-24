@@ -10,6 +10,8 @@ local Nick = {}
 Nick.MAX = 12          -- characters
 Nick.name = "Player"   -- the saved nick (Nick.load)
 Nick.editing = nil     -- the text while the edit screen is open
+Nick.visible = true    -- friends in the same Wi-Fi may see this device in the lobby and
+                       -- invite it (second line of nick.txt: "hidden" = off)
 
 local FILE = "nick.txt"
 
@@ -43,17 +45,20 @@ Nick.safe = safeClean
 function Nick.fallback(id) return "Player " .. tostring(id) end
 
 function Nick.load()
-    local s = love.filesystem.getInfo(FILE) and love.filesystem.read(FILE) or ""
-    s = safeClean(s)
+    local raw = love.filesystem.getInfo(FILE) and love.filesystem.read(FILE) or ""
+    local first, second = raw:match("^([^\n]*)\n?([^\n]*)")
+    local s = safeClean(first or "")
+    Nick.visible = (second or ""):match("^%s*hidden") == nil
     if s == "" then
         s = "Player" .. love.math.random(10, 99)
-        love.filesystem.write(FILE, s)
+        Nick.name = s
+        Nick.save()
     end
     Nick.name = s
 end
 
 function Nick.save()
-    love.filesystem.write(FILE, Nick.name)
+    love.filesystem.write(FILE, Nick.name .. "\n" .. (Nick.visible and "visible" or "hidden") .. "\n")
 end
 
 ---------------------------------------------------------------------------- edit screen
@@ -65,7 +70,8 @@ local function layout()
     local sw, sh = love.graphics.getWidth() / ui, love.graphics.getHeight() / ui
     local w = math.min(460, sw - 40)
     local x = (sw - w) / 2
-    return { field = { x = x, y = 150, w = w, h = 64 }, ok = { x = x, y = 234, w = w, h = 64 } }, sw, sh
+    return { field = { x = x, y = 150, w = w, h = 64 }, ok = { x = x, y = 234, w = w, h = 64 },
+             visible = { x = x, y = 330, w = w, h = 64 } }, sw, sh
 end
 
 function Nick.open()
@@ -103,12 +109,18 @@ function Nick.keypressed(key)
     end
 end
 
--- Screen position -> "field", "ok" or nil
+-- Friends in the Wi-Fi can invite me: on / off (saved at once)
+function Nick.toggleVisible()
+    Nick.visible = not Nick.visible
+    Nick.save()
+end
+
+-- Screen position -> "field", "ok", "visible" or nil
 function Nick.hit(x, y)
     local ui = uiScale()
     x, y = x / ui, y / ui
     local rects = layout()
-    for _, name in ipairs({ "field", "ok" }) do
+    for _, name in ipairs({ "field", "ok", "visible" }) do
         local r = rects[name]
         if x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h then return name end
     end
@@ -148,6 +160,23 @@ function Nick.draw(fonts)
     love.graphics.setLineWidth(1)
     love.graphics.setColor(1, 1, 1)
     love.graphics.printf("OK", r.x, r.y + 14, r.w, "center")
+
+    -- Friends can invite me: switch
+    local v = rects.visible
+    love.graphics.setColor(0.1, 0.12, 0.15, 0.9)
+    love.graphics.rectangle("fill", v.x, v.y, v.w, v.h, 10, 10)
+    love.graphics.setColor(1, 1, 1, 0.5)
+    love.graphics.rectangle("line", v.x, v.y, v.w, v.h, 10, 10)
+    love.graphics.setFont(fonts.text)
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.printf("Friends in my Wi-Fi can invite me", v.x + 12, v.y + 8, v.w - 24, "left")
+    love.graphics.setColor(1, 1, 1, 0.55)
+    love.graphics.printf(Nick.visible and "Only while I am in the lobby" or "They can't see me", v.x + 12,
+        v.y + 34, v.w - 100, "left")
+    love.graphics.setColor(Nick.visible and 0.3 or 0.45, Nick.visible and 0.75 or 0.45, Nick.visible and 0.3 or 0.5)
+    love.graphics.rectangle("fill", v.x + v.w - 76, v.y + 16, 64, 32, 16, 16)
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.circle("fill", v.x + v.w - (Nick.visible and 28 or 60), v.y + 32, 12)
     love.graphics.pop()
     love.graphics.setColor(1, 1, 1, 1)
 end

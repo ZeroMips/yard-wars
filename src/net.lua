@@ -40,7 +40,13 @@ local Nick     = require("src.nick")
 local Net = {}
 Net.PORT = 27015
 Net.DISCOVERY_PORT = 27016
+-- Invitations (lobby to lobby, UDP): a device in the lobby that lets friends see it answers
+-- PRESENCE_QUERY with its nick on PRESENCE_PORT and shows an invite that arrives there; a
+-- host in the waiting room looks for such devices and sends the invites. Never outside the
+-- local network, and only while the player is in the lobby (src/invite.lua).
+Net.PRESENCE_PORT = 27017
 local DISCOVER_QUERY = "yard-wars?1"
+local PRESENCE_QUERY = "yard-wars-who?1"
 local FIND_INTERVAL = 2  -- seconds between queries
 local FOUND_TIMEOUT = 5  -- a game disappears from the list after this long without answer
 Net.MAX_CLIENTS = 7
@@ -522,6 +528,55 @@ function Server:close()
     if self.discovery then self.discovery:close() end
 end
 
+---------------------------------------------------------------------------- invitations
+
+local Lobby = {}
+Lobby.__index = Lobby
+
+-- A device in the lobby that wants to be found and invited: answers presence queries with
+-- its nick (listener.nick, kept up to date by main.lua) and collects invites.
+-- Returns nil if the port can't be used (then there are simply no invites).
+function Net.newLobbyListener(nick)
+    local udp = udp4()
+    if not udp then return nil end
+    if not udp:setsockname("0.0.0.0", Net.PRESENCE_PORT) then udp:close() return nil end
+    udp:settimeout(0)
+    return setmetatable({ udp = udp, nick = nick }, Lobby)
+end
+
+-- Answers queries; returns the invites that arrived: { { nick, mode, address }, ... }
+function Lobby:update()
+    local invites = {}
+    for _ = 1, 20 do
+        local data, ip, port = self.udp:receivefrom()
+        if not data then break end
+        if data == PRESENCE_QUERY then
+            pcall(self.udp.sendto, self.udp, Codec.encode({ game = "yard-wars", kind = "player",
+                nick = self.nick }), ip, port)
+        else
+            local msg = Codec.decode(data)
+            if type(msg) == "table" and msg.game == "yard-wars" and msg.type == "invite"
+                and type(ip) == "string" then
+                invites[#invites + 1] = { nick = Nick.safe(msg.nick), address = ip,
+                    mode = type(msg.mode) == "string" and msg.mode:sub(1, 40) or "" }
+            end
+        end
+    end
+    return invites
+end
+
+function Lobby:close() self.udp:close() end
+
+-- A host in the waiting room invites the device at `address` (found by a players finder)
+function Net.sendInvite(address, nick, modeName)
+    local udp = udp4()
+    if not udp then return false end
+    local ok = pcall(udp.sendto, udp, Codec.encode({ game = "yard-wars", type = "invite",
+        nick = nick, mode = modeName }), address, Net.PRESENCE_PORT)
+    udp:close()
+    return ok
+end
+
 ---------------------------------------------------------------------------- finder
 
 local Finder = {}
@@ -537,12 +592,16 @@ local SOCKET_LIFE = 4   -- seconds a query socket is kept (answers come within m
 -- { address, mode, waves, players, nick (the host's), open (false: already started),
 -- seen } sorted by address.
 -- hints: addresses to ask first (e.g. the last joined host)
-function Net.newFinder(hints)
+-- players = true: looks for devices in the lobby instead (the waiting room's invite list):
+-- finder.games then holds { address, nick, seen }
+function Net.newFinder(hints, players)
     local probe = udp4()
     if not probe then return nil end
     probe:close()
     return setmetatable({ sockets = {}, hints = hints or {}, games = {}, byAddress = {},
-        timer = 0, sent = 0, sendErrors = 0, answers = 0, lastError = nil }, Finder)
+        timer = 0, sent = 0, sendErrors = 0, answers = 0, lastError = nil,
+        query = players and PRESENCE_QUERY or DISCOVER_QUERY,
+        port = players and Net.PRESENCE_PORT or Net.DISCOVERY_PORT, players = players }, Finder)
 end
 
 local function newSocket(self)
@@ -559,7 +618,7 @@ local function sendAll(self, addresses)
     local udp = newSocket(self)
     if not udp then return end
     for _, ip in ipairs(addresses) do
-        local ok, res, err = pcall(udp.sendto, udp, DISCOVER_QUERY, ip, Net.DISCOVERY_PORT)
+        local ok, res, err = pcall(udp.sendto, udp, self.query, ip, self.port)
         if ok and res then self.sent = self.sent + 1
         else self.sendErrors, self.lastError = self.sendErrors + 1, tostring(ok and err or res) end
     end
@@ -597,7 +656,8 @@ local function receive(self, udp, now)
         if not data then break end
         local info = Codec.decode(data)
         self.answers = self.answers + 1
-        if type(info) == "table" and info.game == "yard-wars" and type(ip) == "string" then
+        if type(info) == "table" and info.game == "yard-wars" and type(ip) == "string"
+            and (info.kind == "player") == (self.players == true) then
             local g = self.byAddress[ip] or { address = ip }
             g.mode = tostring(info.mode or "?")
             g.waves = info.waves == true

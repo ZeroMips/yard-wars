@@ -30,8 +30,8 @@ existing things that break it.
   (or `love . --find` for the join screen with discovery) in a second terminal. The host opens the
   waiting room (since protocol 15): press START there, or `--autostart S` before `--host` starts
   the round after S seconds.
-  UDP ports 27015 (game) + 27016 (discovery); if a phone can't connect/find the desktop:
-  `sudo ufw allow 27015:27016/udp`.
+  UDP ports 27015 (game) + 27016 (discovery) + 27017 (invites, lobby only); if a phone can't connect/find the desktop:
+  `sudo ufw allow 27015:27017/udp`.
 - Self-update test: `love dist/yard-wars-N.love --update-url http://127.0.0.1:8000/updates/`
   (serve a dir filled by `tools/publish.sh --local DIR/updates` with `python3 -m http.server`;
   use a test clone with its own `t.identity` so the real save folder stays clean);
@@ -374,6 +374,15 @@ existing things that break it.
   waiting room, snapshots `nick` of humans; the host makes duplicates unique: "Anna 2");
   shown as a name tag above other humans (not in Hide and seek), in results (`nameOf`) and on the
   join screen (the host's nick). datenschutz.html says so.
+- `src/invite.lua` + `Net.newLobbyListener`/`Net.sendInvite`/`Net.newFinder(hints, true)` — invitations
+  from the lobby (2026-11-24): a device in the lobby (state menu/pick/pass/style/nick/info/join, not in
+  a game or waiting room) and with "Friends in my Wi-Fi can invite me" on (nick screen, second line of
+  nick.txt) listens on UDP `Net.PRESENCE_PORT` 27017: answers "yard-wars-who?1" with its nick and
+  receives invite datagrams; the host's waiting room sweeps the /24 for such devices (players finder,
+  chips "Invite friends nearby", tap = `Net.sendInvite`, "sent:" for 30 s). The invitee sees a banner
+  (JOIN / NO THANKS, goes away after 20 s, the same address is ignored for 60 s, one sound) on the
+  lobby screen only; JOIN = `joinGame(address)` with a usable rowdy. Closed before hosting and while
+  playing, so nobody is pulled out of a game. No protocol change (a side channel).
 - `src/waiting.lua` — LAN waiting room (state "waiting", `waiting` flag in main.lua also covers the
   rowdy picker/style screen opened from it, `pickFor = "waiting"`): the host's game exists
   (`Net.newServer`, host player added, `world.started` false, nothing simulated or sent) while
