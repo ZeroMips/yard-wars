@@ -886,12 +886,15 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   new rowdies (60 rounds, no errors, all end), screenshots of every effect, boss fights 20-23,
   LAN host + client smoke. NOT yet on a device (steering the flight and the car with the touch
   stick, landing with the super button).
-- ART IS A PLACEHOLDER: `assets/images/{comic,side}/{mrstar,wonder,disco,transform}.png` are
-  copies of Digger/Sniper/Wizard/Gunner (commit "TEMP: placeholder sprites"). Prompts:
-  ~/Downloads/yard-wars-art-new/<image>-prompts.md. Then `tools/make_comic_sprites.py` (origin and
-  muzzle by hand, the `comic` lines in src/rowdies.lua still hold the copied ones), website cards,
-  publish. Not done: "Power" (2 equipped extra abilities), "Spezial" (new Yard Pass screen),
-  friends/names/invites (needs a server and kids' personal data: charter) - ask Gideon.
+- Art (2026-11-24, Gideon's designs via Gemini, prompts in ~/Downloads/yard-wars-art-new/<image>-prompts.md,
+  sheets mrsstar.jpeg (1584x672, `--scale 0.28`), wonder/disco/transformer.jpeg (`--scale 0.253`) cut into
+  top/ + side/): Wonder's side view drawn facing left = mirrored; Transform Girl's top view faced down =
+  turned 180 degrees; the ground shadows of the side views were painted white before cutting out;
+  origin/muzzle set by hand. Mrs Star's parasol (`Rowdy:drawParasol`) and swing are black/gold now.
+  Website cards added (website/images/<image>.png, 280 px). Still to do: look at them on a device, merge
+  `new-rowdies`, publish only on the user's go (tools/publish.sh, tools/publish-site.sh). Not done:
+  "Power" (2 equipped extra abilities), "Spezial" (new Yard Pass screen), friends/names/invites (needs a
+  server and kids' personal data: charter) - ask Gideon.
 
 ## Pirate status (2026-10-06)
 - Bomb mechanics done and tested on desktop: headless (lands where aimed over a wall,

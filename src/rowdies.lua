@@ -338,10 +338,10 @@ local Rowdies = {
         -- Gideon's third batch (photos of 2026-11-22). An umbrella (CHARTER.md: a plain rain
         -- umbrella) and a long steerable flight that ends with a landing blast
         name = "Mrs Star", role = "Umbrella, long flights", price = 400, shot = "shot_shovel",
-        comic = { image = "mrstar", origin = { 79.5, 62 }, muzzle = { 45, 0 } },
+        comic = { image = "mrstar", origin = { 31, 129 }, muzzle = { 60, -1 } },
         stats = { speed = 250, hp = 130, damage = 42, range = 95, bulletSpeed = 800,
                   radius = 28, wallRadius = 8, pierce = true, reload = 0.35, maxAmmo = 3,
-                  ammoRefill = 1.0, projectile = "swing", bulletColor = { 0.3, 0.4, 0.85 },
+                  ammoRefill = 1.0, projectile = "swing", bulletColor = { 1, 0.8, 0.2 },
                   super = { name = "Star Flight", description = "Flies far, steer it, tap to land",
                             charge = 110, kind = "fly", duration = 3, bulletSpeed = 330,
                             damage = 60, blast = 110, range = 600, projectile = "slam" } },
@@ -349,7 +349,7 @@ local Rowdies = {
     {
         -- A fat toy ray gun with one strong shot, and a mirror shield that sends shots back
         name = "Wonder Destroyer", role = "Strong shot, reflects", price = 500, shot = "shot_wonder",
-        comic = { image = "wonder", origin = { 33.5, 120.5 }, muzzle = { 117.5, 1 } },
+        comic = { image = "wonder", origin = { 42, 65 }, muzzle = { 63, -1 } },
         stats = { speed = 235, hp = 110, damage = 32, range = 560, bulletSpeed = 2200,
                   radius = 14, wallRadius = 6, pierce = true, reload = 1.1, maxAmmo = 2,
                   ammoRefill = 2.2, projectile = "beam", bulletColor = { 1, 0.35, 0.3 },
@@ -359,7 +359,7 @@ local Rowdies = {
     {
         -- A disco speaker: a broad beam of music notes, heals the whole team
         name = "Danger Disco", role = "Broad note beam, heals team", price = 450, shot = "shot_disco",
-        comic = { image = "disco", origin = { 49.5, 75 }, muzzle = { 70, -1 } },
+        comic = { image = "disco", origin = { 43, 57 }, muzzle = { 55, 0 } },
         stats = { speed = 245, hp = 100, kind = "beam", damage = 2.5, width = 56, range = 380,
                   reload = 0.2, maxAmmo = 3, ammoRefill = 1.5, projectile = "note",
                   bulletColor = { 1, 0.45, 0.85 },
@@ -369,7 +369,7 @@ local Rowdies = {
     {
         -- Turns into a toy car you steer until it bumps into something; a shield bubble
         name = "Transform Girl", role = "Steered toy car, shield", price = 450, shot = "gust",
-        comic = { image = "transform", origin = { 46, 80 }, muzzle = { 77, 0 } },
+        comic = { image = "transform", origin = { 58, 69 }, muzzle = { 45, 0 } },
         stats = { speed = 250, hp = 125, kind = "car", damage = 45, blast = 60, range = 450,
                   duration = 2.5, bulletSpeed = 420, reload = 1.0, maxAmmo = 2, ammoRefill = 2.0,
                   projectile = "slam", bulletColor = { 1, 0.8, 0.2 },
