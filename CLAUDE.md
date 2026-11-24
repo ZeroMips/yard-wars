@@ -786,8 +786,15 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   seek, protocol 12). Build 106 (2026-10-29: loading steps + heartbeat in the
   update log, protocol unchanged). Build 109 (2026-11-01: Flower Gardens + faster
   line of sight, protocol 13; website with the Flower Gardens card uploaded the same day).
-  Build 111 (2026-11-06, current: a failing enet service call no longer crashes the LAN
-  host, protocol unchanged).
+  Build 111 (2026-11-06: a failing enet service call no longer crashes the LAN
+  host, protocol unchanged). Build 117 (2026-11-24, current: Mrs Star, Wonder Destroyer, Danger
+  Disco, Transform Girl, LAN waiting room + nicks + invitations from the lobby, protocol 15;
+  website with the four cards + the nick sentence in datenschutz.html uploaded the same day).
+  The web space is nearly full: the first upload of 117 failed with "Exceeded storage allocation"
+  (old build + new build + the download copy at once). Fix used: delete `download/yard-wars.zip` over
+  FTP, then run `tools/publish.sh` again (it re-uploads the zip at the end). A .love is ~1.6 MB now
+  and it exists twice (updates/ + download/): the next publish may need the same trick - or
+  tools/publish.sh should delete the old download copy before uploading.
 - New rowdies 2 (Gideon's photos of 2026-10-12, ~/Downloads/download (2).zip): Posion
   (goo spray cone + firework rockets; name as Gideon wants it), Fruit Man (two apples in
   a V + heals himself), Officer (handcuffs: 12 damage - "no damage" scored 0 knockouts,
