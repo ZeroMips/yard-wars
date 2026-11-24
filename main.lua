@@ -1031,8 +1031,9 @@ local function updateClient()
     replica:receive(client:takeInbox())
     local due = replica:update()
     if not due then return end -- nothing received yet
-    playEvents(due)
-    world, localId, player = replica.world, replica.localId, replica:player()
+    world, localId = replica.world, replica.localId -- (the events below look the world up:
+    playEvents(due)                                 -- build 111 crashed here on a first shot)
+    player = replica:player()
     if not player then return end
     readInput()
     client:sendInput(input)
