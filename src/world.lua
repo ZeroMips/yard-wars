@@ -649,7 +649,7 @@ end
 -- Flower Gardens: where the player was, or out with its heart)
 function World:removePlayer(p)
     self:remove(p)
-    if not self.mode.teams then return end
+    if not self.started or not self.mode.teams then return end -- (waiting room: no bot yet)
     local bot = newBot(self, p.team, p.spawnX, p.spawnY)
     if self.mode.hideseek then takeOver(self, p, bot) return end
     if not (self.mode.king or self.mode.flowers) then return end
@@ -767,6 +767,7 @@ end
 
 -- Call after the players were added.
 function World:start()
+    self.started = true
     if self.mode.hideseek then -- bots fill the free places, then a random seeker
         for _ = #self.entities + 1, World.HIDE_PLAYERS do
             newBot(self, World.TEAM_HIDERS, Arena.center.x, Arena.center.y)

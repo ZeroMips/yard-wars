@@ -3,7 +3,7 @@
 -- sends (see src/replica.lua).
 --
 -- Messages (tables, encoded with src/codec.lua):
---   client -> host   hello {rowdy, style, protocol, content, build}
+--   client -> host   hello {rowdy, nick, style, protocol, content, build}
 --                                           reliable, once after connecting; style =
 --                                           Yard Pass cosmetics {skin, trail, title, badge}
 --                    input {dx, dy, aim, dist, shotDist, fire, super, hold} unreliable,
@@ -12,8 +12,14 @@
 --                                             so a lost packet loses no distance); fire
 --                                             and super are counters, so a lost packet
 --                                             loses no shot
---                    rowdy {index, style}   reliable
---   host -> client   welcome {id, mode, protocol, content, build}  reliable
+--                    rowdy {index, style}   reliable (in the waiting room or between rounds)
+--   host -> client   welcome {id, mode, waiting, protocol, content, build}  reliable
+--                    lobby {players = {{id, nick, rowdy, host}, ...}}  reliable, in the
+--                                             waiting room: who is there (index into
+--                                             Rowdies), sent at every change
+--                    start {}                 reliable, the host started the round (no
+--                                             snapshots before; joining is only possible
+--                                             in the waiting room)
 --                    refused {reason}         reliable, then disconnect (other version)
 --                    events {list}            reliable, world events (with world time t)
 --                    snap {t, wave, ..., e, y, z, h, k, f}  unreliable, SNAPSHOT_EVERY
@@ -26,6 +32,7 @@ local socket   = require("socket")
 local Codec    = require("src.codec")
 local Rowdies = require("src.rowdies")
 local Updater  = require("src.updater")
+local Nick     = require("src.nick")
 
 -- Finding games: a joining device sends DISCOVER_QUERY to UDP DISCOVERY_PORT (broadcast
 -- + every address of its /24 network, since some phones/routers drop broadcasts); hosts
@@ -70,7 +77,7 @@ end
 -- list indexes, the client draws with its own stats). Bump PROTOCOL when messages or
 -- Net.FIELDS change; the content id is a hash of src/rowdies.lua's data, so a new or
 -- changed rowdy needs no manual bump. Builds may differ otherwise (git checkout <-> phone).
-Net.PROTOCOL = 14 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
+Net.PROTOCOL = 15 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin..badge)
                  -- 4: bombs (input dist, bullet lob, blast event)
                  -- 5: boss fight (welcome mode.boss, FIELDS boss)
                  -- 6: Student/Chef/Agent Angel (bullet + blast projectile, turn and
@@ -93,6 +100,8 @@ Net.PROTOCOL = 14 -- 3: death.killer, boxBreak.by, cosmetics (style, FIELDS skin
                  --    deliver/dozer/dozerGone/fenceDown events)
                  -- 14: Mrs Star/Wonder Destroyer/Danger Disco/Transform Girl (FIELDS
                  --    reflecting, shielded, ramming; fly/car/shield/reflect events, heal.src)
+                 -- 15: waiting room + nicks (hello nick, welcome waiting, lobby/start
+                 --    messages, FIELDS nick, discovery answer nick/open; no joining after start)
 
 local function serialize(v, out)
     if type(v) == "table" then
@@ -141,7 +150,7 @@ Net.FIELDS = { "id", "team", "key", "x", "y", "aim", "hp", "ammo", "ammoTimer", 
     "hitFlash", "spawnAnim", "kills", "deaths", "isBot", "charge", "out",
     "skin", "trail", "title", "badge", "boss", "frozen", "air", "burrowed", "beam", "grabbing",
     "held", "vanished", "goals", "rooted", "goo", "disguised", "placed", "foundAt",
-    "carryingFlower", "driving", "delivered", "reflecting", "shielded", "ramming" }
+    "carryingFlower", "driving", "delivered", "reflecting", "shielded", "ramming", "nick" }
 
 local function send(peer, msg, reliable)
     peer:send(Codec.encode(msg), reliable and CH_RELIABLE or CH_FAST,
@@ -200,8 +209,10 @@ function Net.newServer(world)
     local udp = udp4()
     if udp and not udp:setsockname("0.0.0.0", Net.DISCOVERY_PORT) then udp:close(); udp = nil end
     if udp then udp:settimeout(0) end
+    -- waiting = the waiting room: players may join, nothing is simulated or sent until
+    -- Server:start(). hostNick/hostId: the host's own nick and entity (set by main.lua).
     return setmetatable({ host = host, world = world, clients = {}, steps = 0, events = {},
-        discovery = udp }, Server)
+        discovery = udp, waiting = true, hostNick = Nick.name }, Server)
 end
 
 local function answerQueries(self)
@@ -212,7 +223,8 @@ local function answerQueries(self)
             self.queries, self.lastQueryFrom = (self.queries or 0) + 1, ip -- shown in the HUD
             local mode = self.world.mode
             self.discovery:sendto(Codec.encode({ game = "yard-wars", mode = mode.name,
-                waves = mode.waves, players = self:playerCount() + 1, port = Net.PORT }), ip, port)
+                waves = mode.waves, players = self:playerCount() + 1, port = Net.PORT,
+                nick = self.hostNick, open = self.waiting }), ip, port)
         end
     end
 end
@@ -225,6 +237,53 @@ function Server:playerCount()
     return n
 end
 
+-- Index of a rowdy entry in the list (what travels on the wire)
+local function rowdyIndex(def)
+    for i, d in ipairs(Rowdies) do
+        if d == def then return i end
+    end
+    return 1
+end
+
+-- The waiting room's list: every human in the world, the host first
+function Server:roster()
+    local list = {}
+    for _, e in ipairs(self.world.entities) do
+        if not e.isBot then
+            list[#list + 1] = { id = e.id, nick = e.nick or Nick.fallback(e.id),
+                rowdy = rowdyIndex(e.def), host = e.id == self.hostId or nil }
+        end
+    end
+    table.sort(list, function(a, b)
+        if (a.host or false) ~= (b.host or false) then return a.host or false end
+        return a.id < b.id
+    end)
+    return list
+end
+
+local function sendRoster(self)
+    local data = Codec.encode({ type = "lobby", players = self:roster() })
+    for peer, c in pairs(self.clients) do
+        if c.id then peer:send(data, CH_RELIABLE, "reliable") end
+    end
+    self.rosterDirty = false
+    self.host:flush()
+end
+
+-- The waiting room's list changed (the host's own rowdy, ...): send it soon
+function Server:rosterChanged() self.rosterDirty = true end
+
+-- The host starts the round: from now on no one can join and snapshots flow
+function Server:start()
+    if not self.waiting then return end
+    self.waiting = false
+    local data = Codec.encode({ type = "start" })
+    for peer, c in pairs(self.clients) do
+        if c.id then peer:send(data, CH_RELIABLE, "reliable") end
+    end
+    self.host:flush()
+end
+
 local function receive(self, peer, msg)
     local c, world = self.clients[peer], self.world
     if not c or type(msg) ~= "table" then return end
@@ -233,6 +292,12 @@ local function receive(self, peer, msg)
         if problem then
             c.refused = true
             send(peer, { type = "refused", reason = problem }, true)
+            peer:disconnect_later()
+            return
+        end
+        if not self.waiting then -- (a rejoining device would find a round running)
+            c.refused = true
+            send(peer, { type = "refused", reason = "That game has already started" }, true)
             peer:disconnect_later()
             return
         end
@@ -248,9 +313,22 @@ local function receive(self, peer, msg)
         -- pop-in + spawn event (King of the Yard, Hide and seek, Flower Gardens:
         -- addTeamPlayer put it where the bot was)
         if not (world.mode.king or world.mode.hideseek or world.mode.flowers) then p:respawn() end
+        p.nick = Nick.safe(msg.nick)
+        if p.nick == "" then p.nick = Nick.fallback(p.id) end
+        local base, n = p.nick, 1
+        local function taken(name)
+            for _, e in ipairs(world.entities) do
+                if e ~= p and e.nick == name then return true end
+            end
+        end
+        while taken(p.nick) do -- two players with the same nick: "Anna", "Anna 2", ...
+            n = n + 1
+            p.nick = base:sub(1, Nick.MAX - #tostring(n) - 1) .. " " .. n
+        end
         c.id, c.fireSeen = p.id, 0
+        self.rosterDirty = true
         local v = Net.version()
-        send(peer, { type = "welcome", id = p.id, mode = { name = world.mode.name,
+        send(peer, { type = "welcome", id = p.id, waiting = true, mode = { name = world.mode.name,
             waves = world.mode.waves, teams = world.mode.teams, boss = world.mode.boss,
             yardball = world.mode.yardball, king = world.mode.king, hideseek = world.mode.hideseek,
             flowers = world.mode.flowers },
@@ -258,9 +336,12 @@ local function receive(self, peer, msg)
     elseif msg.type == "input" and c.id then
         c.input = msg
     elseif msg.type == "rowdy" and c.id then
-        -- only between rounds (switching heals completely)
+        -- only in the waiting room or between rounds (switching heals completely)
         local def, p = Rowdies[tonumber(msg.index)], world:get(c.id)
-        if def and p and world.match.over then world:setRowdy(p, def, cleanStyle(msg.style)) end
+        if def and p and (self.waiting or world.match.over) then
+            world:setRowdy(p, def, cleanStyle(msg.style))
+            if self.waiting then self.rosterDirty = true end
+        end
     end
 end
 
@@ -280,8 +361,10 @@ function Server:service()
             local p = c and c.id and self.world:get(c.id)
             if p then self.world:removePlayer(p) end
             self.clients[ev.peer] = nil
+            self.rosterDirty = true
         end
     end
+    if self.rosterDirty and self.waiting then sendRoster(self) end
 end
 
 -- Add the remote players' commands for the next step to `inputs`
@@ -385,6 +468,7 @@ local function snapshot(world)
         s[45] = e.reflecting ~= nil -- (seconds left on the host)
         s[46] = e.shielded ~= nil
         s[47] = e.car ~= nil
+        s[48] = (not e.isBot) and e.nick or nil -- (the nick of a human: name tag, results)
         ents[#ents + 1] = s
     end
     local packs = {}
@@ -450,7 +534,8 @@ local CHUNK = 32        -- addresses per socket
 local SOCKET_LIFE = 4   -- seconds a query socket is kept (answers come within ms)
 
 -- Looks for hosts in the local network while it is updated. finder.games is a list of
--- { address, mode, waves, players, seen } sorted by address.
+-- { address, mode, waves, players, nick (the host's), open (false: already started),
+-- seen } sorted by address.
 -- hints: addresses to ask first (e.g. the last joined host)
 function Net.newFinder(hints)
     local probe = udp4()
@@ -517,6 +602,8 @@ local function receive(self, udp, now)
             g.mode = tostring(info.mode or "?")
             g.waves = info.waves == true
             g.players = tonumber(info.players) or 1
+            g.nick = type(info.nick) == "string" and Nick.safe(info.nick) or nil
+            g.open = info.open ~= false -- (false: the round has started, no joining)
             g.seen = now
             self.byAddress[ip] = g
         end
@@ -564,8 +651,8 @@ local Client = {}
 Client.__index = Client
 
 -- state: "connecting" -> "joined" (after welcome) -> "closed" (see .error)
--- style: the own cosmetics (see hello)
-function Net.newClient(address, rowdyIndex, style)
+-- style: the own cosmetics (see hello); nick: the own nick
+function Net.newClient(address, rowdyIndex, style, nick)
     local host = enet.host_create()
     if not host then return nil, "Network not available" end
     local ok, peer = pcall(host.connect, host, address .. ":" .. Net.PORT, 2)
@@ -574,8 +661,8 @@ function Net.newClient(address, rowdyIndex, style)
         return nil, "Bad address: " .. address
     end
     return setmetatable({ host = host, peer = peer, state = "connecting",
-        started = love.timer.getTime(), rowdy = rowdyIndex, style = style, fire = 0, super = 0,
-        inbox = {} }, Client)
+        started = love.timer.getTime(), rowdy = rowdyIndex, style = style, nick = nick,
+        fire = 0, super = 0, inbox = {} }, Client)
 end
 
 -- Handles network traffic; received welcome/events/snap messages are appended to
@@ -592,8 +679,8 @@ function Client:service()
         if ev.type == "connect" then
             setTimeout(self.peer)
             local v = Net.version()
-            send(self.peer, { type = "hello", rowdy = self.rowdy, style = self.style, protocol = v.protocol,
-                content = v.content, build = v.build }, true)
+            send(self.peer, { type = "hello", rowdy = self.rowdy, nick = self.nick, style = self.style,
+                protocol = v.protocol, content = v.content, build = v.build }, true)
         elseif ev.type == "receive" then
             local msg = Codec.decode(ev.data)
             if type(msg) == "table" then

@@ -17,6 +17,8 @@ local World    = require("src.world")
 local Effects  = require("src.effects")
 local Menu     = require("src.menu")
 local Join     = require("src.join")
+local Nick     = require("src.nick")
+local Waiting  = require("src.waiting")
 local InfoView = require("src.infoview")
 local Net      = require("src.net")
 local Replica  = require("src.replica")
@@ -115,9 +117,12 @@ local ENEMY_TEAM_COLOR = { 1, 0.3, 0.25 } -- team fight: enemies (bots and playe
 local KING_COLORS = { { 1, 0.3, 0.25 }, { 0.3, 0.85, 0.35 }, { 1, 0.85, 0.2 } }
 local KING_NAMES  = { "red", "green", "yellow" }
 
-local state = "menu" -- "menu", "pick" (rowdy choice), "join", "game", "pass" (Yard Pass)
-                     -- or "style" (cosmetics)
-local pickFor        -- what the rowdy choice is for: "lobby" or "between" rounds
+local state = "menu" -- "menu", "pick" (rowdy choice), "join", "waiting" (LAN waiting room),
+                     -- "game", "pass" (Yard Pass), "style" (cosmetics) or "nick"
+local pickFor        -- what the rowdy choice is for: "lobby", "waiting" room or "between" rounds
+local waiting = false    -- in the LAN waiting room (state waiting, or pick/style from there)
+local roomPlayers = {}   -- client: the waiting room's list from the host (net.lua "lobby")
+local autoStartAt        -- (--autostart S, for tests) host: start the round at this time
 local styleFrom      -- where the style screen goes back to: "menu" or "pick"
 local role           -- "local", "host" or "client" while playing
 local menuTime = 0   -- drives the camera pan behind the menu
@@ -174,6 +179,7 @@ local function openMenu(message)
     if client then client:close() end
     closeFinder()
     server, client, replica = nil, nil, nil
+    waiting, roomPlayers, pickFor = false, {}, nil
     state, role = "menu", nil
     Arena.setLayout("yard") -- (Yardball plays on the pitch)
     Menu.modesOpen = false
@@ -201,9 +207,26 @@ local function newGame(mode, host, def)
         player = world:addPlayer(def, Arena.spawn.x, Arena.spawn.y, nil, Pass.style(def))
     end
     localId = player.id
+    if host then -- the waiting room: friends join, the host starts the round
+        player.nick = Nick.name
+        server.hostNick, server.hostId = Nick.name, player.id
+        state, waiting, roomPlayers = "waiting", true, {}
+        autoStartAt = autoStartAt and (love.timer.getTime() + autoStartAt)
+        return
+    end
     world:start()
     world:takeEvents() -- the bots' spawn sounds would all play at once
     Sound.play("roundStart")
+    Camera.snap(player.x, player.y, Arena.width, Arena.height)
+end
+
+-- LAN host: START in the waiting room - bots fill the empty places, nobody joins any more
+local function startRound()
+    Sound.play("roundStart")
+    server:start()
+    world:start()
+    world:takeEvents() -- the bots' spawn sounds would all play at once
+    waiting, state, pickFor, autoStartAt = false, "game", nil, nil
     Camera.snap(player.x, player.y, Arena.width, Arena.height)
 end
 
@@ -221,14 +244,14 @@ local function joinGame(address)
     address = Join.address
     if address == "" then Join.status = "Enter the host's address" return end
     local err
-    client, err = Net.newClient(address, Menu.rowdy, Pass.style(Rowdies[Menu.rowdy]))
+    client, err = Net.newClient(address, Menu.rowdy, Pass.style(Rowdies[Menu.rowdy]), Nick.name)
     if not client then Join.status = err return end
     Join.save()
     Join.close()
     closeFinder()
     resetGame()
     replica = Replica.new()
-    state, role = "game", "client"
+    state, role, waiting, roomPlayers = "waiting", "client", true, {}
     Menu.message = nil
 end
 
@@ -302,6 +325,15 @@ local function confirmPick()
             world:setRowdy(player, def, Pass.style(def))
             world:restartMatch()
         end
+    elseif pickFor == "waiting" then -- still in the waiting room: the host lists the change
+        state = "waiting"
+        local def = Rowdies[Menu.rowdy]
+        if client then
+            client:selectRowdy(Menu.rowdy, Pass.style(def))
+        else
+            world:setRowdy(player, def, Pass.style(def))
+            server:rosterChanged()
+        end
     else
         state = "menu"
     end
@@ -309,7 +341,9 @@ end
 
 local function cancelPick()
     Sound.play("click")
-    if pickFor == "between" then state = "game" else state = "menu" end
+    if pickFor == "between" then state = "game"
+    elseif pickFor == "waiting" then state = "waiting"
+    else state = "menu" end
 end
 
 -- Yard Pass screen (src/passview.lua) and style screen (src/wardrobe.lua)
@@ -443,6 +477,7 @@ local function menuAction(what, i)
     elseif what == "rowdies" then openPicker("lobby")
     elseif what == "pass" then openPass()
     elseif what == "style" then openStyle("menu", Menu.rowdy)
+    elseif what == "nick" then Sound.play("click"); Nick.open(); state = "nick"
     elseif what == "prev" or what == "next" then
         Sound.play("click")
         Menu.notice = nil
@@ -474,13 +509,14 @@ function love.load(args)
     Sound.load()
     Updater.step("sound")
     Profile.load()
+    Nick.load()
     Pass.load()
     Pass.refresh(true)
     Menu.load()
     love.resize()
     openMenu()
     Updater.step("done")
-    -- Testing shortcuts: love . [--rowdy N] [--coins N] --host [team|waves] |
+    -- Testing shortcuts: love . [--rowdy N] [--coins N] [--autostart S] --host [team|waves] |
     -- --host yardball | --host king | --host hide | --host flowers |
     -- --boss N [host] (boss fight against rowdy N, fighting with the last used one) |
     -- --join <address> | --find   (--coins adds to the saved coins)
@@ -488,6 +524,7 @@ function love.load(args)
         if a == "--coins" then Profile.addCoins(tonumber(args[i + 1]) or 0) end
         if a == "--rowdy" then Menu.rowdy = Rowdies[tonumber(args[i + 1])] and tonumber(args[i + 1]) or 1 end
         if a == "--find" then openJoin() end
+        if a == "--autostart" then autoStartAt = tonumber(args[i + 1]) or 3 end -- (host: start the round after S s)
         if a == "--boss" and Rowdies[tonumber(args[i + 1])] then -- boss fight (any rowdy)
             Menu.rowdy = tonumber(args[i + 1])
             Menu.checkFighter()
@@ -988,6 +1025,55 @@ local function updateClient()
     if input.aim then player.aim, player.aimDist = input.aim, input.aimDist end
 end
 
+-- LAN waiting room: the host lets friends in and starts the round, a client waits for
+-- the list of players and for the start (net.lua "lobby" / "start" messages)
+local function updateWaiting()
+    if role == "host" then
+        server:service()
+        if autoStartAt and love.timer.getTime() >= autoStartAt then startRound() end
+        return
+    end
+    client:service()
+    if client.state == "closed" then openMenu(client.error) return end
+    local inbox = client:takeInbox()
+    local started = false
+    for _, msg in ipairs(inbox) do
+        if msg.type == "lobby" and type(msg.players) == "table" then
+            roomPlayers = {}
+            for _, p in ipairs(msg.players) do
+                if type(p) == "table" and tonumber(p.id) then
+                    roomPlayers[#roomPlayers + 1] = { id = p.id, host = p.host == true,
+                        nick = type(p.nick) == "string" and p.nick:sub(1, 48) or Nick.fallback(p.id),
+                        rowdy = Rowdies[tonumber(p.rowdy)] and tonumber(p.rowdy) or 1 }
+                end
+            end
+        elseif msg.type == "start" then
+            started = true
+        end
+    end
+    replica:receive(inbox)
+    if started then
+        waiting, state, pickFor = false, "game", nil
+        Sound.play("roundStart")
+    end
+end
+
+-- What the waiting room shows (src/waiting.lua)
+local function waitingInfo()
+    local info = { host = role == "host", mode = world and world.mode.name or (client and client.mode and client.mode.name),
+        address = role == "host" and hostAddress or nil, localId = localId or (client and client.id) }
+    if role == "host" then
+        info.players = server:roster()
+    else
+        info.players = roomPlayers
+        for _, p in ipairs(roomPlayers) do
+            if p.host then info.hostNick = p.nick end
+        end
+        if client.state == "connecting" then info.connecting = "Connecting to " .. Join.address .. " ..." end
+    end
+    return info
+end
+
 function love.update(dt)
     Updater.where = state .. ((state == "game" and world) and (": " .. (world.mode.name or "?")
         .. (role ~= "local" and (" (" .. tostring(role) .. ")") or "")) or "")
@@ -1019,6 +1105,10 @@ function love.update(dt)
     if tierUpSoundAt and love.timer.getTime() >= tierUpSoundAt then
         tierUpSoundAt = nil
         Sound.play("tierUp")
+    end
+    if waiting then
+        updateWaiting()
+        if state == "menu" then return end -- connection lost / left
     end
     -- The game keeps running while a rowdy is chosen between rounds (LAN!)
     local inGame = state == "game" or betweenRounds()
@@ -1155,7 +1245,7 @@ local function nameOf(e)
     if e.id == localId then return "You" end
     if e.boss then return "Boss" end
     if e.isBot then return "Bot" end
-    return "Player " .. e.id
+    return e.nick or Nick.fallback(e.id)
 end
 
 -- "1 knockout", "3 knockouts"
@@ -1745,6 +1835,24 @@ local function drawHud()
     love.graphics.pop()
 end
 
+-- LAN: the nick of another human above its rowdy (not in Hide and seek: it would give
+-- the hiders away)
+local function drawNameTags()
+    if world.mode.hideseek then return end
+    love.graphics.setFont(boardFonts.small)
+    for _, e in ipairs(world.entities) do
+        if e ~= player and e.nick and not e.isBot and not e.dead and not hidden(e) then
+            local w = boardFonts.small:getWidth(e.nick)
+            local x, y = e.x - w / 2, e.y - e.radius - 40 - (e.air or 0)
+            love.graphics.setColor(0, 0, 0, 0.55)
+            love.graphics.rectangle("fill", x - 4, y - 1, w + 8, 16, 5, 5)
+            love.graphics.setColor(1, 1, 1)
+            love.graphics.print(e.nick, x, y)
+        end
+    end
+    love.graphics.setColor(1, 1, 1)
+end
+
 local function drawGame()
     -- Health bars: own green; allies blue; enemy bots red, enemy players orange.
     -- Team fight: everybody else blue/red by team, plus a ring in that color.
@@ -1825,6 +1933,7 @@ local function drawGame()
     end
     Effects.drawAbove()
     Arena.drawBushes(player)
+    drawNameTags()
     if hide and hide.hintUntil and hide.hintUntil > world.time then -- the hint: through bushes too
         for _, e in ipairs(world.entities) do
             if e.team == World.TEAM_HIDERS and not e.dead then HideSeek.drawShimmer(e, love.timer.getTime()) end
@@ -1901,6 +2010,8 @@ local function drawScreen()
         if state == "menu" then -- (drawn above)
         elseif state == "info" then InfoView.draw(menuFonts)
         elseif state == "join" then Join.draw(menuFonts)
+        elseif state == "waiting" then Waiting.draw(waitingInfo(), menuFonts)
+        elseif state == "nick" then Nick.draw(menuFonts)
         elseif state == "pass" then PassView.draw(menuFonts)
         elseif state == "style" then Wardrobe.draw(menuFonts)
         else Picker.draw(menuFonts) end
@@ -1965,9 +2076,20 @@ local function press(x, y)
     elseif state == "game" and world and world.match.over then
         local id = Result.hit(resultInfo(), x, y)
         if id then resultAction(id) end
+    elseif state == "waiting" then
+        local what = Waiting.hit(waitingInfo(), x, y)
+        if what == "start" then startRound()
+        elseif what == "rowdy" then openPicker("waiting")
+        elseif what == "leave" then Sound.play("click"); openMenu() end
+    elseif state == "nick" then
+        local what = Nick.hit(x, y)
+        if what == "ok" then Sound.play("click"); Nick.close(); state = "menu"
+        elseif what == "field" then love.keyboard.setTextInput(true) end
     elseif state == "join" then
         local what, i = Join.hit(x, y)
-        if what == "game" then joinGame(Join.games[i].address)
+        if what == "game" then
+            if Join.games[i].open == false then Join.status = "That game has already started"
+            else joinGame(Join.games[i].address) end
         elseif what == "connect" then joinGame()
         elseif what == "back" then Join.close(); openMenu()
         elseif what == "field" then love.keyboard.setTextInput(true) end
@@ -2033,12 +2155,13 @@ end
 
 function love.textinput(t)
     if state == "join" then Join.textinput(t) end
+    if state == "nick" then Nick.textinput(t) end
 end
 
 -- M: sound on/off. Escape (= Android back button): game/join -> menu, rowdy choice, pass
 -- and style screens -> back, menu -> quit
 function love.keypressed(key)
-    if key == "m" and state ~= "join" then Sound.toggleMute() return end
+    if key == "m" and state ~= "join" and state ~= "nick" then Sound.toggleMute() return end
     if state == "info" then
         if InfoView.keypressed(key) == "back" then closeInfo() end
         return
@@ -2070,6 +2193,15 @@ function love.keypressed(key)
         local before = Wardrobe.rowdy
         if Wardrobe.keypressed(key) == "back" then closeStyle()
         elseif Wardrobe.rowdy ~= before then Sound.play("click") end
+        return
+    elseif state == "nick" then
+        if Nick.keypressed(key) == "done" then Sound.play("click"); Nick.close(); state = "menu" end
+        return
+    elseif state == "waiting" then
+        local action = Waiting.keypressed(waitingInfo(), key)
+        if action == "start" then startRound()
+        elseif action == "rowdy" then openPicker("waiting")
+        elseif action == "leave" then Sound.play("click"); openMenu() end
         return
     elseif state == "join" then
         local action = Join.keypressed(key)

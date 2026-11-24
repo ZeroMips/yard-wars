@@ -23,6 +23,7 @@ local HideSeek = require("src.hideseek")
 local Flowers  = require("src.flowers")
 local PassView = require("src.passview")
 local Unlock   = require("src.unlock")
+local Nick     = require("src.nick")
 
 local Menu = {}
 
@@ -146,6 +147,7 @@ local function lobbyLayout()
         L.cx, L.cy = sw / 2, 60 + room * 0.5
     end
     L.version = { x = 0, y = sh - 30, w = 320, h = 30 } -- tapped 7 times: test mode
+    L.nick = { x = m, y = 58, w = 230, h = 30 }         -- the player's nick (tap: change it)
     local k = L.k
     L.prev = { x = L.cx - 230 * k - 36, y = L.cy - 36, w = 72, h = 72 }
     L.next = { x = L.cx + 230 * k - 36, y = L.cy - 36, w = 72, h = 72 }
@@ -206,7 +208,7 @@ local function bossLayout()
     return P
 end
 
--- Screen position -> "play", "prev", "next", "rowdies", "pass", "style", "mode", "version"
+-- Screen position -> "play", "prev", "next", "rowdies", "pass", "style", "mode", "nick", "version"
 -- (the build line, see Profile.testMode), "pick" + index (mode
 -- list), "close" (mode list: the OK button), "outside" (mode list: elsewhere) or nil
 function Menu.hit(x, y)
@@ -227,7 +229,7 @@ function Menu.hit(x, y)
         return inside(L.close, x, y) and "close" or "outside"
     end
     local L = lobbyLayout()
-    for _, name in ipairs({ "play", "mode", "rowdies", "pass", "style", "prev", "next", "version" }) do
+    for _, name in ipairs({ "play", "mode", "rowdies", "pass", "style", "prev", "next", "nick", "version" }) do
         if inside(L[name], x, y) and (name ~= "pass" or Pass.season()) then return name end
     end
 end
@@ -256,6 +258,7 @@ function Menu.keypressed(key)
     elseif key == "right" or key == "d" then Menu.rowdy = Menu.rowdy % #Rowdies + 1
     elseif key == "up" or key == "w" then Menu.mode = (Menu.mode - 2) % n + 1
     elseif key == "down" or key == "s" then Menu.mode = Menu.mode % n + 1
+    elseif key == "n" then return "nick"
     elseif key == "return" or key == "kpenter" or key == "space" then return "play"
     elseif key == "b" or key == "tab" then return "rowdies"
     elseif key == "p" and Pass.season() then return "pass"
@@ -535,8 +538,20 @@ function Menu.draw(fonts, touchMode)
     outlined("YARD WARS", fonts.button, 24, 18, 400, "left", { 1, 0.8, 0.2 })
     Loot.drawCounter(Profile.coins, fonts.text, 24 + fonts.button:getWidth("YARD WARS") + 24, 34, 36)
     if Menu.message then
-        outlined(Menu.message, fonts.text, 24, 54, L.sw - 48, "left", { 1, 0.55, 0.3 }, 1)
+        outlined(Menu.message, fonts.text, 24, 96, L.sw - 48, "left", { 1, 0.55, 0.3 }, 1)
     end
+
+    -- Nick chip: who you are in a LAN game (tap to change)
+    local nk = L.nick
+    love.graphics.setColor(0.08, 0.1, 0.16, Menu.hover == "nick" and 0.95 or 0.75)
+    love.graphics.rectangle("fill", nk.x, nk.y, nk.w, nk.h, 8, 8)
+    love.graphics.setColor(1, 1, 1, 0.35)
+    love.graphics.rectangle("line", nk.x, nk.y, nk.w, nk.h, 8, 8)
+    love.graphics.setFont(fonts.text)
+    love.graphics.setColor(1, 1, 1, 0.55)
+    love.graphics.print("Nick", nk.x + 10, nk.y + (nk.h - fonts.text:getHeight()) / 2)
+    love.graphics.setColor(1, 0.9, 0.5)
+    love.graphics.printf(Nick.name, nk.x + 60, nk.y + (nk.h - fonts.text:getHeight()) / 2, nk.w - 70, "left")
 
     drawStage(L, fonts, t)
     drawArrow(L.prev, -1, Menu.hover == "prev")

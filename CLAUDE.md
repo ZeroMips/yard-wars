@@ -27,7 +27,9 @@ existing things that break it.
 - Boss fight: `love . --boss 4` (against rowdy 4, any rowdy, also owned ones; `--boss 4 host`
   hosts it for LAN helpers).
 - LAN test on one machine: `love . --host` (or `--host waves` / `team` / `yardball` / `king` / `hide` / `flowers`) and `love . --join 127.0.0.1`
-  (or `love . --find` for the join screen with discovery) in a second terminal.
+  (or `love . --find` for the join screen with discovery) in a second terminal. The host opens the
+  waiting room (since protocol 15): press START there, or `--autostart S` before `--host` starts
+  the round after S seconds.
   UDP ports 27015 (game) + 27016 (discovery); if a phone can't connect/find the desktop:
   `sudo ufw allow 27015:27016/udp`.
 - Self-update test: `love dist/yard-wars-N.love --update-url http://127.0.0.1:8000/updates/`
@@ -306,7 +308,9 @@ existing things that break it.
   (no respawn of a joiner either; the replica puts a carried flower on its carrier); 14 since
   Mrs Star/Wonder Destroyer/Danger Disco/Transform Girl: FIELDS `reflecting`, `shielded`, `ramming`
   (booleans on the wire; seconds left on the host), fly/car/shield/reflect events, `heal.src`
-  (a super's heal is no medpack for the pass); a reflected shot reuses the `turn` event. Version
+  (a super's heal is no medpack for the pass); a reflected shot reuses the `turn` event; 15 since
+  the waiting room + nicks: hello `nick`, welcome `waiting`, `lobby`/`start` messages, FIELDS `nick`,
+  discovery answer `nick`/`open`. Version
   check: hello and welcome carry `Net.version()` = `Net.PROTOCOL` (bump when messages or
   `Net.FIELDS` change) + a hash of the `src/rowdies.lua` data + the build; a mismatch is
   refused with a reason ("The host has a newer build (52): restart to update"), different
@@ -364,6 +368,19 @@ existing things that break it.
 - `src/rsa.lua` — pure-Lua RSA verify (PKCS#1 v1.5 + SHA-256, e = 65537; 24-bit limbs,
   Montgomery multiplication; ~5 ms on desktop)
 - `src/codec.lua` — message serializer (no loadstring; rejects malformed input)
+- `src/nick.lua` — the player's nick (`nick.txt`, default "Player42", max 12 letters/digits/space/-/_;
+  `Nick.clean`/`Nick.safe` for names from the network): edit screen (state "nick", chip in the lobby
+  top left, key N; the first typed letter replaces the old nick). Only goes to the LAN (hello,
+  waiting room, snapshots `nick` of humans; the host makes duplicates unique: "Anna 2");
+  shown as a name tag above other humans (not in Hide and seek), in results (`nameOf`) and on the
+  join screen (the host's nick). datenschutz.html says so.
+- `src/waiting.lua` — LAN waiting room (state "waiting", `waiting` flag in main.lua also covers the
+  rowdy picker/style screen opened from it, `pickFor = "waiting"`): the host's game exists
+  (`Net.newServer`, host player added, `world.started` false, nothing simulated or sent) while
+  friends join; cards with nick + rowdy, START (host only, `startRound`: `server:start()` sends
+  `start`, `world:start()` fills bots), ROWDY, LEAVE. Joining after START is refused ("That game has
+  already started"; discovery answers carry `open`). A leaver before the start leaves no bot
+  (`World:removePlayer` checks `started`). Net: `lobby` roster message at every change.
 - `src/join.lua` — join screen: address field in the upper half (last address saved; phone
   keyboard opens only when the field is tapped), found games below as tap-to-join buttons
 - `src/profile.lua` — progress on this device (`profile.txt`): coins + bought rowdies (by
@@ -895,6 +912,16 @@ Not done yet: render interpolation between steps (60 Hz sim looks slightly uneve
   `new-rowdies`, publish only on the user's go (tools/publish.sh, tools/publish-site.sh). Not done:
   "Power" (2 equipped extra abilities), "Spezial" (new Yard Pass screen), friends/names/invites (needs a
   server and kids' personal data: charter) - ask Gideon.
+
+## Waiting room + nicks (2026-11-24, Gideon's "Freunde einladen", decisions with the user: LAN only,
+## nobody joins after START, the nick says who you are and who hosts)
+- Tested on desktop: headless net test (roster with 3 humans, nick clean-up/fallback/duplicates,
+  no snapshots while waiting, rowdy change and leaver reach the others, START, snapshots carry
+  the nick, late joiner refused; team + duel worlds), two real windows (host + client: waiting room,
+  START, name tags, "Gideon 2"), smoke tests of every host mode + boss host with `--autostart`.
+  NOT yet on a device (typing the nick with the phone keyboard, the waiting room on a phone, portrait).
+- Not done (waiting for Gideon): "Power" (2 equipped extra abilities, to be defined, selected in the
+  lobby), "Spezial" (a what's-new page: text shipped in the build, red dot while unread).
 
 ## Pirate status (2026-10-06)
 - Bomb mechanics done and tested on desktop: headless (lands where aimed over a wall,

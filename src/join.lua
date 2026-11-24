@@ -7,7 +7,7 @@ local Join = {}
 
 Join.address = ""
 Join.status = nil -- e.g. "Could not connect"
-Join.games = {}   -- { address, mode, waves, players }
+Join.games = {}   -- { address, mode, waves, players, nick (the host's), open (false: started) }
 Join.searching = nil -- e.g. "192.168.6.x"; "no network" / "not available" when it can't
 Join.stats = nil     -- discovery counters (small, under the list)
 
@@ -55,8 +55,9 @@ end
 -- One line describing a found game
 function Join.describe(g)
     local mode = g.waves and "Waves (co-op)" or (g.mode ~= "?" and g.mode) or "Duel"
-    return string.format("%s  -  %s  -  %d player%s", mode,
-        g.address, g.players, g.players == 1 and "" or "s")
+    return string.format("%s%s  -  %d player%s  -  %s%s", g.nick and g.nick ~= "" and (g.nick .. "  -  ") or "",
+        mode, g.players, g.players == 1 and "" or "s", g.address,
+        g.open == false and "  -  started" or "")
 end
 
 -- Remember the address for next time
@@ -143,11 +144,12 @@ function Join.draw(fonts)
     local dots = string.rep(".", math.floor(love.timer.getTime() * 2) % 4)
     local where = Join.searching and (" (" .. Join.searching .. ")") or ""
     love.graphics.printf(#Join.games == 0 and ("Searching for games in your Wi-Fi" .. where .. " " .. dots)
-        or "Games in your Wi-Fi - tap to join:", 0, GAMES_Y - 32, sw, "center")
+        or "Games in your Wi-Fi - tap to join (before the host starts):", 0, GAMES_Y - 32, sw, "center")
     for i, r in ipairs(rects.games) do
         love.graphics.setColor(0.1, 0.12, 0.15, 0.9)
         love.graphics.rectangle("fill", r.x, r.y, r.w, r.h, 10, 10)
-        love.graphics.setColor(0.4, 0.85, 0.4)
+        if Join.games[i].open == false then love.graphics.setColor(0.5, 0.5, 0.55) -- started: too late
+        else love.graphics.setColor(0.4, 0.85, 0.4) end
         love.graphics.setLineWidth(3)
         love.graphics.rectangle("line", r.x, r.y, r.w, r.h, 10, 10)
         love.graphics.setLineWidth(1)

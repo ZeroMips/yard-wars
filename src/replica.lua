@@ -287,6 +287,7 @@ local function proxyFor(self, s)
     p.reflecting = s.reflecting == true or nil -- (the host keeps seconds; here only on / off)
     p.shielded = s.shielded == true or nil     -- (Rowdy:untouchable checks for nil)
     p.ramming = s.ramming == true or nil
+    p.nick = type(s.nick) == "string" and s.nick:sub(1, 48) or nil -- (the host cleaned it)
     return p
 end
 
